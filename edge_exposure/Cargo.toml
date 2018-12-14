@@ -1,0 +1,10 @@
+[package]
+name = "edge_exposure"
+version = "0.1.0"
+authors = ["ban-m <banmasutani@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+rand = "*"
+bio_utils = {path = "../../bio_utils"}
+rayon = "*"

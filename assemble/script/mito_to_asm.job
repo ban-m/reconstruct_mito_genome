@@ -1,0 +1,26 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N Mito_to_Asm
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/mito_to_asm.log
+#$ -o ./logfiles/mito_to_asm.out
+#$ -V
+#$ -m e
+# -M banmasutani@gmail.com ## To send a mail when ended
+# -t 1:n ## For array job
+
+RA_ONT=/grid/ban-m/arabidopsis_thaliana/nanopore/assemble/ra/rala_assembly_graph.gfa
+RA_SEQUEL=/grid/ban-m/arabidopsis_thaliana/sequel/assemble/ra/rala_assembly_graph.gfa
+MITOCHONDRIA=/data/ban-m/a_thaliana/genome/mitochondria.fa
+
+function mapped_to_gfa () {
+    GFA=$1
+    OUTPUT=$2
+    cat ${GFA} | \
+        cut -f2-3 | sed -e 's/^/>/g' | tr '\t' '\n' | \
+        minialign -O paf -x ava -t 24 ${MITOCHONDRIA}  > $2
+}
+
+mapped_to_gfa ${RA_ONT} ./result/mito_to_ra_ont.paf
+mapped_to_gfa ${RA_SEQUEL} ./result/mito_to_ra_sequel.paf

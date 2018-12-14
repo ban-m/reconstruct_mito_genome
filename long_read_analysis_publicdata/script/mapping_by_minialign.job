@@ -1,0 +1,27 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N Minialign
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/minialign.log
+#$ -o ./logfiles/minialign.out
+#$ -V
+#$ -m e
+# -M banmasutani@gmail.com ## To send a mail when ended
+# -t 1:n ## For array job
+
+ONT=/data/ban-m/a_thaliana/ONT/ERR2173373.fastq
+ONT_OUTPUT=/grid/ban-m/arabidopsis_thaliana/nanopore/mapping
+
+SEQUEL=/data/ban-m/a_thaliana/sequel_reads/sequel1_filter_dedupe.fq
+SEQUEL_OUTPUT=/grid/ban-m/arabidopsis_thaliana/sequel/mapping
+REFERENCE=/data/ban-m/a_thaliana/genome/TAIR10_chr_all.fa
+
+mkdir -p ${SEQUEL_OUTPUT}
+minialign -t 24 -xpacbio ${REFERENCE} ${SEQUEL} > ${SEQUEL_OUTPUT}/sequel_minialign.sam
+
+mkdir -p ${ONT_OUTPUT}
+minialign -t 24 -xont.r9 ${REFERENCE} ${ONT} > ${ONT_OUTPUT}/nanopore_minialign.sam
+
+
+

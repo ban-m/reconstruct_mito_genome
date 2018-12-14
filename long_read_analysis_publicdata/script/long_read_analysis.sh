@@ -1,39 +1,41 @@
 #!/bin/bash
 #$ -S /bin/bash
-#$ -N Name
+#$ -N LRA
 #$ -cwd
 #$ -pe smp 12
-#$ -e ./log
-#$ -o ./out
+#$ -e ./logfiles/long_read_analysis.log
+#$ -o ./logfiles/long_read_analysis.out
 #$ -V
 #$ -m e
 
+set -ue 
 ## DATA
-SEQUEL=/data/ban-m/a_thaliana/mitochondria/long_read/a_thaliana_pac.sam
-ONT=/data/ban-m/a_thaliana/mitochondria/long_read/a_thaliana_ont.sam
-OUTPUT_DIR=/data/ban-m/a_thaliana/mitochondria/long_read
-SAMPLE_RATE=0.05_0.3
-## Extract only mitochondira mapped reads
-function filter () {
+SEQUEL=/grid/ban-m/arabidopsis_thaliana/sequel/mapping/sequel_minialign.sam
+ONT=/grid/ban-m/arabidopsis_thaliana/nanopore/mapping/nanopore_minialign.sam
+
+function procedure () {
     READ=$1
     OUTPUT=$2
     SAMPLE_RATE=$3
-    # samtools view -H ${READ} > ${OUTPUT}.sam
-    # samtools view -@ 12 ${READ} | grep "mitochondria"  >> ${OUTPUT}.sam
-    # samtools sort -@ 12 -m 5G -O BAM ${OUTPUT}.sam > ${OUTPUT}.bam
-    samtools view -hb -s ${SAMPLE_RATE} ${OUTPUT}.bam > \
-             ${OUTPUT}_subsample${SAMPLE_RATE}.bam
-    samtools index ${OUTPUT}_subsample${SAMPLE_RATE}.bam
+    samtools view -bhS -@12 ${READ} | \
+        samtools sort -@12 -m 5G -O BAM > ${OUTPUT}.bam
+    samtools index ${OUTPUT}.bam
+    samtools view -h -O SAM ${OUTPUT}.bam mitochondria > ${OUTPUT}_mito.sam
+    samtools view -hb -s ${SAMPLE_RATE} ${OUTPUT}_mito.sam > \
+             ${OUTPUT}_mito_subsample${SAMPLE_RATE}.bam
+    samtools index ${OUTPUT}_mito_subsample${SAMPLE_RATE}.bam
+    samtools depth -a ${OUTPUT}.bam -r mitochondria > \
+             ${OUTPUT}_coverage_mito_MAPQ0.wig
+    samtools depth -a ${OUTPUT}.bam -r 1 > ${OUTPUT}_coverage_1_MAPQ0.wig
+    samtools depth -a -Q 10 ${OUTPUT}.bam -r mitochondria >\
+             ${OUTPUT}_coverage_mito_MAPQ10.wig
+    samtools depth -a -Q 10 ${OUTPUT}.bam -r 1 > \
+             ${OUTPUT}_coverage_1_MAPQ10.wig
 }
 
-filter $SEQUEL ${OUTPUT_DIR}/sequel_a_thaliana_mito 0.05
-filter $ONT ${OUTPUT_DIR}/ont_a_thaliana_mito 0.3
+mkdir -p /grid/ban-m/arabidopsis_thaliana/nanopore/coverage/
+mkdir -p /grid/ban-m/arabidopsis_thaliana/sequel/coverage/
 
-cd ${OUTPUT_DIR}
-tar -zvcf long_read_mito${SAMPLE_RATE}.tar.gz *_subsample${SAMPLE_RATE}*.ba[im]
+procedure $SEQUEL /grid/ban-m/arabidopsis_thaliana/sequel/coverage/sequel_minialign 0.05
+procedure $ONT /grid/ban-m/arabidopsis_thaliana/nanopore/coverage/nanopore_minialign 0.3
 
-SEQUEL_BAM=/data/ban-m/a_thaliana/read_alignment/a_thaliana_pac.bam
-ONT_BAM=/data/ban-m/a_thaliana/read_alignment/a_thaliana_ont.bam
-
-samtools depth -a $SEQUEL_BAM > ${OUTPUT_DIR}/sequel_coverage.wig
-samtools depth -a ${ONT_BAM} > ${OUTPUT_DIR}/ont_coverage.wig

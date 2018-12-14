@@ -1,0 +1,25 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N Mito_to_Asm
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/mito_to_asm_contigs.log
+#$ -o ./logfiles/mito_to_asm_contigs.out
+#$ -V
+#$ -m e
+# -M banmasutani@gmail.com ## To send a mail when ended
+# -t 1:n ## For array job
+
+
+RA_ONT=/grid/ban-m/arabidopsis_thaliana/nanopore/assemble/ra/ra_ont_contigs.fa
+WTDBG_ONT=/grid/ban-m/arabidopsis_thaliana/nanopore/assemble/wtdbg/wtdbg_nanopore.ctg.lay.2nd.fa
+RA_SEQUEL=/grid/ban-m/arabidopsis_thaliana/sequel/assemble/ra/ra_sequel_contigs.fa
+WTDBG_SEQUEL=/grid/ban-m/arabidopsis_thaliana/sequel/assemble/wtdbg/wtdbg_seqeul.ctg.lay.2nd.fa
+MITOCHONDRIA=/data/ban-m/a_thaliana/genome/mitochondria.fa
+
+minialign -O paf -x ava -t 24 ${RA_ONT} ${MITOCHONDRIA} > ./result/mito_to_contig_ra_nanopore.paf
+minialign -O paf -x ava -t 24 ${WTDBG_ONT} ${MITOCHONDRIA} > ./result/mito_to_contig_wtdbg_nanopore.paf
+minialign -O paf -x ava -t 24 ${RA_SEQUEL} ${MITOCHONDRIA} > ./result/mito_to_contig_ra_sequel.paf
+minialign -O paf -x ava -t 24 ${WTDBG_SEQUEL} ${MITOCHONDRIA} > ./result/mito_to_contig_wtdbg_sequel.paf
+
+

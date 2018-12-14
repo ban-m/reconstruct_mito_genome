@@ -1,0 +1,30 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N AvAMinialign
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/minialign.log
+#$ -o ./logfiles/minialign.out
+#$ -V
+#$ -m e
+# -M banmasutani@gmail.com ## To send a mail when ended
+# -t 1:n ## For array job
+
+ONT=/data/ban-m/a_thaliana/ONT/ERR2173373.fastq
+ONT_OUTPUT=/grid/ban-m/arabidopsis_thaliana/nanopore/mapping
+
+SEQUEL=/data/ban-m/a_thaliana/sequel_reads/sequel1_filter_dedupe.fq
+SEQUEL_OUTPUT=/grid/ban-m/arabidopsis_thaliana/sequel/mapping
+
+NUM=100000
+
+mkdir -p ${SEQUEL_OUTPUT}
+cat ${SEQUEL} | paste - - - - | shuf -n ${NUM} | tr '\t' '\n' > ${SEQUEL_OUTPUT}/read_${NUM}.fq
+minimap2 -a -t 24 -X -xava-pb ${SEQUEL_OUTPUT}/read_${NUM}.fq ${SEQUEL_OUTPUT}/read_${NUM}.fq > ${SEQUEL_OUTPUT}/sequel_minialign_allvsall.sam
+
+mkdir -p ${ONT_OUTPUT}
+cat ${ONT} | paste - - - - | shuf -n ${NUM} | tr '\t' '\n' > ${ONT_OUTPUT}/read_${NUM}.fq
+minimap2 -a -t 24 -X -xava-ont  ${ONT_OUTPUT}/read_${NUM}.fq ${ONT_OUTPUT}/read_${NUM}.fq > ${ONT_OUTPUT}/nanopore_minialign_allvsall.sam
+
+
+
