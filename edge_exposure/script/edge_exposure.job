@@ -10,14 +10,15 @@
 # -M banmasutani@gmail.com ## To send a mail when ended
 # -t 1:n ## For array job
 
-ONT=hadsf
+ONT=/grid/ban-m/arabidopsis_thaliana/nanopore/mapping/nanopore_minialign_allvsall.sam
 SEQUEL=/grid/ban-m/arabidopsis_thaliana/sequel/mapping/sequel_minialign_allvsall.sam
 TIMES=10000
 
-# ONT_OUTPUT=/grid/ban-m/arabidopsis_thaliana/nanopore/edge_exposure/
-# cargo run --release --bin edge_exposre -- ${ONT} 10000 ${ONT_OUTPUT}/exposure_log.log > ${ONT_OUTPUT}/exposure_ids.tsv
+ONT_OUTPUT=/grid/ban-m/arabidopsis_thaliana/nanopore/edge_exposure
+mkdir -p ${ONT_OUTPUT}
+cargo run --release --bin edge_exposure_batch -- ${ONT} ${TIMES} ${ONT_OUTPUT}/exposure_log.log > ${ONT_OUTPUT}/exposure_ids.tsv
 
-SEQUEL_OUTPUT=/grid/ban-m/arabidopsis_thaliana/sequel/edge_exposure/
-mkdir ${SEQUEL_OUTPUT}
-cargo run --release --bin edge_exposure_bach -- ${SEQUEL} ${TIMES} ${SEQUEL_OUTPUT}/exposure_log.log > ${SEQUEL_OUTPUT}/exposure_ids.tsv
+SEQUEL_OUTPUT=/grid/ban-m/arabidopsis_thaliana/sequel/edge_exposure
+mkdir -p ${SEQUEL_OUTPUT}
+cargo run --release --bin edge_exposure_batch -- ${SEQUEL} ${TIMES} ${SEQUEL_OUTPUT}/exposure_log.log > ${SEQUEL_OUTPUT}/exposure_ids.tsv
 

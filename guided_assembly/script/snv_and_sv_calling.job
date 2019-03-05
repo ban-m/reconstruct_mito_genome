@@ -1,0 +1,42 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N snv_and_sv_calling
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/snv_and_sv_calling.log
+#$ -o ./logfiles/snv_and_sv_calling.out
+#$ -V
+#$ -m e
+# -M banmasutani@gmail.com ## To send a mail when ended
+# -t 1:n ## For array job
+
+set -ue 
+
+### ===== Variables =====
+READ=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/filtered_reads.fq
+REFERENCE=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/canu/guided_asm_sequel_canu.contigs.fasta
+OUTPUT=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/snv_and_sv
+
+mkdir -p ${OUTPUT}
+
+### ===== Mapping =====
+# minialign -x pacbio -t 24 ${REFERENCE} ${READ} | \
+#     samtools view -hSb -@ 24 | \
+#     samtools sort -m 10G -@24 -O BAM > \
+#              ${OUTPUT}/sequel_canu_mapback_minialign.bam
+
+# ngmlr -x pacbio -t 24 -r ${REFERENCE} -q ${READ} \
+#       -o ${OUTPUT}/sequel_canu_mapback_ngmlr.sam
+
+# samtools view -hSb -@ 24 ${OUTPUT}/sequel_canu_mapback_ngmlr.sam | \
+#     samtools sort -m 10G -@24 -O BAM > ${OUTPUT}/sequel_canu_mapback_ngmlr.bam
+
+### ===== SV calling ======
+
+# sniffles -t 24 -m ${OUTPUT}/sequel_canu_mapback_ngmlr.bam -v ${OUTPUT}/sequel_canu_mapback_sv.vcf
+
+### ===== SNP calling ====
+
+freebayes -f ${REFERENCE} --min-alternate-fraction 0.1 ${OUTPUT}/sequel_canu_mapback_minialign.bam | vcffilter -f "QUAL > 20" > ${OUTPUT}/snv_var.vcf
+freebayes -f ${REFERENCE} --haplotype-length 500 --haplotype-basis-alleles ${OUTPUT}/snv_var.vcf \
+          ${OUTPUT}/sequel_canu_mapback_minialign.bam > ${OUTPUT}/haps.vcf

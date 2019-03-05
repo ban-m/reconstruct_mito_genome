@@ -1,0 +1,26 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N NanoSV
+#$ -cwd
+#$ -pe smp 12
+#$ -e ./logfiles/nanopore_SV_detection.log
+#$ -o ./logfiles/nanopore_SV_detection.log
+#$ -V
+#$ -m e
+# -M banmasutani@gmail.com ## To send a mail when ended
+# -t 1:n ## For array job
+
+set -ue
+
+NANOPORE=/data/ban-m/a_thaliana/ONT/ERR2173373.fastq
+MITOCHONDRIA=/data/ban-m/a_thaliana/genome/mitochondria.fa
+
+OUTPUT=/grid/ban-m/arabidopsis_thaliana/nanopore/structual_variation/
+mkdir -p ${OUTPUT}
+
+
+## NGM-LR & Sniffles
+
+ngmlr -t 12 -r ${MITOCHONDRIA} -q ${NANOPORE} -o ${OUTPUT}/ngmlr_mitochondria.sam -x ont
+samtools view -bS ${OUTPUT}/ngmlr_mitochondria.sam | samtools sort -O BAM -m 10G -@ 12 > ${OUTPUT}/ngmlr_mitochondria.bam
+sniffles -t 12 -m ${OUTPUT}/ngmlr_mitochondria.bam -v ${OUTPUT}/ngmlr_mitochondria_SVs.vcf 

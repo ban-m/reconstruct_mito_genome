@@ -3,8 +3,8 @@
 #$ -N AvAMinialign
 #$ -cwd
 #$ -pe smp 12
-#$ -e ./logfiles/minialign.log
-#$ -o ./logfiles/minialign.out
+#$ -e ./logfiles/ava-minimap2.log
+#$ -o ./logfiles/ava-minimap2.out
 #$ -V
 #$ -m e
 # -M banmasutani@gmail.com ## To send a mail when ended
@@ -17,10 +17,12 @@ SEQUEL=/data/ban-m/a_thaliana/sequel_reads/sequel1_filter_dedupe.fq
 SEQUEL_OUTPUT=/grid/ban-m/arabidopsis_thaliana/sequel/mapping
 
 mkdir -p ${SEQUEL_OUTPUT}
-minialign -t 12 -X -xpacbio ${SEQUEL} > ${SEQUEL_OUTPUT}/sequel_minialign_allvsall.sam
+minimap2 -a -t 12 -X -x ava-pb ${SEQUEL} ${SEQUEL} | \
+    samtools view -bhS > ${SEQUEL_OUTPUT}/sequel_minimap2_allvsall.bam
 
-mkdir -p ${ONT_OUTPUT}
-minialign -t 12 -X -xont.r9 ${ONT} > ${ONT_OUTPUT}/nanopore_minialign_allvsall.sam
+# mkdir -p ${ONT_OUTPUT}
+# minimap2 -a -t 12 -X -x ava-ont ${ONT} ${ONT} | \
+#     samtools view -bhS > ${ONT_OUTPUT}/nanopore_minimap2_allvsall.bam
 
 
 

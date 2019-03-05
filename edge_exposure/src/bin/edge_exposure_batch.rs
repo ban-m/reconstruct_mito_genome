@@ -29,7 +29,7 @@ fn main() -> std::io::Result<()>{
     let result:Vec<_> = (0..times).into_par_iter()
         .map(|e|(e,pick_first_cycle(nodes_size,&edges))).collect();
     for (bachnum,(picked_edges,indecies)) in result{
-        writeln!(log,"{}\t{}\t{}",bachnum,picked_edges,indecies.len()).unwrap();
+        writeln!(log,"{}\t{}\t{}",bachnum,picked_edges,indecies.len())?;
         for index in indecies{
             println!("{}\t{}",bachnum, ids[index]);
         }

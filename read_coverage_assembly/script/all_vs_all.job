@@ -1,0 +1,16 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N AvA
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/ava.log
+#$ -o ./logfiles/ava.out
+#$ -V
+#$ -m e
+SEQUEL=/data/ban-m/a_thaliana/sequel_reads/sequel1_filter_dedupe.fq
+ONT=/data/ban-m/a_thaliana/ONT/ERR2173373.fastq
+SEQUEL_OUT=/grid/ban-m/arabidopsis_thaliana/sequel/mapping/sequel_ava.sam
+ONT_OUT=/grid/ban-m/arabidopsis_thaliana/nanopore/mapping/nanopore_ava.sam
+
+minimap2 -t 24 -X -xava-ont ${ONT} ${ONT} > ${ONT_OUT}
+minimap2 -t 24 -X -xava-pb ${SEQUEL} ${SEQUEL} > ${SEQUEL_OUT}

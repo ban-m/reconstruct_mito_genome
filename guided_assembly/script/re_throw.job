@@ -1,0 +1,40 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N re_throw_to_canu
+#$ -cwd
+#$ -pe smp 1
+#$ -e ./logfiles/re_throw.log
+#$ -o ./logfiles/re_throw.out
+#$ -V
+#$ -m e
+# -M banmasutani@gmail.com ## To send a mail when ended
+# -t 1:n ## For array job
+
+#### ==== variables =====
+BAM=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/mapback/guided_asm_sequel_canu.contigs.fasta.mapback.bam
+READ=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/filtered_reads.fq
+OUTPUT=/grid/ban-m/arabidopsis_thaliana/sequel/re_throw/canu
+FILTERED=/grid/ban-m/arabidopsis_thaliana/sequel/re_throw/canu/filtered_read.fq
+
+mkdir -p ${OUTPUT}
+
+#### ==== Filtere reads ====
+samtools view -h ${BAM} | \
+    awk -F'\t' '($5 >= 60 && $3 =="tig00000016"){print $0}' |\
+    cut -f 1 | \
+    cargo run --release \
+          --bin main \
+          -- ${READ} > ${FILTERED}
+
+echo "Read Filtered"
+echo "Name\t# of read\tmax length\tmin length\tN50\tTotal\tMean length\tEst.cov" 
+read_statistics ${FILTERED} 400000 sequel
+
+#### ==== Throw =====
+
+qsub -o ./logfiles/re_throw_to_canu.out -e ./logfiles/re_throw_to_canu.log \
+     ./script/canu.job \
+     ${OUTPUT} \
+     rethrwo_sequel_canu \
+     -pacbio-raw \
+     ${FILTERED}
