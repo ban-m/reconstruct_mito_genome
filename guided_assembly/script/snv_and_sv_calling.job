@@ -33,10 +33,10 @@ mkdir -p ${OUTPUT}
 
 ### ===== SV calling ======
 
-# sniffles -t 24 -m ${OUTPUT}/sequel_canu_mapback_ngmlr.bam -v ${OUTPUT}/sequel_canu_mapback_sv.vcf
+sniffles -t 24 -m ${OUTPUT}/sequel_canu_mapback_ngmlr.bam -v ${OUTPUT}/sequel_canu_mapback_sv.vcf
 
 ### ===== SNP calling ====
 
-freebayes -f ${REFERENCE} --min-alternate-fraction 0.1 ${OUTPUT}/sequel_canu_mapback_minialign.bam | vcffilter -f "QUAL > 20" > ${OUTPUT}/snv_var.vcf
-freebayes -f ${REFERENCE} --haplotype-length 500 --haplotype-basis-alleles ${OUTPUT}/snv_var.vcf \
-          ${OUTPUT}/sequel_canu_mapback_minialign.bam > ${OUTPUT}/haps.vcf
+# freebayes -f ${REFERENCE} --min-alternate-fraction 0.1 ${OUTPUT}/sequel_canu_mapback_minialign.bam | vcffilter -f "QUAL > 20" > ${OUTPUT}/snv_var.vcf
+# freebayes -f ${REFERENCE} --haplotype-length 500 --haplotype-basis-alleles ${OUTPUT}/snv_var.vcf \
+#           ${OUTPUT}/sequel_canu_mapback_minialign.bam > ${OUTPUT}/haps.vcf

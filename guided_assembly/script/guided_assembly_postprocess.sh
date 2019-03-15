@@ -11,7 +11,7 @@
 set -ue
 
 ### ==== Result =====
-ONT=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/filtered_reads.fq
+ONT=/data/ban-m/a_thaliana/ONT/ERR2173373.fastq
 
 ONT_RA=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/ra/guided_asm_nanopore_ra.fa
 ONT_CANU=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/canu/guided_asm_nanopore_canu.contigs.fasta
@@ -19,14 +19,15 @@ ONT_WTDBG2=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/wtdbg2/wtdbg2_na
 ONT_RA_GFA=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/ra/rala_assembly_graph.gfa
 ONT_CANU_GFA=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/canu/guided_asm_nanopore_canu.contigs.gfa
 
-SEQUEL=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/filtered_reads.fq
+SEQUEL=/data/ban-m/a_thaliana/sequel_reads/sequel1_filter_dedupe.fq
 
 SEQUEL_RA=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/ra/guided_asm_sequel_ra.fa
 SEQUEL_CANU=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/canu/guided_asm_sequel_canu.contigs.fasta
 SEQUEL_WTDBG2=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/wtdbg2/wtdbg2_sequel.ctg.1.fa
+SEQUEL_FLYE=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/flye/scaffolds.fasta
 SEQUEL_RA_GFA=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/ra/rala_assembly_graph.gfa
 SEQUEL_CANU_GFA=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/canu/guided_asm_sequel_canu.contigs.gfa
-
+SEQUEL_FLYE_GFA=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/flye/assembly_graph.gfa
 
 ### ==== Post process of guided assembly =====
 
@@ -44,7 +45,7 @@ done
 
 SEQUEL_OUTPUT=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/mapback
 mkdir -p ${SEQUEL_OUTPUT}
-for contigs in ${SEQUEL_RA} ${SEQUEL_WTDBG2} ${SEQUEL_CANU}
+for contigs in ${SEQUEL_RA} ${SEQUEL_WTDBG2} ${SEQUEL_CANU} ${SEQUEL_FLYE}
 do
     minimap2 -t 24 -a -x map-pb ${contigs} ${SEQUEL} | \
         samtools view -hbS | \

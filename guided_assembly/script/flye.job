@@ -1,0 +1,20 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N Flye
+#$ -cwd
+#$ -pe smp 12
+#$ -V
+#$ -m e
+# -M banmasutani@gmail.com ## To send a mail when ended
+# -t 1:n ## For array job
+## "-S" specifies which shell do the script run on.
+## "-N" specifies the name of the job(should NOT be TEMPLATE).
+## "-cwd" means the script run on the current directly, not on $HOME.
+## "-pe smp N" specifies the number of the core the script requires.
+## with "-e [path]", the stderr would be written in [path], not ${HOME}/$JOB_NUMBER
+## with "-o [path]" is the same as "-e", except for stdout.
+## with "-V", all envirnmental variables would be inherited.
+## "with -m e", a mail would be sent if the job halt with an error.
+## For more detail, see `man qsub`
+
+flye --${1} $2 --genome-size 1M --out-dir $3 --threads 12 --iteration 2 --meta 
