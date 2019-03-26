@@ -1,10 +1,10 @@
 #!/bin/bash
 #$ -S /bin/bash
-#$ -N CalcP
+#$ -N compare_mapback
 #$ -cwd
 #$ -pe smp 1
-#$ -e ./logfiles/calc_p_value.log
-#$ -o ./logfiles/calc_p_value.out
+#$ -e ./logfiles/compare_mapbacks.log
+#$ -o ./logfiles/compare_mapbacks.out
 #$ -V
 #$ -m e
 # -M banmasutani@gmail.com ## To send a mail when ended
@@ -18,23 +18,19 @@
 ## with "-V", all envirnmental variables would be inherited.
 ## "with -m e", a mail would be sent if the job halt with an error.
 ## For more detail, see `man qsub`
+EVALUATE=~/work/arabidopsis_mitochondria/select_mitochondrial_genome/target/release/evaluate
 
+FIRST=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/filtered_reads.fq
 CANU_MAPBACK=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/mapback/guided_asm_sequel_canu.contigs.fasta.mapback.bam
 WTDBG_MAPBACK=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/mapback/wtdbg2_sequel.ctg.1.fa.mapback.bam
 FLYE_MAPBACK=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/mapback/scaffolds.fasta.mapback.bam
-SUBST_RATE=0.05
 
-# cargo run --release --bin calc_p_value_at_each_position -- ${CANU_MAPBACK} ${SUBST_RATE} > ./result/sequel_canu_P_value.tsv
-Rscript --slave --vanilla ./script/calc_p_value.R \
-  ./result/sequel_canu_P_value.tsv \
-  sequel_canu_pvalue
-  
-# cargo run --release --bin calc_p_value_at_each_position -- ${FLYE_MAPBACK} ${SUBST_RATE} > ./result/sequel_flye_P_value.tsv
-Rscript --slave --vanilla ./script/calc_p_value.R \
-  ./result/sequel_flye_P_value.tsv \
-  sequel_flye_pvalue
+cat ${FIRST} | paste - - - - | cut -f 1 |\
+    sed -e 's/@//g' > ./result/filtered_name.txt
+samtools view ${CANU_MAPBACK} | cut -f 1 > ./result/canu_mapback_name.txt
+samtools view ${WTDBG_MAPBACK} | cut -f 1  > ./result/wtdbg_mapback_name.txt
+samtools view ${FLYE_MAPBACK} | cut -f 1 > ./result/flye_mapback_name.txt
 
-# cargo run --release --bin calc_p_value_at_each_position -- ${WTDBG_MAPBACK} ${SUBST_RATE} > ./result/sequel_wtdbg_P_value.tsv
-Rscript --slave --vanilla ./script/calc_p_value.R \
-  ./result/sequel_wtdbg_P_value.tsv \
-  sequel_wtdbg_pvalue
+${EVALUATE} ./result/filtered_name.txt ./result/canu_mapback_name.txt > ./result/canu_diff.txt
+${EVALUATE} ./result/filtered_name.txt ./result/wtdbg_mapback_name.txt > ./result/wtdbg_diff.txt
+${EVALUATE} ./result/filtered_name.txt ./result/flye_mapback_name.txt > ./result/flye_diff.txt

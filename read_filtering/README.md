@@ -24,5 +24,14 @@ It is probably more difficult than that of sequel. I postpone it.
 
 ## Synopsis
 ```
-cargo run --release -- "nanopore"|"pacbio" fastq.fq|fast.fa > [output].(fa|fq)
+cargo run --release --bin main -- "nanopore"|"pacbio" fastq.fq|fast.fa > [output].(fa|fq)
 ```
+
+Check read IDs
+```
+cargo run --release --bin stats -- [read ID] [read ID]
+```
+
+where each [read ID] is a newline-separated file containing read IDs marked thought to be from mitochondrial genome.
+
+

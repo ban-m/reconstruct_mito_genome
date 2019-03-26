@@ -1,10 +1,10 @@
 #!/bin/bash
 #$ -S /bin/bash
-#$ -N readcov
+#$ -N SamToAnnot
 #$ -cwd
-#$ -pe smp 12
-#$ -e ./logfiles/calc_read_coverage.log
-#$ -o ./logfiles/calc_read_coverage.out
+#$ -pe smp 1
+#$ -e ./logfiles/SAM_to_annotation.log
+#$ -o ./logfiles/SAM_to_annotation.log
 #$ -V
 #$ -m e
 # -M banmasutani@gmail.com ## To send a mail when ended
@@ -19,12 +19,7 @@
 ## "with -m e", a mail would be sent if the job halt with an error.
 ## For more detail, see `man qsub`
 
-SEQUEL=/grid/ban-m/arabidopsis_thaliana/sequel/mapping/sequel_minimap2_allvsall.paf
-ONT=/grid/ban-m/arabidopsis_thaliana/nanopore/mapping/nanopore_minimap2_allvsall.paf
-
-cargo run --release --bin average_coverage \
-      ${SEQUEL} > ./result/sequel_average_coverage.tsv
-Rscript --slave --vanilla \
-        ./script/global_coverage_plot.R \
-        ./result/sequel_average_coverage.tsv \
-        ./result/sequel_minimap2_assignment.tsv
+MAPPINGS=/grid/ban-m/arabidopsis_thaliana/sequel/mapping/sequel_minimap2.bam
+samtools view ${MAPPINGS} | \
+    awk '(and($2,0x900) == 0x00){print $0}' | \
+    cut -f 1,3 > ./result/sequel_minimap2_assignment.tsv

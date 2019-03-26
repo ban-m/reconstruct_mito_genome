@@ -8,11 +8,11 @@ fn main()->std::io::Result<()>{
         .lines()
         .filter_map(|e|e.ok())
         .collect();
-    let second_id:HashSet<_> = BufReader::new(File::open(&Path::new(&args[1]))?)
+    let second_id:HashSet<_> = BufReader::new(File::open(&Path::new(&args[2]))?)
         .lines()
         .filter_map(|e|e.ok())
         .collect();
-    println!("ReadID\tIsInFrist\tIsInSecond");
+    println!("ReadID\tInFirst\tIsInSecond");
     for id in &first_id{
         if second_id.contains(id){
             println!("{}\t{}\t{}",id,1,1);
@@ -21,7 +21,7 @@ fn main()->std::io::Result<()>{
         }
     }
     for id in &second_id{
-        if first_id.contains(id){
+        if !first_id.contains(id){
             println!("{}\t{}\t{}",id,0,1);
         }
     }

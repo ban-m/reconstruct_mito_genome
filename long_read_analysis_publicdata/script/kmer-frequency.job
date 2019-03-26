@@ -1,10 +1,10 @@
 #!/bin/bash
 #$ -S /bin/bash
-#$ -N readcov
+#$ -N kmer
 #$ -cwd
 #$ -pe smp 12
-#$ -e ./logfiles/calc_read_coverage.log
-#$ -o ./logfiles/calc_read_coverage.out
+#$ -e ./logfiles/kmer-frequency.log
+#$ -o ./logfiles/kmer-frequency.out
 #$ -V
 #$ -m e
 # -M banmasutani@gmail.com ## To send a mail when ended
@@ -19,12 +19,13 @@
 ## "with -m e", a mail would be sent if the job halt with an error.
 ## For more detail, see `man qsub`
 
-SEQUEL=/grid/ban-m/arabidopsis_thaliana/sequel/mapping/sequel_minimap2_allvsall.paf
-ONT=/grid/ban-m/arabidopsis_thaliana/nanopore/mapping/nanopore_minimap2_allvsall.paf
+ONT=/data/ban-m/a_thaliana/ONT/ERR2173373.fasta
+SEQUEL=/data/ban-m/a_thaliana/sequel_reads/sequel1_filter_dedupe.fq
 
-cargo run --release --bin average_coverage \
-      ${SEQUEL} > ./result/sequel_average_coverage.tsv
-Rscript --slave --vanilla \
-        ./script/global_coverage_plot.R \
-        ./result/sequel_average_coverage.tsv \
-        ./result/sequel_minimap2_assignment.tsv
+function proc() {
+         jellyfish count -s 4G --bf-size 100G -m 20 -t 24 -o $2.jf -L 20 $1
+         jellyfish histo -o $2.hist $2.jf 
+}
+
+proc ${ONT} ./result/ont_20mer
+proc ${SEQUEL} ./result/sequel_20mer

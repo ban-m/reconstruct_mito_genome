@@ -1,155 +1,169 @@
 extern crate rayon;
-extern crate rust_htslib;
 use rayon::prelude::*;
-use rust_htslib::bam;
-use rust_htslib::bam::Read;
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::Read;
 use std::io::Result;
 use std::path::Path;
+#[derive(Debug)]
+struct Coverage {
+    coverage: Vec<u16>,
+}
+
+impl Coverage {
+    fn convert_into_intervals(mappings: Vec<(usize, usize)>) -> Vec<(usize, i8)> {
+        let mut intervals = Vec::with_capacity(mappings.len() * 2);
+        for (start, end) in mappings {
+            intervals.push((start, 1));
+            intervals.push((end, -1));
+        }
+        intervals.sort_by_key(|e| e.0);
+        intervals
+    }
+    fn new(coverage: Vec<u16>) -> Self {
+        Coverage { coverage }
+    }
+    fn calc_positionwise_coverage(intervals: Vec<(usize, i8)>, length: usize) -> Vec<u16> {
+        let (mut current_position, mut coverage) = (0, 0);
+        let mut poswise = vec![];
+        for &(pos, coverage_change) in &intervals {
+            if pos != current_position {
+                assert!(pos > current_position);
+                (current_position..pos).for_each(|_| poswise.push(coverage));
+                current_position = pos;
+            }
+            if coverage_change < 0 {
+                coverage -= 1;
+            } else {
+                coverage += 1;
+            }
+        }
+        (current_position..length).for_each(|_| poswise.push(coverage));
+        poswise
+    }
+    fn from_interval(mappings: Vec<(usize, usize)>, length: usize) -> Self {
+        let intervals = Self::convert_into_intervals(mappings);
+        let coverages = Self::calc_positionwise_coverage(intervals, length);
+        Coverage::new(coverages)
+    }
+    fn print(&self) {
+        if !self.coverage.is_empty() {
+            for i in 0..self.coverage.len() - 1 {
+                print!(",{}", self.coverage[i]);
+            }
+            println!("{}", self.coverage.last().unwrap());
+        }
+    }
+}
+
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
-    let coverages: Vec<(_, _)> = positionwise_coverage(&args[1])?;
-    for (id, coverage) in coverages {
-        let csv = vec_to_string(coverage);
-        println!("{},{}", id, csv);
+    let paf = paf_open(&args[1])?;
+    let coverage_of_each_read = positionwise_coverage(paf);
+    for (id, coverage) in coverage_of_each_read {
+        print!("{}", id);
+        coverage.print();
     }
     Ok(())
 }
 
-#[derive(Debug)]
-struct Alignment {
-    seq1: u32,
-    seq2: u32,
-    seq1_start: usize,
-    seq1_end: usize,
-    seq2_start: usize,
-    seq2_end: usize,
-}
-
-fn positionwise_coverage(file: &str) -> Result<Vec<(String, Vec<u32>)>> {
-    let mut record = bam::Record::new();
-    let mut reader = open_bam(file)?;
-    let (name_to_tid, tid_to_name, tid_to_length) = get_maps(&reader);
-    let mut matrix: HashMap<u32, Vec<(usize, usize)>> = HashMap::new();
-    while let Ok(_) = reader.read(&mut record) {
-        if !record.is_unmapped() {
-            let align = to_alignment(&record, &name_to_tid);
-            let to_seq1 = matrix.entry(align.seq1).or_insert(vec![]);
-            to_seq1.push((align.seq1_start, align.seq1_end));
-            let to_seq2 = matrix.entry(align.seq2).or_insert(vec![]);
-            to_seq2.push((align.seq2_start, align.seq2_end));
+fn positionwise_coverage(paf: String) -> HashMap<String, Coverage> {
+    let mut summary_of_each_read: HashMap<String, (Vec<(usize, usize)>, usize)> = HashMap::new();
+    for line in paf.lines() {
+        if let Some((read1_id, read1_s, read1_e, length1, read2_id, read2_s, read2_e, length2)) =
+            parse(line)
+        {
+            let entry = summary_of_each_read
+                .entry(read1_id)
+                .or_insert((vec![], length1));
+            (entry.0).push((read1_s, read1_e));
+            let entry = summary_of_each_read
+                .entry(read2_id)
+                .or_insert((vec![], length2));
+            (entry.0).push((read2_s, read2_e));
         }
     }
-    eprintln!("{:?}", matrix.len());
-    let result: Vec<(String, Vec<u32>)> = matrix
-        .into_iter()
-        .map(|(tid, maps)| {
-            eprintln!("{}", tid);
-            get_coverage_of(maps, tid_to_length[&tid], &tid_to_name[&tid])
-        })
-        .collect();
-    Ok(result)
-}
-fn get_maps(
-    reader: &bam::Reader,
-) -> (
-    HashMap<Vec<u8>, u32>,
-    HashMap<u32, String>,
-    HashMap<u32, usize>,
-) {
-    let header = reader.header();
-    let mut name_to_tid = HashMap::new();
-    let mut tid_to_name = HashMap::new();
-    let mut tid_to_length = HashMap::new();
-    for name in header.target_names() {
-        let tid = header.tid(name).unwrap();
-        let length = header.target_len(tid).unwrap();
-        name_to_tid.insert(name.to_vec(), tid);
-        let name = String::from_utf8_lossy(name).to_string();
-        eprintln!("{}\t{}\t{}", name, tid, length);
-        tid_to_name.insert(tid, name);
-        tid_to_length.insert(tid, length as usize);
-    }
-    (name_to_tid, tid_to_name, tid_to_length)
+    summary_of_each_read
+        .into_par_iter()
+        .map(|(id, mappings)| (id, Coverage::from_interval(mappings.0, mappings.1)))
+        .collect()
 }
 
-fn to_alignment(record: &bam::Record, name_to_tid: &HashMap<Vec<u8>, u32>) -> Alignment {
-    let seq1 = name_to_tid[record.qname()]; // query
-    let seq2 = record.tid() as u32; // target
-    let (seq1_start, seq1_end, seq2_start, seq2_end) = sum_up_cigar(record);
-    // eprintln!(
-//        "{}\t{}-{}, {}\t{}-{}",
-    //seq1, seq1_start, seq1_end, seq2, seq2_start, seq2_end
-    //    );
-    Alignment {
-        seq1,
-        seq2,
-        seq1_start,
-        seq1_end,
-        seq2_start,
-        seq2_end,
-    }
+// Return (read id of query, start position of query, end position of query, query length) and the
+// same information of read target.
+fn parse(line: &str) -> Option<(String, usize, usize, usize, String, usize, usize, usize)> {
+    let contents: Vec<&str> = line.split('\t').collect();
+    let query_length: usize = contents[1].parse().ok()?;
+    let query_start: usize = contents[2].parse().ok()?;
+    let query_end: usize = contents[3].parse().ok()?;
+    let target_length: usize = contents[6].parse().ok()?;
+    let target_start: usize = contents[7].parse().ok()?;
+    let target_end: usize = contents[8].parse().ok()?;
+    let _alignment_block_length: usize = contents[10].parse().ok()?;
+    Some((
+        contents[0].to_string(),
+        query_start,
+        query_end,
+        query_length,
+        contents[5].to_string(),
+        target_start,
+        target_end,
+        target_length,
+    ))
 }
 
-fn sum_up_cigar(record: &bam::Record) -> (usize, usize, usize, usize) {
-    let pos = record.pos() as u32;
-    use rust_htslib::bam::record::Cigar;
-    let (mut seq1_start, mut seq1_length, mut seq2_length) = (0, 0, 0);
-    let mut first_clip = true;
-    for e in record.cigar().iter() {
-        match e {
-            Cigar::SoftClip(l) | Cigar::HardClip(l) if first_clip => {
-                seq1_start += l;
-                first_clip = false;
-            },
-            Cigar::Del(l) => seq2_length += l,
-            Cigar::Ins(l) => seq1_length += l,
-            Cigar::Match(l) | Cigar::Equal(l) | Cigar::Diff(l) => {
-                seq1_length += l;
-                seq2_length += l;
-            }
-            _ => {}
-        }
-    }
-    (
-        seq1_start as usize,
-        (seq1_start + seq1_length) as usize,
-        pos as usize,
-        (pos + seq2_length) as usize,
-    )
+fn paf_open(file: &str) -> Result<String> {
+    let mut paf_raw: String = String::with_capacity(10_000_000_000);
+    let mut paf = File::open(&Path::new(file))?;
+    paf.read_to_string(&mut paf_raw)?;
+    Ok(paf_raw)
 }
 
-fn open_bam(file: &str) -> Result<bam::Reader> {
-    match bam::Reader::from_path(&Path::new(file)) {
-        Ok(res) => Ok(res),
-        Err(why) => {
-            eprintln!("{:?}", why);
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "open failed",
-            ))
-        }
-    }
+#[test]
+fn test_convert_into_intervals() {
+    let mappings = vec![(0, 3), (1, 10), (2, 5)];
+    let res = Coverage::convert_into_intervals(mappings);
+    assert_eq!(
+        res,
+        vec![(0, 1), (1, 1), (2, 1), (3, -1), (5, -1), (10, -1)]
+    );
+    let mappings = vec![(0, 1), (2, 3), (4, 5)];
+    let res = Coverage::convert_into_intervals(mappings);
+    assert_eq!(res, vec![(0, 1), (1, -1), (2, 1), (3, -1), (4, 1), (5, -1)]);
+    let mappings = vec![(0, 10), (1, 8), (3, 7), (5, 6)];
+    let res = Coverage::convert_into_intervals(mappings);
+    assert_eq!(
+        res,
+        vec![
+            (0, 1),
+            (1, 1),
+            (3, 1),
+            (5, 1),
+            (6, -1),
+            (7, -1),
+            (8, -1),
+            (10, -1)
+        ]
+    );
 }
-
-fn get_coverage_of(maps: Vec<(usize, usize)>, len: usize, name: &str) -> (String, Vec<u32>) {
-    let mut coverage = vec![0; len];
-    for (start, end) in maps {
-        eprintln!("{},{}-{}", len, start, end);
-        for i in start..end {
-            coverage[i] += 1;
-        }
-    }
-    (name.to_string(), coverage)
-}
-
-fn vec_to_string(coverage: Vec<u32>) -> String {
-    let mut res = String::new();
-    for (index, val) in coverage.into_iter().enumerate() {
-        if index != 0 {
-            res.push(',');
-        }
-        res.push_str(&format!("{}", val));
-    }
-    res
+#[test]
+fn test_summing_up() {
+    let res = vec![(0, 1), (10, -1)];
+    let cov = Coverage::calc_positionwise_coverage(res,10);
+    assert_eq!(cov, vec![1;10]);
+    let res = vec![(0, 1), (2, -1), (3, 1), (4, -1)];
+    let cov = Coverage::calc_positionwise_coverage(res,4);
+    assert_eq!(cov, vec![1,1,0,1]);
+    let mappings = vec![(0, 3), (1, 10), (2, 5)];
+    let res = Coverage::convert_into_intervals(mappings);
+    let cov = Coverage::calc_positionwise_coverage(res,10);
+    assert_eq!(cov, vec![1,2,3,2,2,1,1,1,1,1]);
+    let mappings = vec![(0, 1), (2, 3), (4, 5)];
+    let res = Coverage::convert_into_intervals(mappings);
+    let cov = Coverage::calc_positionwise_coverage(res,5);
+    assert_eq!(cov, vec![1,0,1,0,1]);
+    let mappings = vec![(0, 10), (1, 8), (3, 7), (5, 6)];
+    let res = Coverage::convert_into_intervals(mappings);
+    let cov = Coverage::calc_positionwise_coverage(res,10);
+    assert_eq!(cov,vec![1,2,2,3,3,4,3,2,1,1]);
 }

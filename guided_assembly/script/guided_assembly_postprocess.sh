@@ -33,15 +33,17 @@ SEQUEL_FLYE_GFA=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/flye/assembly
 
 #### ==== Mapping back =====
 
-ONT_OUTPUT=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/mapback
-mkdir -p ${ONT_OUTPUT}
-for contigs in ${ONT_RA} ${ONT_CANU} ${ONT_WTDBG2}
-do
-    minimap2 -t 24 -a -x map-ont ${contigs} ${ONT} | \
-        samtools view -bhS | \
-        samtools sort -@ 12 -m 5G -O BAM > ${ONT_OUTPUT}/${contigs##*/}.mapback.bam
-    samtools stats ${ONT_OUTPUT}/${contigs##*/}.mapback.bam > ${ONT_OUTPUT}/${contigs##*/}.mapback.stats
-done
+# ONT_OUTPUT=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/mapback
+# mkdir -p ${ONT_OUTPUT}
+# for contigs in ${ONT_RA} ${ONT_CANU} ${ONT_WTDBG2}
+# do
+#     minimap2 -t 24 -a -x map-ont ${contigs} ${ONT} | \
+#         samtools view -bhS | \
+#         samtools sort -@ 12 -m 5G -O BAM > ${ONT_OUTPUT}/${contigs##*/}.mapback.raw.bam
+#     cargo run --release --bin filtering_out ${ONT_OUTPUT}/${contigs##*/}.mapback.raw.bam ${ONT_OUTPUT}/${contigs##*/}.mapback.bam
+#     samtools stats ${ONT_OUTPUT}/${contigs##*/}.mapback.bam > ${ONT_OUTPUT}/${contigs##*/}.mapback.stats
+#     samtools index ${ONT_OUTPUT}/${contigs##*/}.mapback.bam
+# done
 
 SEQUEL_OUTPUT=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/mapback
 mkdir -p ${SEQUEL_OUTPUT}
@@ -49,8 +51,10 @@ for contigs in ${SEQUEL_RA} ${SEQUEL_WTDBG2} ${SEQUEL_CANU} ${SEQUEL_FLYE}
 do
     minimap2 -t 24 -a -x map-pb ${contigs} ${SEQUEL} | \
         samtools view -hbS | \
-        samtools sort -@12 -m 5G -O BAM > ${SEQUEL_OUTPUT}/${contigs##*/}.mapback.bam
+        samtools sort -@12 -m 5G -O BAM > ${SEQUEL_OUTPUT}/${contigs##*/}.mapback.raw.bam
+    cargo run --release --bin filtering_out ${SEQUEL_OUTPUT}/${contigs##*/}.mapback.raw.bam ${SEQUEL_OUTPUT}/${contigs##*/}.mapback.bam
     samtools stats ${SEQUEL_OUTPUT}/${contigs##*/}.mapback.bam > ${SEQUEL_OUTPUT}/${contigs##*/}.mapback.stats
+    samtools index ${SEQUEL_OUTPUT}/${contigs##*/}.mapback.bam
 done
 
 # ### ===== Collecting results =======

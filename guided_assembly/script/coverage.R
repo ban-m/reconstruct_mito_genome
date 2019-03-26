@@ -18,18 +18,40 @@ filestem <- basename(args[1])
 
 res <- data %>% nest(-contig_name) %>%
     mutate(data = map(data,function(df) df %>% summarize(mean = mean(depth),
-                                                       sd = sd(depth)))) %>%
+                                                         sd = sd(depth)))) %>%
     unnest() %>%
     mutate(name = filestem) %>%
     select(name, contig_name, mean, sd)
 
 write_csv(res, "./data/" %s+% filestem %s+% "_coverage.csv",col_names=FALSE)
-
 ### ==== Plot data =======
-g <- data %>%
-    nest(-contig_name) %>% head(n=1) %>% unnest() %>% 
-    ggplot(mapping = aes(x = position, y = depth)) + geom_line() 
+trim_upper_lower_threshold <- function(df) {
+    # Trim upper/lower 3 % of the data.
+    u_threshold <- df %>% pull(depth) %>% quantile(0.97)
+    l_threshold <- 0
+    df %>% filter(depth < u_threshold & l_threshold < depth)
+}
+
+trimed_data <- data %>% nest(-contig_name) %>%
+    mutate(data = map(data,trim_upper_lower_threshold)) %>% unnest()
+
+longest_contig_name <- trimed_data %>% nest(-contig_name) %>%
+    mutate(data = map(data, function(df) df %>% summarize(length = length(depth)))) %>%
+    unnest() %>%
+    arrange(desc(length)) %>%
+    head(n=1) %>%
+    pull(contig_name)
+
+g <- trimed_data %>%
+    filter(contig_name == longest_contig_name) %>% 
+    ggplot(aes(x = position,y = depth)) + geom_line()  + ylim(c(0,NA))
+
 generalplot(g,filestem %s+% ".positionwize")
+
+g <- trimed_data %>%
+    ggplot(aes(x = position,y = depth)) + geom_line()  + ylim(c(0,NA)) + facet_grid(contig_name ~ .)
+generalplot(g,filestem %s+% ".positionwize.contigwize")
+
 ## g <- data %>% ggplot(mapping = aes(x = depth)) + geom_histogram(bins=60) + facet_grid(contig_name ~ . )
 ## generalplot(g,filestem %s+% ".histogram")
 

@@ -34,23 +34,38 @@ function procedure() {
           --bin start_and_stopping_read \
           -- ${BAM} \
           > ${OUTPUT}
-    Rscript --vanilla --slave ./script/start_and_stop_read_plot.R ${OUTPUT}
+    cargo run --release \
+          --bin peak_call_from_start_stop \
+          -- ${OUTPUT} \
+          > ${OUTPUT%.tsv}.peaks.tsv
+    Rscript --vanilla --slave ./script/start_and_stop_read_plot.R ${OUTPUT} ${OUTPUT%.tsv}.peaks.tsv
 }
 
 export -f procedure
 SEQUEL_ROOT=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/mapback
-SEQUEL_READ=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/filtered_reads.fq
-find ./result/ -name "*sequel*.fa*" |\
-    parallel procedure ${SEQUEL_ROOT}/{/}.mapback.bam \
-             ${SEQUEL_ROOT}/{/}.mapback.tsv \
-             {} \
-             ${SEQUEL_READ}
+SEQUEL_READ=/data/ban-m/a_thaliana/sequel_reads/sequel1_filter_dedupe.fq
+procedure ${SEQUEL_ROOT}/guided_asm_sequel_canu.contigs.fasta.mapback.bam \
+          ${SEQUEL_ROOT}/guided_asm_sequel_canu.contigs.fasta.mapback.tsv \
+          /grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/canu/guided_asm_sequel_canu.contigs.fasta \
+          ${SEQUEL_READ}
 
-ONT_READ=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/filtered_reads.fq
-ONT_ROOT=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/mapback
-find ./result/ -name "*nanopore*.fa*" |\
-    parallel procedure ${ONT_ROOT}/{/}.mapback.bam \
-             ${ONT_ROOT}/{/}.mapback.tsv \
-             {} \
-             ${ONT_READ}
+procedure ${SEQUEL_ROOT}/scaffolds.fasta.mapback.bam \
+          ${SEQUEL_ROOT}/scaffolds.fasta.mapback.tsv \
+          /grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/flye/scaffolds.fasta \
+          ${SEQUEL_READ}
+
+procedure ${SEQUEL_ROOT}/wtdbg2_sequel.ctg.1.fa.mapback.bam \
+          ${SEQUEL_ROOT}/wtdbg2_sequel.ctg.1.fa.mapback.tsv \
+          /grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/wtdbg2/wtdbg2_sequel.ctg.1.fa \
+          ${SEQUEL_READ}
+
+
+
+# ONT_READ=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/filtered_reads.fq
+# ONT_ROOT=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/mapback
+# find ./result/ -name "*nanopore*.fa*" |\
+#     parallel procedure ${ONT_ROOT}/{/}.mapback.bam \
+#              ${ONT_ROOT}/{/}.mapback.tsv \
+#              {} \
+#              ${ONT_READ}
 

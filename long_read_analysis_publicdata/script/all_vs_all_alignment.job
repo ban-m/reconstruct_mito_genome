@@ -2,7 +2,7 @@
 #$ -S /bin/bash
 #$ -N AvAMinialign
 #$ -cwd
-#$ -pe smp 12
+#$ -pe smp 24
 #$ -e ./logfiles/ava-minimap2.log
 #$ -o ./logfiles/ava-minimap2.out
 #$ -V
@@ -17,8 +17,7 @@ SEQUEL=/data/ban-m/a_thaliana/sequel_reads/sequel1_filter_dedupe.fq
 SEQUEL_OUTPUT=/grid/ban-m/arabidopsis_thaliana/sequel/mapping
 
 mkdir -p ${SEQUEL_OUTPUT}
-minimap2 -a -t 12 -X -x ava-pb ${SEQUEL} ${SEQUEL} | \
-    samtools view -bhS > ${SEQUEL_OUTPUT}/sequel_minimap2_allvsall.bam
+minimap2 -t 24 -X -x ava-pb ${SEQUEL} ${SEQUEL} > ${SEQUEL_OUTPUT}/sequel_minimap2_allvsall.paf
 
 # mkdir -p ${ONT_OUTPUT}
 # minimap2 -a -t 12 -X -x ava-ont ${ONT} ${ONT} | \

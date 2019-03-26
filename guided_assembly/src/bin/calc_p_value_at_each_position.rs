@@ -5,7 +5,7 @@ fn main()->std::io::Result<()>{
     let args:Vec<_> = std::env::args().collect();
     // /3 is needed to convert 'multi-way substitution rate' into
     // one way error.
-    let subst_rate:f64 = args[2].parse::<f64>().unwrap() / 3f64; 
+    let subst_rate:f64 = args[2].parse::<f64>().unwrap() / 3f64;
     let pileups = get_pileup(&args[1],subst_rate)?;
     println!("tid\tposition\tp_value\tdepth\tminor_allel_count");
     for (tid, position, p_value,depth,mac) in pileups{
@@ -17,7 +17,7 @@ fn main()->std::io::Result<()>{
 fn get_pileup(file:&str,subst_rate:f64)->std::io::Result<Vec<(u32,u32,f64,u32,u32)>>{
     let mut bam = bam::Reader::from_path(&std::path::Path::new(file))
         .map_err(|why|{
-            //eprintln!("{:?}",why);
+            eprintln!("{:?}",why);
             std::io::Error::new(std::io::ErrorKind::Other,"Error")
         })?;
     Ok(
@@ -42,8 +42,8 @@ fn calc_p_value(pileup: &bam::pileup::Pileup,subst_rate:f64)->Option<(u32,u32,f6
 }
                                           
 fn count(pileup:&bam::pileup::Pileup)->Option<(u32,u32)>{
-    let pos = pileup.pos();
-    let tid = pileup.tid();
+    let _pos = pileup.pos();
+    let _tid = pileup.tid();
     //eprintln!("Start {}\t{}",tid,pos);
     let (mut a, mut c, mut g, mut t) = (0,0,0,0);
     pileup.alignments()
@@ -53,7 +53,7 @@ fn count(pileup:&bam::pileup::Pileup)->Option<(u32,u32)>{
             flags & 0x800 == 0 && flags & 0x100 == 0
         })
         .filter_map(|align|{
-            if align.record().seq().len()==0{
+            if align.record().seq().len()==0 || align.qpos().is_none(){
                 // eprintln!("{}",align.record().flags());
                 return None;
             }
@@ -83,5 +83,9 @@ fn count(pileup:&bam::pileup::Pileup)->Option<(u32,u32)>{
 
 fn second_largest(data:Vec<u32>)->u32{
     let max = data.iter().max().unwrap();
-    *data.iter().filter(|&e| e < max).max().unwrap()
+    if let Some(max) = data.iter().filter(|&e| e < max).max(){
+        *max
+    }else{
+        data[0]
+    }
 }

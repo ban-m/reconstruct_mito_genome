@@ -1,0 +1,41 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N dotplot
+#$ -cwd
+#$ -pe smp 1
+#$ -e ./logfiles/dotplot_eachother.log
+#$ -o ./logfiles/dotplot_eachother.out
+#$ -V
+#$ -m e
+# -M banmasutani@gmail.com ## To send a mail when ended
+# -t 1:n ## For array job
+## "-S" specifies which shell do the script run on.
+## "-N" specifies the name of the job(should NOT be TEMPLATE).
+## "-cwd" means the script run on the current directly, not on $HOME.
+## "-pe smp N" specifies the number of the core the script requires.
+## with "-e [path]", the stderr would be written in [path], not ${HOME}/$JOB_NUMBER
+## with "-o [path]" is the same as "-e", except for stdout.
+## with "-V", all envirnmental variables would be inherited.
+## "with -m e", a mail would be sent if the job halt with an error.
+## For more detail, see `man qsub`
+
+CANU=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/canu/guided_asm_sequel_canu.contigs.fasta
+FLYE=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/flye/scaffolds.fasta
+WTDBG=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/wtdbg2/wtdbg2_sequel.ctg.1.fa
+
+mkdir -p result/sequel_dotplot/database
+mkdir -p result/sequel_dotplot/result
+cd result/sequel_dotplot/database
+lastdb -R11 canudb ${CANU}
+lastdb -R11 flyedb ${FLYE}
+lastdb -R11 wtdbg2db ${WTDBG}
+cd ../result
+lastal -f TAB ./../database/canudb ${FLYE} > ./flye_to_canu.tab
+lastal -f TAB ./../database/canudb ${WTDBG} > ./wtdbg_to_canu.tab
+lastal -f TAB ./../database/flyedb ${CANU} > ./canu_to_flye.tab
+lastal -f TAB ./../database/flyedb ${WTDBG} > ./wtdbg_to_flye.tab
+lastal -f TAB ./../database/wtdbg2db ${CANU} > ./canu_to_wtdbg2.tab
+lastal -f TAB ./../database/wtdbg2db ${FLYE} > ./flye_to_wtdbg2.tab
+
+
+
