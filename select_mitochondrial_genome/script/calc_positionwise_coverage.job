@@ -1,9 +1,8 @@
 #!/bin/bash
 #$ -S /bin/bash
 #$ -N readcov
-#$ -cwd
-#$ -pe smp 12
 #$ -e ./logfiles/calc_positionwise_coverage.log
+#$ -cwd
 #$ -o ./logfiles/calc_positionwise_coverage.out
 #$ -V
 #$ -m e
@@ -22,16 +21,21 @@
 SEQUEL=/grid/ban-m/arabidopsis_thaliana/sequel/mapping/sequel_minimap2_allvsall.paf
 ONT=/grid/ban-m/arabidopsis_thaliana/nanopore/mapping/nanopore_minimap2_allvsall.paf
 
-cargo run --release \
-      --bin positionwise_coverage ${SEQUEL} > \
-      ./result/sequel_positionwise_coverage.tsv
+# cargo run --release \
+#       --bin positionwise_coverage ${SEQUEL} > \
+#       ./result/sequel_positionwise_coverage.tsv
 
 cargo run --release \
-      --bin pick_exampler_from_coverage \
-      -- ./result/sequel_positionwise_coverage.tsv \
-      ./result/sequel_minimap2_assignment.tsv \
-      > ./result/sequel_positionwise_coverage_short.tsv
+      --bin normalize_local_coverage \
+      ./result/sequel_positionwise_coverage.tsv > \
+      ./result/sequel_positionwise_coverage.norm.tsv
 
-Rscript --vanilla --slave ./script/local_coverage_plot.R \
-        ./result/sequel_positionwise_coverage.tsv \
-        ./result/sequel_minimap2_assignment.tsv
+# cargo run --release \
+#       --bin pick_exampler_from_coverage \
+#       -- ./result/sequel_positionwise_coverage.tsv \
+#       ./result/sequel_minimap2_assignment.tsv \
+#       > ./result/sequel_positionwise_coverage_short.tsv
+
+# Rscript --vanilla --slave ./script/local_coverage_plot.R \
+#         ./result/sequel_positionwise_coverage_short.tsv \
+#         ./result/sequel_minimap2_assignment.tsv

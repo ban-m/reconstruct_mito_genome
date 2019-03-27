@@ -18,7 +18,7 @@ fn main()->std::io::Result<()>{
             if genome < 5 && average > 500 {
                 genome += 1;
                 println!("{}",line);
-            }else if genome_low < 5 && average < 500 {
+            }else if genome_low < 5 && average < 500  && average < 1000{
                 genome_low += 1;
                 println!("{}",line);
             }

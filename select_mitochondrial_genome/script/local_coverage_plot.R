@@ -4,8 +4,8 @@ loadNamespace("cowplot")
 args <- commandArgs(trailingOnly = TRUE)
 
 ### ------ Load data -----
-## args <- c("./result/sequel_positionwise_coverage.tsv",
-##           "./result/sequel_minimap2_assignment.tsv")
+args <- c("./result/sequel_positionwise_coverage_short.tsv",
+          "./result/sequel_minimap2_assignment.tsv")
 
 positionwise_coverage <- readLines(args[1])
 assignment <- read_tsv(args[2],col_name = FALSE, col_types = "cc") %>% rename(id = X1, type = X2)

@@ -29,7 +29,7 @@ impl<'a> std::fmt::Display for StringGraph<'a>{
 }
 
 impl<'a> StringGraph<'a>{
-    fn new(paf:String)->Self{
+    fn new(_paf:String)->Self{
         StringGraph{
             indexer:HashMap::new(),
             edges:vec![],
