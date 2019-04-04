@@ -28,7 +28,7 @@ positionwise_coverage <- positionwise_coverage %>% mutate(chrtype = assign_table
 subsample <- positionwise_coverage %>% sample_frac(0.05)
 tsne <- Rtsne(X=subsample %>% select(-X1,-chrtype))
 
-data <- tibble(X1 = result$Y[,1],X2=result$Y[,2],chrtype = subsample$chrtype)
+data <- tibble(X1 = tsne$Y[,1],X2=tsne$Y[,2],chrtype = subsample$chrtype)
 g <- data %>% ggplot(mapping = aes(x = X1, y = X2, color = chrtype)) +
     geom_point(alpha = 0.3) +
     cowplot::theme_cowplot()

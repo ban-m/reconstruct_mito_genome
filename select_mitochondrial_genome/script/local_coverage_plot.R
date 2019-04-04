@@ -4,11 +4,12 @@ loadNamespace("cowplot")
 args <- commandArgs(trailingOnly = TRUE)
 
 ### ------ Load data -----
-args <- c("./result/sequel_positionwise_coverage_short.tsv",
-          "./result/sequel_minimap2_assignment.tsv")
+## args <- c("./result/sequel_positionwise_coverage_short.tsv",
+##           "./result/sequel_minimap2_assignment.tsv")
 
 positionwise_coverage <- readLines(args[1])
-assignment <- read_tsv(args[2],col_name = FALSE, col_types = "cc") %>% rename(id = X1, type = X2)
+assignment <- read_tsv(args[2],col_name = FALSE, col_types = "cc") %>%
+    rename(id = X1, type = X2)
 
 assign_table <- assignment %>% mutate(chrtype = ifelse(stri_detect_charclass(type,"[0-9]"),"genome",type)) %>%
     pull(chrtype)
@@ -54,7 +55,7 @@ plot_each_coverage <- function(ls){
                 coverage = ls$value) %>%
         ggplot(mapping = aes(x = index,
                              y = coverage)) +
-        geom_smooth(color = chrname_to_color(ls$type)) +
+        geom_point(color = chrname_to_color(ls$type)) +
         cowplot::theme_cowplot() +
         labs(title = "positionwise_coverage:\nID:" %s+% ls$name %s+% "\nAssign:" %s+% ls$type)
     cowplot::ggsave(filename = "./pdf/cov_" %s+% name %s+% ".pdf")

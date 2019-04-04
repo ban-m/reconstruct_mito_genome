@@ -26,11 +26,17 @@ OUTPUT=$4
 PREFIX=$5
 
 mkdir -p ${OUTPUT}
-cargo run --release --bin split_contig_by_peak -- ${CONTIGS} ${PEAKS} > ${OUTPUT}/${PREFIX}.split.contigs
+# cargo run --release --bin split_contig_by_peak -- ${CONTIGS} ${PEAKS} > ${OUTPUT}/${PREFIX}.split.contigs
 mkdir -p ${OUTPUT}/${PREFIX}
+ROOT=$PWD
 cd $OUTPUT/${PREFIX}
-lastdb -uNEAR -P 24 -R11 ${PREFIX} ${OUTPUT}/${PREFIX}.split.contigs
-lastal -Q1  -f TAB -P 12 ${PREFIX} ${READS} > mappings.tab
+# lastdb -uNEAR -P 24 -R11 ${PREFIX} ${OUTPUT}/${PREFIX}.split.contigs
+# lastal -Q1  -f TAB -P 12 ${PREFIX} ${READS} > mappings.tab
+
+cd ${ROOT}
+cargo run --release --bin tiling -- \
+      ${OUTPUT}/${PREFIX}/mappings.tab > \
+      ${OUTPUT}/${PREFIX}/tiling.txt
 
 # lastdb -uNEAR -P 24 -R 11 ${PREFIX}.entire ${CONTIGS}
 # lastal -Q1 -f TAB -P 12 ${PREFIX}.entire ${READS}  > mappings.entire.tab

@@ -1,10 +1,10 @@
 #!/bin/bash
 #$ -S /bin/bash
-#$ -N readcov
+#$ -N annotation
 #$ -cwd
 #$ -pe smp 12
-#$ -e ./logfiles/calc_read_coverage.log
-#$ -o ./logfiles/calc_read_coverage.out
+#$ -e ./logfiles/annotate.log
+#$ -o ./logfiles/annotate.out
 #$ -V
 #$ -m e
 # -M banmasutani@gmail.com ## To send a mail when ended
@@ -18,15 +18,9 @@
 ## with "-V", all envirnmental variables would be inherited.
 ## "with -m e", a mail would be sent if the job halt with an error.
 ## For more detail, see `man qsub`
+OUTPUT_DIR=/work/ban-m/arabidopsis_mitochondria/annotate_mitochondrial_sequence/result/test
+PREFIX=test
+DATABASE=./data/plant_mitochondria_from_genbank.fa
+ANNOATION_FILE=./data/plant_mitochondria_from_genbank.tab
 
-SEQUEL=/grid/ban-m/arabidopsis_thaliana/sequel/mapping/sequel_minimap2_allvsall.paf
-ONT=/grid/ban-m/arabidopsis_thaliana/nanopore/mapping/nanopore_minimap2_allvsall.paf
-
-cargo run --release --bin average_coverage \
-      ${SEQUEL} > ./result/sequel_average_coverage_trimed3.tsv
-# cargo run --release --bin med_mid_coverage \
-#       ${SEQUEL} > ./result/sequel_medmid_coverage.tsv
-# Rscript --slave --vanilla \
-#         ./script/global_coverage_plot.R \
-#         ./result/sequel_average_coverage.tsv \
-#         ./result/sequel_minimap2_assignment.tsv
+bash ./script/annotate.sh $1 ${OUTPUT_DIR} ${PREFIX} ${DATABASE} ${ANNOATION_FILE}

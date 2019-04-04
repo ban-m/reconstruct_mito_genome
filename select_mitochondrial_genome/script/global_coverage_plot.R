@@ -4,8 +4,13 @@ loadNamespace("cowplot")
 args <- commandArgs(trailingOnly = TRUE)
 
 ### ------ Load data -----
+
+args <- c("./result/sequel_average_coverage_trimed3.tsv",
+          "./result/sequel_minimap2_assignment.tsv")
+
 args <- c("./result/sequel_average_coverage.tsv",
           "./result/sequel_minimap2_assignment.tsv")
+
 data <- read_tsv(args[1],col_names = FALSE) %>%
     rename(id = X1, coverage = X2, variance = X3, length = X4)
 annot <- read_tsv(args[2],col_names = FALSE,col_types = c("cc")) %>%
@@ -56,7 +61,7 @@ g <- data %>% filter(coverage > 50) %>%
 cowplot::ggsave(filename = "./pdf/sequel_coverage_LB_50.pdf",plot=g)
 cowplot::ggsave(filename = "./png/sequel_coverage_LB_50.png",plot=g)
 
-g <- data %>% filter(coverage > 100 & coverage < 1000) %>% 
+g <- data %>% filter(coverage > 50 & coverage < 1000) %>% 
     ggplot(mapping = aes(x = coverage)) + 
     geom_histogram(mapping=aes(x = coverage,fill = chrtype),
                    position = "identity",
@@ -105,4 +110,13 @@ g <- data %>% filter(250 < coverage & coverage < 750 & variance > 20 & variance 
     cowplot::theme_cowplot()
 cowplot::ggsave(filename = "./pdf/sequel_coverage_scatter_zoom2.pdf",plot=g)
 cowplot::ggsave(filename = "./png/sequel_coverage_scatter_zoom2.png",plot=g)
+
+g <- data %>%
+    filter(chrtype == "mitochondria") %>% 
+    filter(250 < coverage & coverage < 750 & variance > 20 & variance < 200) %>%
+    ggplot(mapping = aes(x = coverage, y = variance, color = chrtype)) +
+    geom_point(alpha = 0.2) +
+    cowplot::theme_cowplot()
+cowplot::ggsave(filename = "./pdf/sequel_coverage_scatter_zoom3.pdf",plot=g)
+cowplot::ggsave(filename = "./png/sequel_coverage_scatter_zoom3.png",plot=g)
 
