@@ -16,7 +16,8 @@ fn main() -> std::io::Result<()> {
     let annotation: HashMap<_, _> = open_annotation(&args[2])?;
     let maps: Vec<_> = last
         .into_par_iter()
-        .filter_map(|aln| convert_to_map(&aln, &annotation))
+        .filter_map(|aln| convert_to_maps(&aln, &annotation))
+        .flat_map(|aln| aln)
         .collect();
     println!("{}", serde_json::ser::to_string_pretty(&maps).unwrap());
     Ok(())
@@ -36,60 +37,88 @@ fn calc_confidence(aln: &LastAln, annot: &Annotation) -> f64 {
     overlap(annot.start, annot.end, aln.ref_start, aln.ref_end) as f64 / gene_length
 }
 
-fn find_largest_ovlp_from_bucket<'a>(
+fn find_ovlpping_genes_from_species<'a>(
     aln: &LastAln,
-    bucket: &'a Vec<Annotation>,
-) -> Option<(&'a Annotation, f64)> {
-    let index = match bucket.binary_search_by_key(&aln.ref_start, |e| e.start) {
+    genes: &'a Vec<Annotation>,
+) -> Vec<&'a Annotation> {
+    let index = match genes.binary_search_by_key(&aln.ref_start, |e| e.start) {
         Ok(res) => res,
-        Err(res) if res < bucket.len() => res,
-        Err(_) => return None,
+        Err(res) => res,
     };
-    let (mut max_confidence, mut largest_overlap) = (-100.0, &bucket[index]);
-    for annot in bucket
+    genes
         .iter()
         .skip(index)
         .take_while(|annot| annot.start < aln.ref_end)
-    {
-        let confidence = calc_confidence(aln, annot);
-        if confidence > max_confidence {
-            max_confidence = confidence;
-            largest_overlap = annot;
-        }
-    }
-    if max_confidence == -100.0 {
-        // can not find any overlaps.
-        None
-    } else {
-        Some((largest_overlap, max_confidence))
-    }
+        .collect()
 }
 
-fn find_largest_overlap<'a>(
+fn find_overlapping_genes<'a>(
     aln: &LastAln,
     annot: &'a HashMap<String, Vec<Annotation>>,
-) -> Option<(&'a Annotation, f64)> {
+) -> Option<Vec<&'a Annotation>> {
     let bucket = annot.get(&aln.ref_name)?;
-    find_largest_ovlp_from_bucket(aln, &bucket)
+    Some(find_ovlpping_genes_from_species(aln, &bucket))
 }
 
-fn convert_to_map(aln: &LastAln, annot: &HashMap<String, Vec<Annotation>>) -> Option<Map> {
-    let (largest_ovlp, confidence) = find_largest_overlap(aln, annot)?;
-    let is_forward = largest_ovlp.strand * aln.strand == 1;
-    let (start,end) = (aln.query_start.min(aln.query_end),
-                       aln.query_end.max(aln.query_start));
-    Some(Map::new(
+fn locate_gene_to_contig(aln: &LastAln, annot: &Annotation) -> (u64, u64) {
+    let start = aln.get_corresponding_point_of_query(annot.start) as u64;
+    let end = aln.get_corresponding_point_of_query(annot.end) as u64;
+    eprintln!("Alignment [{},{}) -> [{},{}). Gene:[{},{}).",
+              aln.ref_start,aln.ref_end,aln.query_start,aln.query_end,
+              annot.start,
+              annot.end);
+    eprintln!("Mapping [{},{}) ({} % confidence)",start,end,calc_confidence(aln,annot)*100.);
+    (start,end)
+}
+
+fn convert_to_map(aln: &LastAln, annot: &Annotation) -> Map {
+    let (start, end) = locate_gene_to_contig(aln, annot);
+    let confidence = calc_confidence(aln, annot);
+    Map::new(
         &aln.query_name,
         false,
-        is_forward,
-        start as u64,
-        end as u64,
+        annot.strand * aln.strand == 1,
+        start,
+        end,
         &aln.ref_name,
-        &largest_ovlp.gene,
+        &annot.gene,
         confidence,
-    ))
+    )
 }
 
+// Remark: it returns an array of Map, wrapped by option.
+// It is because a mapping can be broken into maps of genes.
+fn convert_to_maps(aln: &LastAln, annot: &HashMap<String, Vec<Annotation>>) -> Option<Vec<Map>> {
+    let result = find_overlapping_genes(aln, annot)?
+        .into_iter()
+        .map(|ovlp| convert_to_map(aln, ovlp))
+        .collect();
+    Some(result) // could be empty vector.
+}
+
+#[derive(Debug)]
+enum Edit {
+    Match(usize),
+    // (ref,query). Either is zero.
+    Diff(usize, usize),
+}
+
+impl Edit {
+    fn new(e: &str) -> Option<Self> {
+        if e.contains(':') {
+            let e: Vec<_> = e
+                .split(':')
+                .filter_map(|e| e.parse::<usize>().ok())
+                .collect();
+            if e.len() == 2 {
+                return Some(Edit::Diff(e[0], e[1]));
+            }
+        }
+        Some(Edit::Match(e.parse::<usize>().ok()?))
+    }
+}
+
+#[derive(Debug)]
 struct LastAln {
     score: usize,
     ref_name: String,
@@ -99,6 +128,7 @@ struct LastAln {
     query_start: usize,
     query_end: usize,
     strand: i8,
+    blocks: Vec<Edit>,
 }
 
 fn open_last(file: &str) -> std::io::Result<Vec<LastAln>> {
@@ -122,6 +152,13 @@ fn open_file(file: &str) -> std::io::Result<String> {
 }
 
 impl LastAln {
+    fn parse_blocks(blocks: &str) -> Option<Vec<Edit>> {
+        let mut res = vec![];
+        for e in blocks.trim().split(',') {
+            res.push(Edit::new(e)?);
+        }
+        Some(res)
+    }
     fn parse(contents: Vec<&str>) -> Option<Self> {
         if contents.len() < 10 {
             eprintln!("{:?} Please check", &contents);
@@ -140,6 +177,7 @@ impl LastAln {
         let read_aln_length = parse_return(contents[8])?;
         let read_strand = if contents[9] == "+" { '+' } else { '-' };
         let read_length = parse_return(contents[10])?;
+        let blocks = Self::parse_blocks(contents[11])?;
         if read_strand == '+' {
             Some(LastAln {
                 score: score,
@@ -148,8 +186,9 @@ impl LastAln {
                 ref_end: ctgstart + ctg_aln_length,
                 query_name: read_id,
                 query_start: read_start,
-                strand:1,
                 query_end: read_start + read_aln_length,
+                strand: 1,
+                blocks: blocks,
             })
         } else {
             Some(LastAln {
@@ -159,15 +198,40 @@ impl LastAln {
                 ref_end: ctgstart + ctg_aln_length,
                 query_name: read_id,
                 query_start: read_length - read_start - read_aln_length,
-                strand:-1,
-                query_end: read_start - read_start,
+                query_end: read_length - read_start,
+                strand: -1,
+                blocks: blocks.into_iter().rev().collect(),
             })
         }
+    }
+    fn get_corresponding_point_of_query(&self, ref_point: usize) -> usize {
+        let (mut query_pos, mut ref_pos) = (self.query_start, self.ref_start);
+        for ed in self.blocks.iter() {
+            match ed {
+                Edit::Match(l) => {
+                    if ref_pos + l >= ref_point {
+                        return query_pos + ref_point - ref_pos;
+                    } else {
+                        ref_pos += l;
+                        query_pos += l;
+                    }
+                }
+                Edit::Diff(r, q) if q == &0 => {
+                    if ref_pos + r >= ref_point {
+                        return query_pos;
+                    } else {
+                        ref_pos += r;
+                    }
+                }
+                Edit::Diff(_r, q) => query_pos += q,
+            }
+        }
+        query_pos
     }
 }
 
 fn trim_overlap(mut alignment: Vec<LastAln>) -> Option<Vec<LastAln>> {
-    if alignment.is_empty(){
+    if alignment.is_empty() {
         eprintln!("Error: the LAST alignment file is empty. Please check the input. Return");
         return None;
     }
@@ -190,6 +254,9 @@ fn trim_overlap(mut alignment: Vec<LastAln>) -> Option<Vec<LastAln>> {
             no_overlap.push(current);
             current = alignment.next().unwrap();
         }
+    }
+    for aln in &no_overlap {
+        eprintln!("[{},{})", aln.query_start, aln.query_end);
     }
     Some(no_overlap)
 }

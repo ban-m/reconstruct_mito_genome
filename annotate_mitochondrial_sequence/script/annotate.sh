@@ -66,21 +66,21 @@ echo "Convert last TAB file into Annotation JSON..."
 cargo run --release --bin lasttab_to_json --  \
       ${OUTPUT_DIR}/last/${PREFIX}_todb.tab ${ANNOTATION_FILE} \
       > ${OUTPUT_DIR}/${PREFIX}_last.json
-echo "Success."
-echo "Convert tRNAscanSE file into Annotation JSON..."
-cargo run --release --bin trnascan_to_json -- \
-      ${OUTPUT_DIR}/tRNAscan-SE/${PREFIX}_trnascan.txt \
-      > ${OUTPUT_DIR}/${PREFIX}_trnascan.json
-echo "Success."
+# echo "Success."
+# echo "Convert tRNAscanSE file into Annotation JSON..."
+# cargo run --release --bin trnascan_to_json -- \
+#       ${OUTPUT_DIR}/tRNAscan-SE/${PREFIX}_trnascan.txt \
+#       > ${OUTPUT_DIR}/${PREFIX}_trnascan.json
+# echo "Success."
 
 ### ---- Visualize -----
-echo "Genetating HTML/SGV figures..."
-cargo run --release --bin convert_fasta -- ${INPUT} > ${OUTPUT_DIR}/${PREFIX}_contig.json
-cat ./data/template.html |\
-    sed -e "s+LAST_GFF+${OUTPUT_DIR}/${PREFIX}_last.json+g" |\
-    sed -e "s+tRNASE_GFF+${OUTPUT_DIR}/${PREFIX}_trnascan.json+g" |\
-    sed -e "s+FASTA+${OUTPUT_DIR}/${PREFIX}_contig.json+g" |\
-    > ${OUTPUT_DIR}/viewer.html
-cp ./data/drawer.js ${OUTPUT_DIR}/
-cp ./data/style.css ${OUTPUT_DIR}/
-echo "Success. Opne ${OUTPUT_DIR}/viewer.html in a modern web browser."
+# echo "Genetating HTML/SGV figures..."
+# cargo run --release --bin convert_fasta -- ${INPUT} > ${OUTPUT_DIR}/${PREFIX}_contig.json
+# cat ./data/template.html |\
+#     sed -e "s+LAST_JSON+${OUTPUT_DIR}/${PREFIX}_last.json+g" |\
+#     sed -e "s+tRNASE_JSON+${OUTPUT_DIR}/${PREFIX}_trnascan.json+g" |\
+#     sed -e "s+FASTA_JSON+${OUTPUT_DIR}/${PREFIX}_contig.json+g" |\
+#     > ${OUTPUT_DIR}/viewer.html
+# cp ./data/drawer.js ${OUTPUT_DIR}/
+# cp ./data/style.css ${OUTPUT_DIR}/
+# echo "Success. Opne ${OUTPUT_DIR}/viewer.html in a modern web browser."

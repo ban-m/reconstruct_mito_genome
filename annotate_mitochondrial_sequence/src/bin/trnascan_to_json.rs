@@ -32,7 +32,7 @@ struct TRNAScan{
 impl TRNAScan{
     fn new(line:&str)-> Self{
         let e:Vec<_> = line.split('\t').collect();
-        let name = e[0].to_string();
+        let name = e[0].trim().to_string();
         let pos1 = match e[2].trim().parse(){
             Ok(res)=>res,
             Err(why) => {eprintln!("2 -> {}, {}, {:?}",line,e[2],why);
@@ -46,8 +46,8 @@ impl TRNAScan{
 
         let (start,end,strand) = Self::determine(pos1,pos2);
         let protein = e[4].to_string();
-        let score = match e[8].trim().parse(){
-            Ok(res)=>res,
+        let score = match e[8].trim().parse::<f64>(){
+            Ok(res)=>res / 100.,
             Err(why) => {eprintln!("8 -> {}, {}, {:?}",line,e[8],why);
                          panic!();},
         };

@@ -128,7 +128,7 @@ fn parse<'a>(contents: Vec<&'a str>) -> Option<LastAln<'a>> {
             ctgend:ctgstart + ctg_aln_length,
             read_id:read_id,
             read_start:read_length - read_start -read_aln_length,
-            read_end:read_start - read_start
+            read_end:read_length - read_start
         })
     }
 }

@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{Read,Write};
 use std::path::Path;
 const LEN:usize = 1000;
+// Used for t-SNE
 fn main()->std::io::Result<()>{
     let args:Vec<_> = std::env::args().collect();
     let input:String = open_file(&args[1])?;
@@ -32,7 +33,7 @@ fn parse<'a>(line:&'a str)->(&'a str,Vec<u32>){
     let cov:Vec<u32> = content.filter_map(|e|e.parse().ok()).collect();
     (id,cov)
 }
-
+// Rather smoothing.
 fn normalize(cov:&[u32])->Vec<u32>{
     let mut result = vec![0;LEN];
     let len = cov.len();
