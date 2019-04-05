@@ -46,7 +46,9 @@ marge_two <- function(start_data,stop_data){
                    count = c(start_data$value, stop_data$value),
                    type = c(rep("start",start_data$datasize),rep("end",stop_data$datasize)))
     list(data = data,
-         name = start_data$name)
+         name = start_data$name,
+         type = start_data$type
+         )
 }
 
 read_informations <- map2(starts, stops,marge_two) 
@@ -55,7 +57,7 @@ plot_read <- function(ls){
     name <- stri_replace_all_fixed(ls$name,"/","-")
     g <- ls$data %>% ggplot(mapping = aes(x = position , y = count,  color = type, fill = type)) +
         geom_point() +
-        labs(title = "ReadID:" %s+% ls$name %s+% "\nAssing:" %s+% ls$type,
+        labs(title = "ReadID:" %s+% ls$name %s+% "\nAssign:" %s+% ls$type,
              x = "position of read" , y = "read count")
     generalplot(g=g,name="stst_" %s+% name)
 }
