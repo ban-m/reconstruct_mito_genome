@@ -5,7 +5,9 @@ use select_mitochondrial_genome::Interval;
 use std::collections::HashMap;
 use std::io::Result;
 // trim lower and 3 %
-const THRESHOLD: Option<usize> = Some(3);
+//const THRESHOLD: Option<usize> = Some(3);
+// Full.
+const THRESHOLD: Option<usize> = None;
 #[derive(Debug)]
 struct Summary {
     mean: f64,
