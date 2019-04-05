@@ -3,6 +3,7 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
+use std::io::{BufRead,BufReader};
 use std::io::Result;
 use std::path::Path;
 
@@ -75,6 +76,30 @@ pub fn paf_to_intervals(paf:String)->Vec<(String,Interval)>{
     for line in paf.lines() {
         if let Some((read1_id, read1_s, read1_e, length1, read2_id, read2_s, read2_e, length2)) =
             parse(line)
+        {
+            let entry = summary_of_each_read
+                .entry(read1_id)
+                .or_insert((vec![], length1));
+            (entry.0).push((read1_s, read1_e));
+            let entry = summary_of_each_read
+                .entry(read2_id)
+                .or_insert((vec![], length2));
+            (entry.0).push((read2_s, read2_e));
+        }
+    }
+    summary_of_each_read
+        .into_par_iter()
+        .map(|(id,mappings)|(id,Interval::new(&mappings.0,mappings.1)))
+        .collect()
+}
+
+pub fn paf_file_to_intervals(paf:&str)->Vec<(String,Interval)>{
+    let mut summary_of_each_read: HashMap<String, (Vec<(usize, usize)>, usize)> = HashMap::new();
+    let mut reader = BufReader::new(File::open(&Path::new(paf)).unwrap());
+    let mut line = String::new();
+    while reader.read_line(&mut line).unwrap() > 0{
+        if let Some((read1_id, read1_s, read1_e, length1, read2_id, read2_s, read2_e, length2)) =
+            parse(&line)
         {
             let entry = summary_of_each_read
                 .entry(read1_id)

@@ -2,7 +2,6 @@ extern crate rayon;
 extern crate select_mitochondrial_genome;
 use rayon::prelude::*;
 use select_mitochondrial_genome::Interval;
-use std::collections::HashMap;
 use std::io::Result;
 // trim lower and 3 %
 //const THRESHOLD: Option<usize> = Some(3);
@@ -90,8 +89,7 @@ impl Summary {
 
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
-    let paf = select_mitochondrial_genome::paf_open(&args[1])?;
-    let summary_of_each_read = summarize_coverage(paf);
+    let summary_of_each_read = summarize_coverage(&args[1]);
     for (id, summary) in summary_of_each_read {
         println!(
             "{}\t{}\t{}\t{}",
@@ -101,8 +99,8 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn summarize_coverage(paf: String) -> HashMap<String, Summary> {
-    select_mitochondrial_genome::paf_to_intervals(paf)
+fn summarize_coverage(paf_file: &str) -> Vec<(String, Summary)> {
+    select_mitochondrial_genome::paf_file_to_intervals(paf_file)
         .into_par_iter()
         .map(|(id, interval)| (id, Summary::from_interval(interval)))
         .collect()

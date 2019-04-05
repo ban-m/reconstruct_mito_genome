@@ -58,8 +58,7 @@ impl StStSummary {
 
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
-    let paf = paf_open(&args[1])?;
-    let coverage_of_each_read = positionwise_stst(paf);
+    let coverage_of_each_read = positionwise_stst(&args[1]);
     let mut start = BufWriter::new(File::create(&Path::new(&args[2]))?);
     let mut stop = BufWriter::new(File::create(&Path::new(&args[3]))?);
     for (id, stst) in coverage_of_each_read {
@@ -85,9 +84,8 @@ where
     writeln!(wtr, "")
 }
 
-fn positionwise_stst(paf: String) -> Vec<(String, StStSummary)> {
-    let intervals = paf_to_intervals(paf);
-    intervals
+fn positionwise_stst(paf: &str) -> Vec<(String, StStSummary)> {
+    paf_file_to_intervals(paf)
         .into_par_iter()
         .map(|(id, interval)| (id, StStSummary::from_interval(interval)))
         .collect()
