@@ -51,7 +51,7 @@ fn main() -> std::io::Result<()> {
     for (read_id, assignments) in tiling(open_file(&args[1])?) {
         write!(&mut wtr, "{}:", read_id)?;
         if assignments.is_empty(){
-            writeln!(&mut wtr,"");
+            writeln!(&mut wtr,"")?;
         }else{
             for i in 0..assignments.len() - 1 {
                 write!(&mut wtr, "{} ", assignments[i])?;

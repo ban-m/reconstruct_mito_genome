@@ -74,7 +74,7 @@ fn print_vec<W>(wtr: &mut BufWriter<W>, rec: &Vec<(usize, u8)>) -> Result<()>
 where
     W: Write,
 {
-    write!(wtr, ",{}", rec.len());
+    write!(wtr, ",{}", rec.len())?;
     for (pos, _) in rec {
         write!(wtr, ",{}", pos)?;
     }

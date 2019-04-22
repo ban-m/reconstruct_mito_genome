@@ -14,7 +14,7 @@ fn main()->std::io::Result<()>{
         for cov in normalized{
             write!(&mut output,",{}",cov)?;
         }
-        writeln!(&mut output,"");
+        writeln!(&mut output,"")?;
     }
     println!("{}",String::from_utf8(output).unwrap());
     Ok(())

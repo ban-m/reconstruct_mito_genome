@@ -22,11 +22,15 @@
 SEQUEL=/grid/ban-m/arabidopsis_thaliana/sequel/mapping/sequel_minimap2_allvsall.paf
 ONT=/grid/ban-m/arabidopsis_thaliana/nanopore/mapping/nanopore_minimap2_allvsall.paf
 
-cargo run --release --bin average_coverage \
-      ${SEQUEL} > ./result/sequel_average_coverage_trimed3.tsv
+# cargo run --release --bin average_coverage \
+#       ${SEQUEL} > ./result/sequel_average_coverage_trimed3.tsv
 # cargo run --release --bin med_mid_coverage \
-#       ${SEQUEL} > ./result/sequel_medmid_coverage.tsv
+    #       ${SEQUEL} > ./result/sequel_medmid_coverage.tsv
+
+### ===== Selecte mitochondrial genome(manual curation is still needed.) ======
 # Rscript --slave --vanilla \
 #         ./script/global_coverage_plot.R \
 #         ./result/sequel_average_coverage.tsv \
 #         ./result/sequel_minimap2_assignment.tsv
+cargo run --release --bin average_coverage_with_id \
+      ${SEQUEL} ./result/select_ids.tsv > ./result/sequel_average_coverage_2.tsv

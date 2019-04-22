@@ -5,9 +5,8 @@ library("stringi")
 library("tidyverse")
 source("~/work/generalplot.R")
 args <- commandArgs(trailingOnly = TRUE)
-args <- c("/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/mapback/guided_asm_sequel_canu.contigs.fasta.mapback.tsv",
-          "/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/mapback/guided_asm_sequel_canu.contigs.fasta.mapback.peaks.tsv"
-)
+## args <- c("/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/mapback/guided_asm_sequel_canu.contigs.fasta.mapback.tsv",
+##           "/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/mapback/guided_asm_sequel_canu.contigs.fasta.mapback.peaks.tsv")
 
 outname <- basename(tools::file_path_sans_ext(args[1]))
 

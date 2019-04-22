@@ -7,6 +7,7 @@ then
     exit 1
 fi
 
+K=100
 
 #### ----- Sanity check ------
 
@@ -62,16 +63,23 @@ fi
 # echo "Success."
 
 ### ---- Summarize ------
-echo "Convert last TAB file into Annotation JSON..."
-cargo run --release --bin lasttab_to_json --  \
-      ${OUTPUT_DIR}/last/${PREFIX}_todb.tab ${ANNOTATION_FILE} \
-      > ${OUTPUT_DIR}/${PREFIX}_last.json
+# echo "Convert last TAB file into Annotation JSON..."
+# cargo run --release --bin lasttab_to_json --  \
+#       ${OUTPUT_DIR}/last/${PREFIX}_todb.tab ${ANNOTATION_FILE} \
+#       > ${OUTPUT_DIR}/${PREFIX}_last.json
 # echo "Success."
 # echo "Convert tRNAscanSE file into Annotation JSON..."
 # cargo run --release --bin trnascan_to_json -- \
 #       ${OUTPUT_DIR}/tRNAscan-SE/${PREFIX}_trnascan.txt \
 #       > ${OUTPUT_DIR}/${PREFIX}_trnascan.json
 # echo "Success."
+
+echo "Annotate repeats. K=${K}"
+mkdir -p ${OUTPUT_DIR}/mummer 
+mummer -maxmatch -l ${K} -b -n ${INPUT} ${INPUT} > ${OUTPUT_DIR}/mummer/${PREFIX}_mummer.dat
+cargo run --release --bin repeats_to_json -- ${OUTPUT_DIR}/mummer/${PREFIX}_mummer.dat \
+      > ${OUTPUT_DIR}/${PREFIX}_repeats.json
+echo "Success."
 
 ### ---- Visualize -----
 # echo "Genetating HTML/SGV figures..."
@@ -80,6 +88,7 @@ cargo run --release --bin lasttab_to_json --  \
 #     sed -e "s+LAST_JSON+${OUTPUT_DIR}/${PREFIX}_last.json+g" |\
 #     sed -e "s+tRNASE_JSON+${OUTPUT_DIR}/${PREFIX}_trnascan.json+g" |\
 #     sed -e "s+FASTA_JSON+${OUTPUT_DIR}/${PREFIX}_contig.json+g" |\
+#     sed -e "s+REPEATS_JSON+${OUTPUT_DIR}/${PREFIX}_repeats.json+g" \
 #     > ${OUTPUT_DIR}/viewer.html
 # cp ./data/drawer.js ${OUTPUT_DIR}/
 # cp ./data/style.css ${OUTPUT_DIR}/

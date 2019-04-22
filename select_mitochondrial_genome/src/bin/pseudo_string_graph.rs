@@ -9,7 +9,7 @@ impl<'a> std::fmt::Display for StringGraph<'a>{
     fn fmt(&self,f:&mut std::fmt::Formatter) -> std::fmt::Result{
         writeln!(f, "There are {} nodes.",self.indexer.len())?;
         let numofedge:usize = self.edges.iter().map(|e|e.len()).sum();
-        writeln!(f, "There are {} edges.",numofedge);
+        writeln!(f, "There are {} edges.",numofedge)?;
         writeln!(f, "ND Nodes. To See the nodes list, `grep ^ND`")?;
         for (key,val) in &self.indexer{
             writeln!(f, "ND {}\t{}",key,val)?;

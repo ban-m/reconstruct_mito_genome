@@ -72,7 +72,8 @@ impl Summary {
         let len = end - start;
         eprintln!("{}->{} ({}% trimed)", interval.length(), len, is_trim_on);
         (sum, sumsq, len)
-    }    fn from_interval(interval: Interval) -> Self {
+    }
+    fn from_interval(interval: Interval) -> Self {
         if let Some(is_trim_on) = THRESHOLD {
             let (sum, sumsq, length) = Self::summing_up_trim(&interval, is_trim_on);
             Summary::new(sum, sumsq, length)
@@ -85,18 +86,20 @@ impl Summary {
 
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
-    let summary_of_each_read = summarize_coverage(&args[1]);
+    let summary_of_each_read = summarize_coverage(&args[1], &args[2]);
+    eprintln!("Finish proc. Output.");
     for (id, summary) in summary_of_each_read {
         println!(
             "{}\t{}\t{}\t{}",
             id, summary.mean, summary.sd, summary.length
         );
     }
+    eprintln!("Finish output. Exit.");
     Ok(())
 }
 
-fn summarize_coverage(paf_file: &str) -> Vec<(String, Summary)> {
-    select_mitochondrial_genome::paf_file_to_intervals(paf_file)
+fn summarize_coverage(paf_file: &str, id_file: &str) -> Vec<(String, Summary)> {
+    select_mitochondrial_genome::paf_file_to_intervals_with_id(paf_file, id_file)
         .into_par_iter()
         .map(|(id, interval)| (id, Summary::from_interval(interval)))
         .collect()

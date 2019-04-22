@@ -35,10 +35,16 @@ function procedure() {
           -- ${BAM} \
           > ${OUTPUT}
     cargo run --release \
+          --bin start_and_stopping_read_proper \
+          -- ${BAM} \
+          > ${OUTPUT%.tsv}.proper.tsv
+    
+    cargo run --release \
           --bin peak_call_from_start_stop \
           -- ${OUTPUT} \
           > ${OUTPUT%.tsv}.peaks.tsv
     Rscript --vanilla --slave ./script/start_and_stop_read_plot.R ${OUTPUT} ${OUTPUT%.tsv}.peaks.tsv
+    Rscript --vanilla --slave ./script/start_and_stop_read_plot.R ${OUTPUT} ${OUTPUT%.tsv}.proper.tsv
 }
 
 export -f procedure
