@@ -72,7 +72,8 @@ impl Summary {
         let len = end - start;
         eprintln!("{}->{} ({}% trimed)", interval.length(), len, is_trim_on);
         (sum, sumsq, len)
-    }    fn from_interval(interval: Interval) -> Self {
+    }
+    fn from_interval(interval: Interval) -> Self {
         if let Some(is_trim_on) = THRESHOLD {
             let (sum, sumsq, length) = Self::summing_up_trim(&interval, is_trim_on);
             Summary::new(sum, sumsq, length)

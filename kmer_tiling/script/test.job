@@ -1,0 +1,11 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N KTest
+#$ -cwd
+#$ -pe smp 12
+#$ -e ./logfiles/debug.log
+#$ -o ./logfiles/debug.out
+#$ -V
+#$ -m e
+# -M banmasutani@gmail.com ## To send a mail when ended
+/usr/bin/time -v cargo run --release --bin debug -- /grid/ban-m/test.fa 12 

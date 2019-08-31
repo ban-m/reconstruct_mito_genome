@@ -1,0 +1,16 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N Tiling
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/tiling.log
+#$ -o ./logfiles/tiling.out
+#$ -V
+#$ -m e
+# -M banmasutani@gmail.com ## To send a mail when ended
+k=16
+INPUT=/data/ban-m/a_thaliana/sequel_reads/sequel1_filter_dedupe.fq
+for k in 10 16 17 18 20 30
+do
+    /usr/bin/time -v cargo run --release --bin tiling -- ${INPUT} 24 ${k} > ./result/tiling_${k}.tsv
+done

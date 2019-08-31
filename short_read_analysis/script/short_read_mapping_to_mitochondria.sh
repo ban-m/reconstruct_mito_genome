@@ -9,7 +9,7 @@
 
 READ1=/data/ban-m/a_thaliana/illumina/ERR2721961_1.fastq
 READ2=/data/ban-m/a_thaliana/illumina/ERR2721961_2.fastq
-GENOME=/data/ban-m/a_thaliana/genome/TAIR10_chr_all.fas
+GENOME=/grid/ban-m/arabidopsis_thaliana/genome/GCF_000001735.4_TAIR10.1_genomic.fna
 OUTPUT_DIR=/data/ban-m/a_thaliana/mitochondria/short_read/
 OUTPUT=ERR2721961.sam
 

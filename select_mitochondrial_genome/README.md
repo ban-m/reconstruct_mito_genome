@@ -16,3 +16,24 @@ The latter approach, namely selected assembly, picking up the reads from mitocho
 
 However, some issues still remains. For example, among the genome are transposable elements which are disparsed and numerous.
 
+## Synopsis
+
+
+### select_read_by_tsv.rs
+
+Pick reads from input fastq. The reads to be extracted is specified by a simple line-by-line ID file.
+```
+cargo run --release --bin select_read_by_tsv -- [fastq file] [line-by-line ID file]
+```
+### kmer_freq_vector
+
+Convert a readset into vector of k-mer frequency.
+```
+cargo run --release --bin kmer_freq_vector -- [fasta file] [K]
+```
+
+The output format is as follows:
+
+|ID| AAAA | AAAC | AAAG | ... |
+|--|------|------|------|-----|
+|m_214324_323_34| 0.0232|0.2321|0.003232|.....|

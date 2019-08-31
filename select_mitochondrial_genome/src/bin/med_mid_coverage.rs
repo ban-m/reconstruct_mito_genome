@@ -80,8 +80,7 @@ fn mode(cov: &Vec<usize>) -> usize {
 
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
-    let paf = select_mitochondrial_genome::paf_open(&args[1])?;
-    let summary_of_each_read = summarize_coverage(paf);
+    let summary_of_each_read = summarize_coverage(&args[1]);
     for (id, summary) in summary_of_each_read {
         println!(
             "{}\t{}\t{}\t{}",
@@ -91,8 +90,8 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn summarize_coverage(paf: String) -> HashMap<String, Summary> {
-    select_mitochondrial_genome::paf_to_intervals(paf)
+fn summarize_coverage(paf: &str) -> HashMap<String, Summary> {
+    select_mitochondrial_genome::paf_file_to_intervals(paf)
         .into_par_iter()
         .map(|(id, interval)| (id, Summary::from_interval(&interval)))
         .collect()

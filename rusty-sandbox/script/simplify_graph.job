@@ -1,0 +1,38 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N SimplifyGraph
+#$ -cwd
+#$ -pe smp 1
+#$ -e ./logfiles/simplify_graph.log
+#$ -o ./logfiles/simplify_graph.out
+#$ -V
+#$ -m e
+
+set -ue
+SAM=/grid/ban-m/arabidopsis_thaliana/sequel/dilution_onthefly2/selected_2nd.sam
+FASTQ=/grid/ban-m/arabidopsis_thaliana/sequel/dilution_onthefly2/selected_2nd.fq
+cargo build --release
+BINARY=~/work/arabidopsis_mitochondria/rusty-sandbox/target/release/
+OUT=./result/graph_simplication
+mkdir -p ${OUT}
+date >&2
+echo "Initial Situation"
+${BINARY}/decompose_into_connected_st_component ${SAM} > ${OUT}/initial.tsv
+
+echo "Start overlapping" >&2
+# ${BINARY}/select_overlaps ${SAM} > ${OUT}/ovlp.sam
+${BINARY}/decompose_into_connected_st_component ${OUT}/ovlp.sam > ${OUT}/ovlp.tsv
+
+echo "Start filtering" >&2 
+# ${BINARY}/filter_contained_read ${OUT}/ovlp.sam ${FASTQ} ${OUT}/ovlp_cntn.sam ${OUT}/ovlp_cntn.fq
+${BINARY}/decompose_into_connected_st_component ${OUT}/ovlp_cntn.sam > ${OUT}/ovlp_cntn.tsv
+
+echo "transitive edge reduction" >&2
+# ${BINARY}/transitive_edge_reduction ${OUT}/ovlp_cntn.sam > ${OUT}/ovlp_cntn_trns.sam
+${BINARY}/decompose_into_connected_st_component ${OUT}/ovlp_cntn_trns.sam > ${OUT}/ovlp_cntn_trns.tsv
+
+echo "select heviest edge" >&2
+# ${BINARY}/select_heviest_edge ${OUT}/ovlp_cntn_trns.sam > ${OUT}/ovlp_cntn_trns_hvst.sam
+${BINARY}/decompose_into_connected_st_component ${OUT}/ovlp_cntn_trns_hvst.sam > ${OUT}/ovlp_cntn_trns_hvst.tsv
+echo "finish" >&2
+date >&2

@@ -1,0 +1,8 @@
+[package]
+name = "tiling_by_kmercount"
+version = "0.1.0"
+authors = ["ban-m <ban-m@g.ecc.u-tokyo.ac.jp>"]
+edition = "2018"
+
+[dependencies]
+bio = "*"

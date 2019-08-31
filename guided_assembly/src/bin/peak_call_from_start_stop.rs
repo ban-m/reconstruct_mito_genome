@@ -46,7 +46,7 @@ fn peak_call(input: &Vec<(usize, usize, usize)>) -> Vec<(usize, usize, usize)> {
     let (mut max_position, mut max_start, mut max_stop) = (0, 0, 0);
     for (position, start, stop) in input
         .into_iter()
-        .filter(|(_, start_read, stop_read)| start_read > &30 || stop_read > &30)
+        .filter(|(_, start_read, stop_read)| start_read > &10 || stop_read > &10)
     {
         if current_position + 100 < *position {
             peaks.push((max_position, max_start, max_stop));

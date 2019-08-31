@@ -1,0 +1,14 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N CA
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/create_annotation.log
+#$ -o ./logfiles/create_annotation.log
+#$ -V
+#$ -m e
+
+READ=/data/ban-m/a_thaliana/sequel_reads/sequel1_filter_dedupe.fq
+REFERENCE=/grid/ban-m/arabidopsis_thaliana/genome/GCF_000001735.4_TAIR10.1_genomic.fna
+# minimap2 -a -t 24 -x map-pb ${REFERENCE} ${READ} > ./result/sequel_to_reference.sam
+cat ./result/sequel_to_reference.sam | awk -f ./script/name_to_chromosome.awk  > ./result/sequel_to_reference.tsv

@@ -1,0 +1,15 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N RoundCount
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/round_count.log
+#$ -o ./logfiles/round_count.out
+#$ -V
+#$ -m e
+
+
+INPUT=/grid/ban-m/test.fa
+k=20
+max_dist=3
+cargo run --release --bin circle_count -- ${INPUT} 24 ${k} ${max_dist} > ./result/${k}_${max_dist}.json

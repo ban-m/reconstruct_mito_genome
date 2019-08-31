@@ -1,0 +1,1 @@
+cargo run --release --bin error_rate_of_pileup -- /grid/ban-m/arabidopsis_thaliana/sequel/dilution_onthefly2/selected_2nd.sam /grid/ban-m/arabidopsis_thaliana/sequel/dilution_onthefly2/selected_2nd.fq ./result/error_rate/

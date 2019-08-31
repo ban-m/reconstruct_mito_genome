@@ -12,6 +12,7 @@ set -ue
 
 ### ==== Result =====
 ONT=/data/ban-m/a_thaliana/ONT/ERR2173373.fastq
+ONT_FILTERED=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/filtered_reads.fq
 
 ONT_RA=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/ra/guided_asm_nanopore_ra.fa
 ONT_CANU=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/canu/guided_asm_nanopore_canu.contigs.fasta
@@ -20,6 +21,7 @@ ONT_RA_GFA=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/ra/rala_assembly
 ONT_CANU_GFA=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/canu/guided_asm_nanopore_canu.contigs.gfa
 
 SEQUEL=/data/ban-m/a_thaliana/sequel_reads/sequel1_filter_dedupe.fq
+SEQUEL_FILTERED=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/filtered_reads.fq
 
 SEQUEL_RA=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/ra/guided_asm_sequel_ra.fa
 SEQUEL_CANU=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/canu/guided_asm_sequel_canu.contigs.fasta
@@ -33,28 +35,33 @@ SEQUEL_FLYE_GFA=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/flye/assembly
 
 #### ==== Mapping back =====
 
-# ONT_OUTPUT=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/mapback
-# mkdir -p ${ONT_OUTPUT}
-# for contigs in ${ONT_RA} ${ONT_CANU} ${ONT_WTDBG2}
-# do
-#     minimap2 -t 24 -a -x map-ont ${contigs} ${ONT} | \
-#         samtools view -bhS | \
-#         samtools sort -@ 12 -m 5G -O BAM > ${ONT_OUTPUT}/${contigs##*/}.mapback.raw.bam
-#     cargo run --release --bin filtering_out ${ONT_OUTPUT}/${contigs##*/}.mapback.raw.bam ${ONT_OUTPUT}/${contigs##*/}.mapback.bam
-#     samtools stats ${ONT_OUTPUT}/${contigs##*/}.mapback.bam > ${ONT_OUTPUT}/${contigs##*/}.mapback.stats
-#     samtools index ${ONT_OUTPUT}/${contigs##*/}.mapback.bam
-# done
+ONT_OUTPUT=/grid/ban-m/arabidopsis_thaliana/nanopore/guided_asm/mapback
+mkdir -p ${ONT_OUTPUT}
+for contigs in ${ONT_RA} ${ONT_CANU} ${ONT_WTDBG2}
+do
+    if [ -e  ${contigs} ]
+    then
+        prefix=${ONT_OUTPUT}/${contigs##*/}
+        minimap2 -t 24 -a -x map-ont ${contigs} ${ONT_FILTERED} | \
+            samtools view -bhS | \
+            samtools sort -@ 12 -m 5G -O BAM > ${prefix}.mapback.raw.bam
+        cargo run --release --bin filtering_out ${prefix}.mapback.raw.bam ${prefix}.mapback.bam
+        samtools stats ${prefix}.mapback.bam > ${prefix}.mapback.stats
+        samtools index ${prefix}.mapback.bam
+    fi
+done
 
 SEQUEL_OUTPUT=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/mapback
 mkdir -p ${SEQUEL_OUTPUT}
 for contigs in ${SEQUEL_RA} ${SEQUEL_WTDBG2} ${SEQUEL_CANU} ${SEQUEL_FLYE}
 do
-    minimap2 -t 24 -a -x map-pb ${contigs} ${SEQUEL} | \
+    prefix=${SEQUEL_OUTPUT}/${contigs##*/}
+    minimap2 -t 24 -a -x map-pb ${contigs} ${SEQUEL_FILTERED} | \
         samtools view -hbS | \
-        samtools sort -@12 -m 5G -O BAM > ${SEQUEL_OUTPUT}/${contigs##*/}.mapback.raw.bam
-    cargo run --release --bin filtering_out ${SEQUEL_OUTPUT}/${contigs##*/}.mapback.raw.bam ${SEQUEL_OUTPUT}/${contigs##*/}.mapback.bam
-    samtools stats ${SEQUEL_OUTPUT}/${contigs##*/}.mapback.bam > ${SEQUEL_OUTPUT}/${contigs##*/}.mapback.stats
-    samtools index ${SEQUEL_OUTPUT}/${contigs##*/}.mapback.bam
+        samtools sort -@12 -m 5G -O BAM > ${prefix}.mapback.raw.bam
+    cargo run --release --bin filtering_out ${prefix}.mapback.raw.bam ${prefix}.mapback.bam
+    samtools stats ${prefix}.mapback.bam > ${prefix}.mapback.stats
+    samtools index ${prefix}.mapback.bam
 done
 
 # ### ===== Collecting results =======

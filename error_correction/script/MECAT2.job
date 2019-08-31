@@ -1,0 +1,16 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N MECAT2
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/mecat2.log
+#$ -o ./logfiles/mecat2.out
+#$ -V
+#$ -m e
+
+READ=/grid/ban-m/arabidopsis_thaliana/sequel/dilution_onthefly2/selected_2nd.fq
+OUTPUT=/grid/ban-m/arabidopsis_thaliana/sequel/dilution_onthefly2/corrected.fq
+CORES=24
+mecat2pw -j 0 -d ${READ} -w work${RANDOM} -t ${CORES} -o ${OUTPUT%fq}pw
+mecat2cns -i0 -t ${CORES} ${OUTPUT%fq}pw ${READ} ${OUTPUT}
+rm -r work* ${OUTPUT%fq}pw

@@ -7,25 +7,30 @@
 #$ -o ./logfiles/kmer-frequency.out
 #$ -V
 #$ -m e
-# -M banmasutani@gmail.com ## To send a mail when ended
-# -t 1:n ## For array job
-## "-S" specifies which shell do the script run on.
-## "-N" specifies the name of the job(should NOT be TEMPLATE).
-## "-cwd" means the script run on the current directly, not on $HOME.
-## "-pe smp N" specifies the number of the core the script requires.
-## with "-e [path]", the stderr would be written in [path], not ${HOME}/$JOB_NUMBER
-## with "-o [path]" is the same as "-e", except for stdout.
-## with "-V", all envirnmental variables would be inherited.
-## "with -m e", a mail would be sent if the job halt with an error.
-## For more detail, see `man qsub`
 
 ONT=/data/ban-m/a_thaliana/ONT/ERR2173373.fasta
-SEQUEL=/data/ban-m/a_thaliana/sequel_reads/sequel1_filter_dedupe.fq
+SEQUEL=/data/ban-m/a_thaliana/sequel_reads/sequel1_filter_dedupe.fa
 
 function proc() {
-         jellyfish count -s 4G --bf-size 100G -m 20 -t 24 -o $2.jf -L 20 $1
-         jellyfish histo -o $2.hist $2.jf 
+    K=${3}
+    jellyfish count -s 4G --bf-size 50G -m ${K} -t 24 -o $2.jf -L 20 $1
+    jellyfish histo -o $2.hist $2.jf 
 }
+cd ./result/
+# for K in 10 11 12 13 14 15 18 20 22
+# do
+#     proc ${ONT} ont_${K}mer ${K}
+#     proc ${SEQUEL} sequel_${K}mer ${K}
+# done
+for K in 30 50 80 100 150
+do
+    proc ${ONT} ont_${K}mer ${K}
+    proc ${SEQUEL} sequel_${K}mer ${K}
+done
 
-proc ${ONT} ./result/ont_20mer
-proc ${SEQUEL} ./result/sequel_20mer
+cd ../
+for file in ./result/*.hist
+do
+    Rscript --vanilla --slave ./script/plot_histogram.R ${file}
+done
+mv ./result/*.png ./png/

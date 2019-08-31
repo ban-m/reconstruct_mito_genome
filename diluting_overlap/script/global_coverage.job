@@ -1,0 +1,31 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N dilute
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/dilute.log
+#$ -o ./logfiles/dilute.log
+#$ -V
+#$ -m e
+# -M banmasutani@gmail.com ## To send a mail when ended
+set -ue
+coverage=70
+file=/data/ban-m/a_thaliana/sequel_reads/sequel1_filter_dedupe.fq
+prefix=/grid/ban-m/arabidopsis_thaliana/sequel/dilution
+mkdir -p ${prefix}
+rm ${prefix}/*
+current=${PWD}
+cd ../select_mitochondrial_genome/
+cargo build --release
+AVE_COV=${PWD}/target/release/average_coverage_from_stdin
+cd ${current}
+cargo run --release --bin dilute -- ${file} ${coverage} ${prefix}
+for file in ${prefix}/*.fq
+do
+    index=${file%.fq}
+    output=${index}.tsv
+    echo "Ava of ${file} to ${output}"
+    echo "The index is ${index}"
+    minimap2 -x ava-pb -t 24 -X ${file} ${file} | \
+        ${AVE_COV} > ${output}
+done

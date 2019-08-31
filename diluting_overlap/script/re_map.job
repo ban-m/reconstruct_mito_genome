@@ -1,0 +1,24 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N ReMap
+#$ -cwd
+#$ -pe smp 12
+#$ -e ./logfiles/remap.log
+#$ -o ./logfiles/remap.log
+#$ -V
+#$ -m e
+# -M banmasutani@gmail.com ## To send a mail when ended
+file=/data/ban-m/a_thaliana/sequel_reads/sequel1_filter_dedupe.fq
+selected=./result/selected.tsv
+prefix=/grid/ban-m/arabidopsis_thaliana/sequel/dilution_onthefly/
+mkdir -p ${prefix}
+out=${prefix}/selected.fq
+cargo run --release --bin select -- ${selected} ${file} > ${out}
+current=${PWD}
+cd ../select_mitochondrial_genome/
+cargo build --release
+AVE_COV=${PWD}/target/release/average_coverage_from_stdin
+cd ${current}
+minimap2 -x ava-pb -t 12 ${out} ${out} |\
+    ${AVE_COV} > ./result/remap.tsv
+Rscript --vanilla --slave ./script/2nd_plot.R

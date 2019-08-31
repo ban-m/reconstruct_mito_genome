@@ -15,7 +15,7 @@ ONT_OUTPUT=/grid/ban-m/arabidopsis_thaliana/nanopore/mapping
 
 SEQUEL=/data/ban-m/a_thaliana/sequel_reads/sequel1_filter_dedupe.fq
 SEQUEL_OUTPUT=/grid/ban-m/arabidopsis_thaliana/sequel/mapping
-REFERENCE=/data/ban-m/a_thaliana/genome/TAIR10_chr_all.fa
+REFERENCE=/grid/ban-m/arabidopsis_thaliana/genome/GCF_000001735.4_TAIR10.1_genomic.fna
 
 function stat () {
     OUTPUT=${1%.sam}

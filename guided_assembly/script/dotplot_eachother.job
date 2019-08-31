@@ -22,20 +22,26 @@
 CANU=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/canu/guided_asm_sequel_canu.contigs.fasta
 FLYE=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/flye/scaffolds.fasta
 WTDBG=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/wtdbg2/wtdbg2_sequel.ctg.1.fa
+RA=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/ra/guided_asm_sequel_ra.fa
 
-mkdir -p result/sequel_dotplot/database
-mkdir -p result/sequel_dotplot/result
-cd result/sequel_dotplot/database
-lastdb -R11 canudb ${CANU}
-lastdb -R11 flyedb ${FLYE}
-lastdb -R11 wtdbg2db ${WTDBG}
-cd ../result
-lastal -f TAB ./../database/canudb ${FLYE} > ./flye_to_canu.tab
-lastal -f TAB ./../database/canudb ${WTDBG} > ./wtdbg_to_canu.tab
-lastal -f TAB ./../database/flyedb ${CANU} > ./canu_to_flye.tab
-lastal -f TAB ./../database/flyedb ${WTDBG} > ./wtdbg_to_flye.tab
-lastal -f TAB ./../database/wtdbg2db ${CANU} > ./canu_to_wtdbg2.tab
-lastal -f TAB ./../database/wtdbg2db ${FLYE} > ./flye_to_wtdbg2.tab
+mkdir -p ./png/dotplots/
 
+function dotplot(){
+    java -cp ~/work/gepard/Gepard-1.40.jar org.gepard.client.cmdline.CommandLine \
+         -seq1 $1 \
+         -seq2 $2 \
+         -matrix ~/work/gepard/ednaorig.mat \
+         -outfile $3
+}
 
-
+for seq1 in $CANU $FLYE $WTDBG $RA
+do
+    for seq2 in $CANU $FLYE $WTDBG $RA
+    do
+        n1=${seq1%/*}
+        n1=${n1##*/}
+        n2=${seq2%/*}
+        n2=${n2##*/}
+        dotplot $seq1 $seq2 ./png/dotplots/${n1}_${n2}_dotplot.png
+    done
+done

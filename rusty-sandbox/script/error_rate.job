@@ -1,0 +1,12 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N ER
+#$ -cwd
+#$ -pe smp 12
+#$ -e ./logfiles/error_rate.log
+#$ -o ./logfiles/error_rate.out
+#$ -V
+#$ -m e
+OUT=/grid/ban-m/arabidopsis_thaliana/sequel/dilution_onthefly2/error_rate/
+mkdir ${OUT}
+cargo run --release --bin error_rate_of_all_pileup -- /grid/ban-m/arabidopsis_thaliana/sequel/dilution_onthefly2/selected_2nd.sam /grid/ban-m/arabidopsis_thaliana/sequel/dilution_onthefly2/selected_2nd.fq ${OUT}
