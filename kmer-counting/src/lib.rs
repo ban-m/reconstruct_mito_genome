@@ -136,6 +136,21 @@ pub fn kmer_counting(records: &[&[u8]], k: usize) -> MetroHashMap<Kmer, u16> {
     hashmap
 }
 
+pub fn kmer_counting_native(records: &[Vec<u8>], k: usize) -> MetroHashMap<Kmer, u16> {
+    let hashmap = records
+        .into_iter()
+        .fold(MetroHashMap::default(), |mut res, seq| {
+            seq.windows(k).map(Kmer::new).for_each(|kmer| {
+                let x = res.entry(kmer).or_default();
+                *x += 1;
+            });
+            res
+        });
+    debug!("Constructed Hashmap");
+    hashmap
+}
+
+
 #[cfg(test)]
 mod tests {
     #[test]

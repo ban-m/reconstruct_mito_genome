@@ -1,0 +1,54 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N compare_assembly
+#$ -cwd
+#$ -pe smp 12
+#$ -e ./logfiles/compare_assembly.log
+#$ -o ./logfiles/compare_assembly.out
+#$ -V
+#$ -m e
+
+WORKIND_DIR=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/racon/compare/
+
+CANU=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/racon/canu.5.fa
+FLYE=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/racon/flye.5.fa
+WTDBG=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/racon/wtdbg.5.fa
+RA=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/racon/ra.5.fa
+FALCON=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/racon/falcon.5.fa
+
+cargo build --release
+BIN=${PWD}/target/release/maf_similarity
+RESULT=${PWD}/result/racon_compare
+mkdir -p ${RESULT}
+
+mkdir -p ${WORKIND_DIR}
+cd ${WORKIND_DIR}
+lastdb -uNEAR -P 24 -R 11 canu $CANU
+lastdb -uNEAR -P 24 -R 11 flye $FLYE
+lastdb -uNEAR -P 24 -R 11 ra $RA
+lastdb -uNEAR -P 24 -R 11 falcon $FALCON
+lastdb -uNEAR -P 24 -R 11 wtdbg $WTDBG
+
+function lastalign(){
+    QUERY=$1
+    REFERENCE=$2
+    OUTNAME=$3
+    lastal -P 12 ${REFERENCE} $QUERY > ./${OUTNAME}.maf
+    $BIN ./${OUTNAME}.maf > ./${OUTNAME}.txt
+}
+
+lastalign $FLYE canu flye_to_canu
+lastalign $RA canu ra_to_canu
+lastalign $FALCON canu falcon_to_canu
+lastalign $WTDBG canu wtdbg_to_canu
+
+lastalign $RA flye ra_to_flye
+lastalign $FALCON flye falcon_to_flye
+lastalign $WTDBG flye wtdbg_to_flye
+
+lastalign $FALCON ra falcon_to_ra
+lastalign $WTDBG ra wtdbg_to_ra
+
+lastalign $WTDBG falcon wtdbg_to_falcon
+
+cp *.txt ${RESULT}/

@@ -23,20 +23,20 @@ CANU=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/canu/guided_asm_sequel_c
 FLYE=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/flye/scaffolds.fasta
 WTDBG=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/wtdbg2/wtdbg2_sequel.ctg.1.fa
 RA=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/ra/guided_asm_sequel_ra.fa
-
+FALCON=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/FALCON/2-asm-falcon/p_ctg.fa
 mkdir -p ./png/dotplots/
 
 function dotplot(){
     java -cp ~/work/gepard/Gepard-1.40.jar org.gepard.client.cmdline.CommandLine \
-         -seq1 $1 \
-         -seq2 $2 \
-         -matrix ~/work/gepard/ednaorig.mat \
-         -outfile $3
+          -seq1 $1 \
+          -seq2 $2 \
+          -matrix ~/work/gepard/ednaorig.mat \
+          -outfile $3
 }
 
-for seq1 in $CANU $FLYE $WTDBG $RA
+for seq1 in $CANU $FLYE $WTDBG $RA $FALCON
 do
-    for seq2 in $CANU $FLYE $WTDBG $RA
+    for seq2 in $CANU $FLYE $WTDBG $RA $FALCON
     do
         n1=${seq1%/*}
         n1=${n1##*/}

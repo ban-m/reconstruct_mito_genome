@@ -22,19 +22,19 @@ fn main() {
 
 fn is_focal_alignment(align: &bam::Record, tid: i32, start: i32, end: i32) -> bool {
     // Proper alignmnet
-    if align.flags() & 0x900 != 0{
+    if align.flags() & 0x900 != 0 {
         return false;
     }
-    if align.tid() != tid{
-        return false
+    if align.tid() != tid {
+        return false;
     }
-    let q_start = align.pos() + 100;// safety margin
-    let q_end = match align.cigar().end_pos(){
-        Ok(res) => res - 100,// same as above
+    let q_start = align.pos() + 100; // safety margin
+    let q_end = match align.cigar().end_pos() {
+        Ok(res) => res - 100, // same as above
         Err(why) => {
-            eprintln!("{:?}",why);
-            return false
-        },
+            eprintln!("{:?}", why);
+            return false;
+        }
     };
     q_start < start && end < q_end
 }

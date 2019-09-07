@@ -1,7 +1,7 @@
 extern crate rust_htslib;
-use std::collections::HashSet;
 use rust_htslib::bam;
 use rust_htslib::bam::Read;
+use std::collections::HashSet;
 const FRACTION: i32 = 10;
 fn main() {
     let args: Vec<_> = std::env::args().collect();

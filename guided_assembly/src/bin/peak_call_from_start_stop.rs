@@ -3,6 +3,7 @@
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+const PEAK:usize = 10;
 fn main() -> std::io::Result<()> {
     let args: Vec<_> = std::env::args().collect();
     let input = open_tsv_file(&args[1])?;
@@ -12,7 +13,7 @@ fn main() -> std::io::Result<()> {
     for line in input.lines().skip(1) {
         let contents: Vec<&str> = line.split('\t').collect();
         if contents[0] != current_contig_id {
-            if !chunk.is_empty(){
+            if !chunk.is_empty() {
                 for (position, num_of_start, num_of_stop) in peak_call(&chunk) {
                     println!(
                         "{}\t{}\t{}\t{}",
@@ -23,9 +24,9 @@ fn main() -> std::io::Result<()> {
             current_contig_id = contents[0].to_string();
             chunk.clear();
         } else {
-            let position:usize = contents[1].parse().unwrap();
-            let start_num:usize = contents[3].parse().unwrap();
-            let stop_num:usize = contents[4].parse().unwrap();
+            let position: usize = contents[1].parse().unwrap();
+            let start_num: usize = contents[3].parse().unwrap();
+            let stop_num: usize = contents[4].parse().unwrap();
             chunk.push((position, start_num, stop_num));
         }
     }
@@ -46,7 +47,7 @@ fn peak_call(input: &Vec<(usize, usize, usize)>) -> Vec<(usize, usize, usize)> {
     let (mut max_position, mut max_start, mut max_stop) = (0, 0, 0);
     for (position, start, stop) in input
         .into_iter()
-        .filter(|(_, start_read, stop_read)| start_read > &10 || stop_read > &10)
+        .filter(|(_, start_read, stop_read)| start_read > &PEAK || stop_read > &PEAK)
     {
         if current_position + 100 < *position {
             peaks.push((max_position, max_start, max_stop));

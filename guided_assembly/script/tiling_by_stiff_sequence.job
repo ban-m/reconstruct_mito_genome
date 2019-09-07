@@ -30,10 +30,10 @@ mkdir -p ${OUTPUT}/${PREFIX}
 
 
 cd ${OUTPUT}/${PREFIX}
-lastdb -uNEAR -P 24 -R 11 ${PREFIX}.entire ${CONTIGS}
-lastal -Q1 -f TAB -P 12 ${PREFIX}.entire ${READS}  > mappings.entire.tab
+# lastdb -uNEAR -P 24 -R 11 ${PREFIX}.entire ${CONTIGS}
+# lastal -Q1 -f TAB -P 12 ${PREFIX}.entire ${READS}  > mappings.entire.tab
 cd ${ROOT}
-# cargo run --release --bin tiling_with_configure -- \
-#       ${OUTPUT}/${PREFIX}/mappings.entire.tab \
-#       ${PEAKS} > \
-#       ${OUTPUT}/${PREFIX}/tiling.entire.txt
+cargo run --release --bin tiling_with_configure -- \
+      ${OUTPUT}/${PREFIX}/mappings.entire.tab \
+      ${PEAKS} > \
+      ${OUTPUT}/${PREFIX}/tiling.entire.txt

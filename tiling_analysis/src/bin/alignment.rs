@@ -9,9 +9,9 @@ use tiling_analysis::Alignment;
 const GAP:i64  = -3;
 fn score<'r, 's>(a: &'r Unit, b: &'s Unit) -> i64 {
     match (a, b) {
-        (&Unit::Encoded(u1, s1), &Unit::Encoded(u2, s2)) => {
-            if u1 == u2 && s1 == s2 {
-                20
+        (&Unit::Encoded(u1, s1, ss1), &Unit::Encoded(u2, s2,ss2)) => {
+            if u1 == u2 && s1 == s2 && ss1 == ss2{
+                200
             } else {
                 -2
             }
@@ -26,7 +26,7 @@ fn score<'r, 's>(a: &'r Unit, b: &'s Unit) -> i64 {
 }
 
 use std::collections::HashSet;
-fn collect_units<'a>(reads: &'a Vec<EncodedRead>) -> Vec<(usize, Vec<&'a EncodedRead>)> {
+fn collect_units<'a>(reads: &'a Vec<EncodedRead>) -> Vec<(u8, Vec<&'a EncodedRead>)> {
     let units: HashSet<_> = reads
         .iter()
         .flat_map(|e| e.iter().filter_map(|e| e.get_unit()))

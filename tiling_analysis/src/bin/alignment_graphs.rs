@@ -16,14 +16,14 @@ use rand::{thread_rng,seq::IteratorRandom};
 const GAP: i64 = -4;
 #[derive(Serialize, Deserialize)]
 struct Graph {
-    nodes: Vec<(usize, usize)>,      // Node number, its color
+    nodes: Vec<(usize, u8)>,      // Node number, its color
     edges: Vec<(usize, usize, i64)>, // (from, to, attract)
 }
 
 fn score<'r, 's>(a: &'r Unit, b: &'s Unit) -> i64 {
     match (a, b) {
-        (&Unit::Encoded(u1, s1), &Unit::Encoded(u2, s2)) => {
-            if u1 == u2 && s1 == s2 {
+        (&Unit::Encoded(u1, s1, ss1), &Unit::Encoded(u2, s2, ss2)) => {
+            if u1 == u2 && s1 == s2 && ss1 == ss2{
                 1
             } else {
                 -2
@@ -39,7 +39,7 @@ fn score<'r, 's>(a: &'r Unit, b: &'s Unit) -> i64 {
 }
 
 fn construct_edges<'a>(
-    units: Vec<(usize, Vec<&'a EncodedRead>)>,
+    units: Vec<(u8, Vec<&'a EncodedRead>)>,
     thr: i64,
 ) -> Vec<(&'a str, &'a str, i64)> {
     units

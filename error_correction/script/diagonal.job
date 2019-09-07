@@ -1,0 +1,15 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N diagonal
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/diagonal.log
+#$ -o ./logfiles/diagonal.out
+#$ -V
+#$ -m e
+
+
+BEFORE=/grid/ban-m/arabidopsis_thaliana/sequel/dilution_onthefly2/selected_2nd.fq
+AFTER=/grid/ban-m/arabidopsis_thaliana/sequel/dilution_onthefly2/corrected.fa
+
+cargo run --release --bin diagonal -- ${BEFORE} ${AFTER} > ./result/diagonal.tsv

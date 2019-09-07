@@ -4,7 +4,7 @@ use rust_htslib::bam::Read;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::path::Path;
-const THR:f64 = 500.;
+const THR: f64 = 500.;
 
 fn main() -> std::io::Result<()> {
     let args: Vec<_> = std::env::args().collect();
@@ -76,9 +76,9 @@ fn is_proper(cigar: &bam::record::CigarStringView) -> u32 {
         0
     } else if head_clip + tail_clip < THR {
         1
-    } else if head_clip < THR/2. {
+    } else if head_clip < THR / 2. {
         2
-    } else if tail_clip < THR/2. {
+    } else if tail_clip < THR / 2. {
         3
     } else {
         0

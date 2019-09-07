@@ -18,7 +18,7 @@ pub struct Alignment<'a> {
     pub start_2: usize,
 }
 
-const CHUNKSIZE: usize = 30;
+const CHUNKSIZE: usize = 15;
 impl<'a> std::fmt::Display for Alignment<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         writeln!(
@@ -36,12 +36,12 @@ impl<'a> std::fmt::Display for Alignment<'a> {
             match ed {
                 &Ed::Match(l) => {
                     for i in 0..l {
-                        upper.push(self.read1[pos1 + i].format_digit());
-                        lower.push(self.read2[pos2 + i].format_digit());
+                        upper.push(format!("{}",self.read1[pos1 + i]));
+                        lower.push(format!("{}",self.read2[pos2 + i]));
                         if self.read1[pos1 + i] == self.read2[pos2 + i] {
-                            middle.push("| unt |".to_string());
+                            middle.push("|  unit  |".to_string());
                         } else {
-                            middle.push("X unt X".to_string());
+                            middle.push("X  unit  X".to_string());
                         }
                     }
                     pos1 += l;
@@ -49,17 +49,17 @@ impl<'a> std::fmt::Display for Alignment<'a> {
                 }
                 &Ed::UpGap(l) => {
                     for i in 0..l {
-                        upper.push("| gap |".to_string());
-                        middle.push("       ".to_string());
-                        lower.push(self.read2[pos2 + i].format_digit());
+                        upper.push("|  gaps  |".to_string());
+                        middle.push("          ".to_string());
+                        lower.push(format!("{}",self.read2[pos2 + i]));
                     }
                     pos2 += l;
                 }
                 &Ed::DownGap(l) => {
                     for i in 0..l {
-                        upper.push(self.read1[pos1 + i].format_digit());
-                        middle.push("       ".to_string());
-                        lower.push("| gap |".to_string());
+                        upper.push(format!("{}",self.read1[pos1 + i]));
+                        middle.push("          ".to_string());
+                        lower.push("|  gaps  |".to_string());
                     }
                     pos1 += l;
                 }

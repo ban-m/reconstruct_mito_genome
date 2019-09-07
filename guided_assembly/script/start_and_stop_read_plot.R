@@ -1,12 +1,23 @@
 lib <- .libPaths()
 .libPaths(lib[c(1,3,2)])
 library("stringi")
-
+loadNamespace("cowplot")
 library("tidyverse")
-source("~/work/generalplot.R")
+# source("~/work/generalplot.R")
 args <- commandArgs(trailingOnly = TRUE)
 ## args <- c("/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/mapback/guided_asm_sequel_canu.contigs.fasta.mapback.tsv",
 ##           "/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/mapback/guided_asm_sequel_canu.contigs.fasta.mapback.peaks.tsv")
+
+generalplot <- function(g,name){
+    cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
+                    plot = g + cowplot::theme_cowplot(font_size=12),
+                    dpi=350,width = 14,height = 7)
+    cowplot::ggsave(filename = paste0("./png/",name,".png"),
+                    plot = g + cowplot::theme_cowplot(font_size=12),
+                    dpi = 350,width = 14,height = 7)
+}
+
+
 
 outname <- basename(tools::file_path_sans_ext(args[1]))
 print(outname)
@@ -31,21 +42,25 @@ g <- sorted_data %>% ggplot(mapping = aes(y = number_of_read, x = position,
                                           color = type)) +
     geom_line(alpha=0.7) +
     facet_grid(refname ~ . ) +
-    scale_x_continuous(labels = scales::comma)##  +
-    ## ylim(c(0,50))
+    scale_x_continuous(labels = scales::comma) +
+    ylim(c(0,40)) + 
+    labs(y = "number of read", x = "position(bp)",
+         title = "# of start/stop read at each genomic position") 
 generalplot(g,paste0(outname,"start_and_stop"))
-
 g <- sorted_data %>% ggplot(mapping = aes(y = number_of_read, x = position,
                                           color = type)) +
     geom_line(alpha=0.7) +
-    geom_segment(mapping = aes(x = position,y = 0, xend = position, yend = 50,
+    geom_segment(mapping = aes(x = position,y = 0, xend = position, yend = 30,
                                alpha = 0.3,
                                size = 8,
                                colour = type),
                  data = peaks) + 
     facet_grid(refname ~ . ) +
-    scale_x_continuous(labels = scales::comma)##  + 
-    ## ylim(c(0,50))
+    ylim(c(0,40)) + 
+    scale_x_continuous(labels = scales::comma) +
+    labs(y = "number of read", x = "position(bp)",
+         title = "# of start/stop read at each genomic position")
+
 generalplot(g,paste0(outname,"start_and_stop_withpeak"))
 
 #### ==== For Canu ====
@@ -54,7 +69,11 @@ plot_by_name <- function(data, ctg_name){
         ggplot(mapping = aes(x = position, y = number_of_read,
                              color = type)) +
         geom_line() +
-        scale_x_continuous(labels = scales::comma)
+        ylim(c(0,40)) + 
+        scale_x_continuous(labels = scales::comma) +
+        labs(y = "number of read", x = "position(bp)",
+               title = "# of start/stop read at each genomic position")
+    
     generalplot(g,outname %s+% "." %s+% ctg_name %s+% ".start_and_stop")
     1
 }

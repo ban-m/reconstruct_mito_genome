@@ -4,7 +4,7 @@ extern crate bio;
 // use std::fs;
 // use std::collections::HashMap;
 // use std::io::{BufRead,BufReader};
-fn main()->std::io::Result<()>{
+fn main() -> std::io::Result<()> {
     // let args:Vec<_> = std::env::args().collect();
     // let reads:HashMap<_,_>  = io::fasta::Reader::from_file(&Path::new(&args[1]))?
     // .records()
@@ -17,7 +17,7 @@ fn main()->std::io::Result<()>{
     //     .filter_map(|e|e.ok())
     //     .filter_map(|e|{
     //         let e:Vec<_> = e.split('\t').collect();
-    //         let pos = 
+    //         let pos =
     //     })
     //     ;
     // let mut wtr = io::fasta::Writer::new(std::io::stdout());
