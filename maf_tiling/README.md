@@ -16,3 +16,4 @@ cargo run --release --bin encode -- [read<FASTA>] [maf<MAF>] [split<TSV>] > [enc
 The output file is a binary file encoded via MassegePack encoding.
 
 To see more detail about the program, see documentation.
+
