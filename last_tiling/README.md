@@ -18,5 +18,3 @@ The output file is a binary file encoded via MassegePack encoding.
 To see more detail about the program, see documentation.
 
 ## ToDo
-Implement encoding
-Change peak call from just stop to start and stop mark.

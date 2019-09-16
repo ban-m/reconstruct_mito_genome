@@ -73,7 +73,7 @@ impl AlignInfo {
     }
     fn seqstart_from_forward(&self) -> usize {
         match self.direction {
-            Strand::Forward => self.seqlen,
+            Strand::Forward => self.seqstart,
             Strand::Reverse => self.seqlen + 1 - self.matchlen - self.seqstart,
         }
     }
@@ -115,8 +115,7 @@ impl LastTAB {
         let seq1_information = AlignInfo::from_splits(&line[1..=5])?;
         let seq2_information = AlignInfo::from_splits(&line[6..=10])?;
         let alignment = line[11].to_string();
-        let (mut eg2, mut e) = (2., 3.);
-        eprintln!("{},{}", &line[12], &line[13]);
+        let (mut eg2, mut e) = (2., 3.); // Dummy values
         if line[12].starts_with("E=") {
             e = match line[12][2..].parse() {
                 Ok(res) => res,
@@ -127,14 +126,12 @@ impl LastTAB {
                 Ok(res) => res,
                 Err(why) => panic!("{},{}", why, &line[12][4..]),
             };
-            eprintln!("{}", eg2);
         };
         if line[13].starts_with("E=") {
             e = match line[13][2..].parse() {
                 Ok(res) => res,
                 Err(why) => panic!("{},{}", why, &line[13][2..]),
             };
-            eprintln!("{}", e);
         } else if line[13].starts_with("EG2=") {
             eg2 = match line[13][4..].parse() {
                 Ok(res) => res,
@@ -181,6 +178,12 @@ impl LastTAB {
     pub fn seq2_matchlen(&self) -> usize {
         self.seq2_information.matchlen
     }
+    pub fn seq1_end_from_forward(&self) -> usize {
+        self.seq1_start_from_forward() + self.seq1_matchlen()
+    }
+    pub fn seq2_end_from_forward(&self) -> usize {
+        self.seq2_start_from_forward() + self.seq2_matchlen()
+    }
     pub fn seq1_direction(&self) -> Strand {
         self.seq1_information.direction
     }
@@ -194,13 +197,27 @@ impl LastTAB {
         self.seq2_information.seqlen
     }
     pub fn alignment(&self) -> Vec<Op> {
-        self.alignment.split(',').map(Op::from_string).collect()
+        self.alignment.split(',').fold(vec![], |mut res, op| {
+            Op::from_string(&mut res, op);
+            res
+        })
     }
     pub fn e_score(&self) -> f64 {
         self.e
     }
     pub fn eg2_score(&self) -> f64 {
         self.eg2
+    }
+    // Return alignment length. Not the length of the reference nor the query.
+    pub fn alignment_length(&self) -> usize {
+        self.alignment()
+            .into_iter()
+            .map(|op| match op {
+                Op::Match(l) => l,
+                Op::Seq1In(l) => l,
+                Op::Seq2In(l) => l,
+            })
+            .sum()
     }
 }
 
@@ -216,18 +233,19 @@ pub enum Op {
 }
 
 impl Op {
-    fn from_string(input: &str) -> Self {
+    fn from_string(res: &mut Vec<Op>, input: &str) {
         if input.contains(':') {
             let mut input = input.split(':');
             let seq1 = input.next().and_then(|e| e.parse().ok()).unwrap();
             let seq2 = input.next().and_then(|e| e.parse().ok()).unwrap();
-            if seq1 == 0 {
-                Op::Seq2In(seq2)
-            } else {
-                Op::Seq1In(seq1)
+            if seq1 != 0 {
+                res.push(Op::Seq2In(seq1));
+            }
+            if seq2 != 0 {
+                res.push(Op::Seq1In(seq2));
             }
         } else {
-            Op::Match(input.parse().unwrap())
+            res.push(Op::Match(input.parse().unwrap()))
         }
     }
 }
@@ -256,17 +274,21 @@ mod tests {
             aln.alignment(),
             vec![
                 Match(10),
-                Seq1In(1),
-                Match(5),
-                Seq1In(1),
-                Match(3),
-                Seq1In(1),
+                Seq2In(1),
                 Match(5),
                 Seq2In(1),
+                Match(3),
+                Seq2In(1),
+                Match(5),
+                Seq1In(1),
                 Match(3)
             ]
         );
         assert_eq!(aln.e_score(), 6.6e-95);
         assert_eq!(aln.eg2_score(), 8.2e-86);
+        assert_eq!(aln.seq1_start_from_forward(), 98045);
+        assert_eq!(aln.seq1_end_from_forward(), 98045 + 539);
+        assert_eq!(aln.seq2_start_from_forward(), 1125 - 527 - 4 + 1);
+        assert_eq!(aln.seq2_end_from_forward(), 1125 - 4 + 1);
     }
 }
