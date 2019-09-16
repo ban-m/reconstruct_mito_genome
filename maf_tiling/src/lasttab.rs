@@ -71,6 +71,12 @@ impl AlignInfo {
             seqlen,
         })
     }
+    fn seqstart_from_forward(&self) -> usize {
+        match self.direction {
+            Strand::Forward => self.seqlen,
+            Strand::Reverse => self.seqlen + 1 - self.matchlen - self.seqstart,
+        }
+    }
 }
 
 /// A struct to represent a last's TAB-format alignment.
@@ -110,7 +116,7 @@ impl LastTAB {
         let seq2_information = AlignInfo::from_splits(&line[6..=10])?;
         let alignment = line[11].to_string();
         let (mut eg2, mut e) = (2., 3.);
-        eprintln!("{},{}",&line[12],&line[13]);
+        eprintln!("{},{}", &line[12], &line[13]);
         if line[12].starts_with("E=") {
             e = match line[12][2..].parse() {
                 Ok(res) => res,
@@ -121,14 +127,14 @@ impl LastTAB {
                 Ok(res) => res,
                 Err(why) => panic!("{},{}", why, &line[12][4..]),
             };
-            eprintln!("{}",eg2);
+            eprintln!("{}", eg2);
         };
         if line[13].starts_with("E=") {
             e = match line[13][2..].parse() {
                 Ok(res) => res,
                 Err(why) => panic!("{},{}", why, &line[13][2..]),
             };
-            eprintln!("{}",e);
+            eprintln!("{}", e);
         } else if line[13].starts_with("EG2=") {
             eg2 = match line[13][4..].parse() {
                 Ok(res) => res,
@@ -156,8 +162,18 @@ impl LastTAB {
     pub fn seq1_start(&self) -> usize {
         self.seq1_information.seqstart
     }
+    /// The location where the alignment start,
+    /// counted from the start position of the sequence, regardless of the strand.
+    /// Thus, if the strand is reversed, the actual alignment starts from seq[start+len] and
+    /// end at seq[start], in rev cmp manner.
+    pub fn seq1_start_from_forward(&self) -> usize {
+        self.seq1_information.seqstart_from_forward()
+    }
     pub fn seq2_start(&self) -> usize {
         self.seq2_information.seqstart
+    }
+    pub fn seq2_start_from_forward(&self) -> usize {
+        self.seq2_information.seqstart_from_forward()
     }
     pub fn seq1_matchlen(&self) -> usize {
         self.seq1_information.matchlen

@@ -12,6 +12,9 @@
 use bio_utils::fasta;
 
 use std::collections::BTreeMap;
+/// The struct to define units.
+/// Inside this struct, reference contigs and
+/// definition of units are there.
 #[derive(Deserialize, Serialize, Debug, Default)]
 pub struct UnitDefinitions {
     // This is the index of the contig.
@@ -27,7 +30,7 @@ impl UnitDefinitions {
             .enumerate()
             .map(|(idx, e)| (e.id().to_string(), idx as u16))
             .collect();
-        let mut units:Vec<_> = peak_file
+        let mut units: Vec<_> = peak_file
             .lines()
             .filter_map(|e| {
                 let mut e = e.split('\t');
@@ -44,7 +47,34 @@ impl UnitDefinitions {
             units,
         }
     }
+    /// Return the reference to the fasta record with specified ID. If there's no
+    /// entry for the query, return None.
+    pub fn get_reference_sequence(&self, id: &str) -> Option<&fasta::Record> {
+        self.contig_index
+            .get(id)
+            .and_then(|&i| self.contigs.get(i as usize))
+    }
+    /// Return the definition of most nearest unit with smaller index.
+    pub fn definition(&self, id: &str, position: usize) -> Option<Unit> {
+        let contig = *self.contig_index.get(id)?;
+        let start = position;
+        let end = start;
+        let probe = Unit { contig, start, end };
+        match self.units.binary_search(&probe) {
+            Ok(res) => self.units.get(res).cloned(),
+            Err(res) => self.units.get(res).cloned(),
+        }
+    }
+    /// Pull the determined units. If it is not the encoded one,
+    /// it returns None.
+    pub fn pull_unit(&self, unit: &Unit) -> Option<&[u8]> {
+        self.contigs
+            .get(unit.contig() as usize)
+            .map(|fasta| &fasta.seq()[unit.start()..unit.end()])
+    }
 }
+
+/// The definition of the unit.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Unit {
     contig: u16,
@@ -53,8 +83,17 @@ pub struct Unit {
 }
 
 impl Unit {
-    fn new(contig: u16, start: usize, end: usize) -> Self {
+    pub fn new(contig: u16, start: usize, end: usize) -> Self {
         Self { contig, start, end }
+    }
+    pub fn contig(&self) -> u16 {
+        self.contig
+    }
+    pub fn start(&self) -> usize {
+        self.start
+    }
+    pub fn end(&self) -> usize {
+        self.end
     }
 }
 
