@@ -6,8 +6,8 @@ use std::fmt;
 /// It should be used with the corresponding UnitDefinitions.
 #[derive(Debug, Default, Clone)]
 pub struct EncodedRead {
-    id: String,
-    seq: Vec<ChunkedUnit>,
+    pub id: String,
+    pub seq: Vec<ChunkedUnit>,
 }
 
 impl EncodedRead {
@@ -35,8 +35,8 @@ pub enum ChunkedUnit {
 impl fmt::Display for ChunkedUnit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::En(encode) => write!(f, "Encode({})",encode),
-            Self::Gap(gap) => write!(f, "Gap({})",gap),
+            Self::En(encode) => write!(f, "Encode({})", encode),
+            Self::Gap(gap) => write!(f, "Gap({})", gap),
         }
     }
 }
@@ -49,6 +49,12 @@ pub struct GapUnit {
 impl fmt::Display for GapUnit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.bases.len())
+    }
+}
+
+impl fmt::Debug for GapUnit {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", String::from_utf8_lossy(&self.bases))
     }
 }
 
@@ -69,19 +75,13 @@ impl GapUnit {
     }
 }
 
-impl fmt::Debug for GapUnit {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(&String::from_utf8_lossy(&self.bases))
-    }
-}
-
 #[derive(Debug, Default, Clone)]
 pub struct Encode {
-    contig: u16,
-    unit: u16,
-    subunit: u16,
-    bases: Vec<u8>,
-    ops: Vec<lasttab::Op>,
+    pub contig: u16,
+    pub unit: u16,
+    pub subunit: u16,
+    pub bases: Vec<u8>,
+    pub ops: Vec<lasttab::Op>,
 }
 
 impl fmt::Display for Encode {
@@ -109,5 +109,34 @@ impl Encode {
     pub fn set_ops(&mut self, ops: &[lasttab::Op]) {
         self.ops.clear();
         self.ops.extend(ops);
+    }
+    pub fn view(&self, refr: &[u8]) {
+        let (mut r, mut q) = (0, 0);
+        let (mut rs, mut qs) = (vec![], vec![]);
+        for op in &self.ops {
+            match op {
+                lasttab::Op::Match(l) => {
+                    rs.extend(&refr[r..r + l]);
+                    qs.extend(&self.bases[q..q + l]);
+                    r += l;
+                    q += l;
+                }
+                lasttab::Op::Seq1In(l) => {
+                    rs.extend(&vec![b'-'; *l]);
+                    qs.extend(&self.bases[q..q + l]);
+                    q += l;
+                }
+                lasttab::Op::Seq2In(l) => {
+                    rs.extend(&refr[r..r + l]);
+                    qs.extend(&vec![b'-'; *l]);
+                    r += l;
+                }
+            }
+        }
+        println!("{}", String::from_utf8_lossy(&rs[..100]));
+        println!("{}", String::from_utf8_lossy(&qs[..100]));
+        println!("{}", String::from_utf8_lossy(&rs[100..]));
+        println!("{}", String::from_utf8_lossy(&qs[100..]));
+
     }
 }

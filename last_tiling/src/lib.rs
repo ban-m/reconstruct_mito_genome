@@ -10,8 +10,8 @@ extern crate bio_utils;
 use bio_utils::fasta;
 mod peak;
 pub use peak::UnitDefinitions;
-mod unit;
-use peak::SUBUNIT_SIZE;
+pub mod unit;
+pub use peak::SUBUNIT_SIZE;
 pub use unit::EncodedRead;
 pub mod lasttab;
 use lasttab::LastTAB;
@@ -58,6 +58,7 @@ pub fn encoding(
         .into_iter()
         .zip(fasta.iter())
         .map(|(bucket, seq)| into_encoding(bucket, seq, defs))
+        .take(1)
         .inspect(|read| debug!("{}", read))
         .collect()
 }
@@ -110,8 +111,9 @@ fn into_encoding(
 }
 
 #[inline]
-fn revcmp(seq: &[u8]) -> Vec<u8> {
+pub fn revcmp(seq: &[u8]) -> Vec<u8> {
     seq.into_iter()
+        .rev()
         .map(|&e| match e {
             b'A' | b'a' => b'T',
             b'C' | b'c' => b'G',
@@ -129,12 +131,16 @@ fn chop_reference_into_chunk(
     end: usize,
 ) -> (usize, usize, Vec<ChunkedUnit>) {
     // First, determine the location to start tiling.
-    let encode_start = if def.definition(id, start) == def.definition(id, start + SUBUNIT_SIZE) {
-        let unit = def.definition(id, start).unwrap();
-        unit.start() + ((start - unit.start()) / SUBUNIT_SIZE + 1) * SUBUNIT_SIZE
-    } else {
-        let unit = def.definition(id, start + SUBUNIT_SIZE).unwrap();
-        unit.start()
+    let encode_start = {
+        // If the first subunit crossing boundary, skip to the next unit.
+        let current_unit = def.definition(id, start).unwrap();
+        let next_unit = def.definition(id, start + SUBUNIT_SIZE).unwrap();
+        if current_unit == next_unit {
+            current_unit.start()
+                + ((start - current_unit.start()) / SUBUNIT_SIZE + 1) * SUBUNIT_SIZE
+        } else {
+            next_unit.start()
+        }
     };
     assert!(start <= encode_start);
     let mut chunks = vec![];
@@ -144,8 +150,10 @@ fn chop_reference_into_chunk(
         assert!(pos <= unit.end(), "{:?},{}", unit, pos);
         let remaining = unit.end() - pos;
         if remaining < SUBUNIT_SIZE && end < SUBUNIT_SIZE + pos + remaining {
+            // Too near the boundary and there's no additional unit.
             break;
         } else if remaining < SUBUNIT_SIZE {
+            // Too near the boundary. Go to next unit.
             chunks.push(ChunkedUnit::Gap(GapUnit::new(&vec![b'-'; remaining])));
             pos = unit.end();
         } else {
@@ -168,42 +176,47 @@ fn aln_to_encode(
     def: &UnitDefinitions,
     seq: &[u8],
 ) -> (Vec<ChunkedUnit>, usize, usize) {
-    let seq = match aln.seq2_direction() {
-        lasttab::Strand::Forward => seq.to_vec(),
-        lasttab::Strand::Reverse => revcmp(seq),
-    };
-    let ctgname = aln.seq1_name();
-    debug!("Ctgname:{}", ctgname);
-    // First, chunk the reference into subunits.
-    let (ref_encode_start, _ref_encode_end, chunks) =
-        chop_reference_into_chunk(def, ctgname, aln.seq1_start(), aln.seq1_end_from_forward());
-    let (mut ops, read_encode_start) = seek_to_head(aln, ref_encode_start);
     debug!("Refr:{}-{}", aln.seq1_start(), aln.seq1_end_from_forward());
     debug!(
         "Read:{}-{}",
         aln.seq2_start_from_forward(),
         aln.seq2_end_from_forward()
     );
+    let seq = match aln.seq2_direction() {
+        lasttab::Strand::Forward => seq.to_vec(),
+        lasttab::Strand::Reverse => revcmp(seq),
+    };
+    let ctgname = aln.seq1_name();
+    let refr = def.get_reference_sequence(aln.seq1_name()).unwrap().seq();
+    debug!("Ctgname:{}", ctgname);
+    // First, chunk the reference into subunits.
+    debug!("{:?}", aln);
+    let (rs, qs) = recover(aln, &refr, &seq);
+    let dig = 100;
+    for i in 0..rs.len() / dig {
+        debug!("{}", String::from_utf8_lossy(&rs[i * dig..(i + 1) * dig]));
+        debug!("{}", String::from_utf8_lossy(&qs[i * dig..(i + 1) * dig]));
+        debug!("");
+    }
+    let (ref_encode_start, _, chunks) =
+        chop_reference_into_chunk(def, ctgname, aln.seq1_start(), aln.seq1_end_from_forward());
+    debug!("{:?}", chunks);
+    let (mut ops, read_encode_start) = seek_to_head(aln, ref_encode_start);
     let mut read_pos = read_encode_start;
     let mut refr_pos = ref_encode_start;
-    {
-        debug!(
-            "ReadLen:{}\tMatchLen:{}",
-            aln.alignment()
-                .into_iter()
-                .map(|e| match e {
-                    Op::Match(l) => l,
-                    Op::Seq1In(l) => l,
-                    _ => 0,
-                })
-                .sum::<usize>(),
-            aln.seq2_matchlen()
-        );
-    }
+    // debug!(
+    //     "Read:{}",
+    //     String::from_utf8_lossy(&seq[aln.seq2_start()..read_pos])
+    // );
+    // debug!(
+    //     "Refr:{}",
+    //     String::from_utf8_lossy(&refr[aln.seq1_start()..refr_pos])
+    // );
+
     let chunks: Vec<_> = chunks
         .into_iter()
         .filter_map(|chunk| {
-            debug!("Refr:{}\nRead:{}", refr_pos, read_pos);
+            debug!("Refr:{}, Read:{}", refr_pos, read_pos);
             if stop < read_pos {
                 return None;
             }
@@ -214,6 +227,7 @@ fn aln_to_encode(
                     //  the length in the read.
                     let (read_len, _) = seek_len(ref_len, &mut ops);
                     gu.set_bases(&seq[read_pos..read_pos + read_len]);
+
                     read_pos += read_len;
                     refr_pos += ref_len;
                     Some(ChunkedUnit::Gap(gu))
@@ -233,18 +247,21 @@ fn aln_to_encode(
     (chunks, read_encode_start, read_pos)
 }
 
+// Seek ops to `len` length.
 fn seek_len(len: usize, ops: &mut Vec<Op>) -> (usize, Vec<Op>) {
+    debug!("{}",len);
     let mut read_len = 0;
     let mut refr_len = 0;
     let mut popped_ops = vec![];
     while refr_len < len {
+        // debug!("{},{}",refr_len,read_len);
         match ops.pop().unwrap() {
             Op::Match(l) => {
                 if len < refr_len + l {
                     ops.push(Op::Match(refr_len + l - len));
                     popped_ops.push(Op::Match(len - refr_len));
+                    read_len += len - refr_len;
                     refr_len = len;
-                    read_len += refr_len + l - len;
                 } else {
                     refr_len += l;
                     read_len += l;
@@ -316,11 +333,90 @@ fn distribute<'a>(fasta: &[fasta::Record], alns: &'a [LastTAB]) -> Vec<Vec<&'a L
     }
     alignments_bucket
 }
+fn recover(aln: &LastTAB, refr: &[u8], query: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    let (mut r, mut q) = (aln.seq1_start(), aln.seq2_start());
+    let ops = aln.alignment();
+    let (mut rs, mut qs) = (vec![], vec![]);
+    for op in ops {
+        match op {
+            Op::Match(l) => {
+                rs.extend(&refr[r..r + l]);
+                qs.extend(&query[q..q + l]);
+                r += l;
+                q += l;
+            }
+            Op::Seq1In(l) => {
+                rs.extend(&vec![b'-'; l]);
+                qs.extend(&query[q..q + l]);
+                q += l;
+            }
+            Op::Seq2In(l) => {
+                qs.extend(&vec![b'-'; l]);
+                rs.extend(&refr[r..r + l]);
+                r += l;
+            }
+        }
+    }
+    (rs, qs)
+}
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     #[test]
     fn it_works() {
         assert_eq!(2 + 2, 4);
+    }
+    #[test]
+    fn seek_test() {
+        use lasttab::Op::*;
+        let ops = vec![
+            Match(10),
+            Seq1In(3),
+            Seq2In(4),
+            Match(10),
+            Seq1In(5),
+            Match(2),
+            Seq2In(3),
+            Match(4),
+        ];
+        let len = 4;
+        let mut res = ops.clone();
+        let (r_len, popped) = seek_len(len, &mut res);
+        assert_eq!(r_len, 4);
+        assert_eq!(popped, vec![Match(4)]);
+        {
+            let mut ans = ops.clone();
+            ans.pop();
+            assert_eq!(res, ans);
+        }
+        let len = 14;
+        let mut res = ops.clone();
+        let (r_len, popped) = seek_len(len, &mut res);
+        assert_eq!(r_len, 11);
+        assert_eq!(
+            popped,
+            vec![Match(4), Seq2In(3), Match(2), Seq1In(5), Match(5)]
+        );
+        {
+            let mut ans = ops.clone();
+            (0..5).for_each(|_| {
+                ans.pop().unwrap();
+            });
+            ans.push(Match(5));
+            assert_eq!(res, ans);
+        }
+        let len = 5;
+        let mut res = ops.clone();
+        let (r_len, popped) = seek_len(len, &mut res);
+        assert_eq!(r_len, 4);
+        assert_eq!(popped, vec![Match(4), Seq2In(1)]);
+        {
+            let mut ans = ops.clone();
+            ans.pop();
+            ans.pop();
+            ans.push(Seq2In(2));
+            assert_eq!(res, ans);
+        }
     }
 }

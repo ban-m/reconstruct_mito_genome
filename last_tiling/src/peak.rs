@@ -112,6 +112,14 @@ impl UnitDefinitions {
             .get(unit.contig() as usize)
             .map(|fasta| &fasta.seq()[unit.start()..unit.end()])
     }
+    /// return unit.
+    pub fn search_unit(&self, contig: u16, num: u16) -> Option<Peak> {
+        self.peaks
+            .iter()
+            .filter(|e| e.contig == contig && e.num == num)
+            .nth(0)
+            .copied()
+    }
 }
 
 /// The definition of the unit.

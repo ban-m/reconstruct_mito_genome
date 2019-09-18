@@ -14,7 +14,25 @@ fn main() -> std::io::Result<()> {
     debug!("\nPeak call files:{}", peaks);
     let fasta = bio_utils::fasta::parse_into_vec(&args[4])?;
     debug!("Read num\t{}", fasta.len());
-    let encoded_read = last_tiling::encoding(&fasta, &peaks, &alignments);
-    debug!("Encoded:\t{}",encoded_read.len());
+    let encoded_reads = last_tiling::encoding(&fasta, &peaks, &alignments);
+    debug!("Encoded:\t{}", encoded_reads.len());
+    for read in encoded_reads {
+        for unit in &read.seq {
+            match unit {
+                last_tiling::unit::ChunkedUnit::En(encode) => {
+                    let peak = peaks.search_unit(encode.contig, encode.unit).unwrap();
+                    let pulled = peaks.pull_unit(&peak).unwrap();
+                    let refr = &pulled[last_tiling::SUBUNIT_SIZE * encode.subunit as usize
+                        ..last_tiling::SUBUNIT_SIZE * (encode.subunit + 1) as usize];
+                    encode.view(refr);
+                    println!();
+                }
+
+                last_tiling::unit::ChunkedUnit::Gap(gap) => {
+                    debug!("{:?}", gap);
+                }
+            }
+        }
+    }
     Ok(())
 }
