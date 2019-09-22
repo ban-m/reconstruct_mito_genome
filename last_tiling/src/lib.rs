@@ -58,8 +58,9 @@ pub fn encoding(
         .into_iter()
         .zip(fasta.iter())
         .map(|(bucket, seq)| into_encoding(bucket, seq, defs))
-        .take(1)
-        .inspect(|read| debug!("{}", read))
+        // .enumerate()
+        // .inspect(|(idx, read)| debug!("{},{}", idx, read))
+        // .map(|(_, read)| read)
         .collect()
 }
 
@@ -73,8 +74,19 @@ fn into_encoding(
         return EncodedRead::from(seq.id().to_string(), read);
     }
     debug!("Encoding {} alignments", bucket.len());
+    debug!("Read:{},{}len", seq.id(), seq.seq().len());
     let bucket = filter_contained_alignment(bucket);
     debug!("Filter contained. Remain {} alignments", bucket.len());
+    for aln in &bucket {
+        debug!(
+            "{}-{}({}:{}-{})",
+            aln.seq2_start_from_forward(),
+            aln.seq2_end_from_forward(),
+            aln.seq1_name(),
+            aln.seq1_start_from_forward(),
+            aln.seq1_end_from_forward()
+        );
+    }
     let mut start_pos = 0;
     let mut read = vec![];
     let bases = seq.seq();
@@ -92,6 +104,7 @@ fn into_encoding(
             read.push(gapunit);
         }
         read.append(&mut encodes);
+        debug!("SP:{}->{}",start_pos,end);
         start_pos = end;
     }
     if let Some(last) = bucket.last() {
@@ -190,33 +203,36 @@ fn aln_to_encode(
     let refr = def.get_reference_sequence(aln.seq1_name()).unwrap().seq();
     debug!("Ctgname:{}", ctgname);
     // First, chunk the reference into subunits.
-    debug!("{:?}", aln);
-    let (rs, qs) = recover(aln, &refr, &seq);
-    let dig = 100;
-    for i in 0..rs.len() / dig {
-        debug!("{}", String::from_utf8_lossy(&rs[i * dig..(i + 1) * dig]));
-        debug!("{}", String::from_utf8_lossy(&qs[i * dig..(i + 1) * dig]));
-        debug!("");
-    }
+    // debug!("{:?}", aln);
+    // let (rs, qs) = recover(aln, &refr, &seq);
+    // let dig = 100;
+    // for i in 0..rs.len() / dig {
+    //     debug!("{}", String::from_utf8_lossy(&rs[i * dig..(i + 1) * dig]));
+    //     debug!("{}", String::from_utf8_lossy(&qs[i * dig..(i + 1) * dig]));
+    //     debug!("");
+    // }
     let (ref_encode_start, _, chunks) =
         chop_reference_into_chunk(def, ctgname, aln.seq1_start(), aln.seq1_end_from_forward());
-    debug!("{:?}", chunks);
+    debug!("{:?},{}", chunks,ref_encode_start);
+    if chunks.is_empty(){
+        return (vec![],0,aln.seq2_end_from_forward())
+    }
     let (mut ops, read_encode_start) = seek_to_head(aln, ref_encode_start);
     let mut read_pos = read_encode_start;
     let mut refr_pos = ref_encode_start;
-    // debug!(
-    //     "Read:{}",
-    //     String::from_utf8_lossy(&seq[aln.seq2_start()..read_pos])
-    // );
-    // debug!(
-    //     "Refr:{}",
-    //     String::from_utf8_lossy(&refr[aln.seq1_start()..refr_pos])
-    // );
+    debug!(
+        "Read:{}",
+        String::from_utf8_lossy(&seq[aln.seq2_start()..read_pos])
+    );
+    debug!(
+        "Refr:{}",
+        String::from_utf8_lossy(&refr[aln.seq1_start()..refr_pos])
+    );
 
     let chunks: Vec<_> = chunks
         .into_iter()
         .filter_map(|chunk| {
-            debug!("Refr:{}, Read:{}", refr_pos, read_pos);
+            // debug!("Refr:{}, Read:{}", refr_pos, read_pos);
             if stop < read_pos {
                 return None;
             }
@@ -249,7 +265,7 @@ fn aln_to_encode(
 
 // Seek ops to `len` length.
 fn seek_len(len: usize, ops: &mut Vec<Op>) -> (usize, Vec<Op>) {
-    debug!("{}",len);
+    // debug!("{}",len);
     let mut read_len = 0;
     let mut refr_len = 0;
     let mut popped_ops = vec![];
@@ -297,15 +313,38 @@ fn seek_to_head(aln: &LastTAB, ref_encode_start: usize) -> (Vec<Op>, usize) {
 }
 
 fn filter_contained_alignment<'a>(mut bucket: Vec<&'a LastTAB>) -> Vec<&'a LastTAB> {
-    bucket.sort_by_key(|aln| aln.seq2_start_from_forward());
+    use std::cmp::Ordering;
+    bucket.sort_by(|aln1, aln2| {
+        if aln1.seq2_start_from_forward() < aln2.seq2_start_from_forward() {
+            Ordering::Less
+        } else if aln1.seq2_start_from_forward() > aln2.seq2_start_from_forward() {
+            Ordering::Greater
+        } else if aln1.score() > aln2.score() {
+            Ordering::Less
+        } else if aln1.score() < aln2.score() {
+            Ordering::Greater
+        } else {
+            Ordering::Equal
+        }
+    });
+    for aln in &bucket {
+        debug!(
+            "{}-{}({}:{}-{})",
+            aln.seq2_start_from_forward(),
+            aln.seq2_end_from_forward(),
+            aln.seq1_name(),
+            aln.seq1_start_from_forward(),
+            aln.seq1_end_from_forward()
+        );
+    }
     let (mut start, mut end) = (0, 0);
     bucket
         .into_iter()
         .filter(|aln| {
             let s = aln.seq2_start_from_forward();
-            let e = aln.seq2_start_from_forward();
+            let e = aln.seq2_end_from_forward();
             assert!(start <= s);
-            if e < end {
+            if e <= end + 1 {
                 start = s;
                 false
             } else {
@@ -333,31 +372,39 @@ fn distribute<'a>(fasta: &[fasta::Record], alns: &'a [LastTAB]) -> Vec<Vec<&'a L
     }
     alignments_bucket
 }
-fn recover(aln: &LastTAB, refr: &[u8], query: &[u8]) -> (Vec<u8>, Vec<u8>) {
+
+pub fn recover(aln: &LastTAB, refr: &[u8], query: &[u8]) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     let (mut r, mut q) = (aln.seq1_start(), aln.seq2_start());
     let ops = aln.alignment();
-    let (mut rs, mut qs) = (vec![], vec![]);
+    let (mut rs, mut os, mut qs) = (vec![], vec![], vec![]);
     for op in ops {
         match op {
             Op::Match(l) => {
                 rs.extend(&refr[r..r + l]);
                 qs.extend(&query[q..q + l]);
+                let o = refr[r..r + l]
+                    .iter()
+                    .zip(query[q..q + l].iter())
+                    .map(|(a, b)| if a == b { b'|' } else { b'X' });
+                os.extend(o);
                 r += l;
                 q += l;
             }
             Op::Seq1In(l) => {
                 rs.extend(&vec![b'-'; l]);
                 qs.extend(&query[q..q + l]);
+                os.extend(&vec![b' '; l]);
                 q += l;
             }
             Op::Seq2In(l) => {
                 qs.extend(&vec![b'-'; l]);
                 rs.extend(&refr[r..r + l]);
+                os.extend(&vec![b' '; l]);
                 r += l;
             }
         }
     }
-    (rs, qs)
+    (rs, os, qs)
 }
 
 #[cfg(test)]

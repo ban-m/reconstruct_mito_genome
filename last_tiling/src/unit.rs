@@ -4,7 +4,7 @@ use std::fmt;
 
 /// A struct to represent encoded read.
 /// It should be used with the corresponding UnitDefinitions.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone,Serialize,Deserialize)]
 pub struct EncodedRead {
     pub id: String,
     pub seq: Vec<ChunkedUnit>,
@@ -13,6 +13,12 @@ pub struct EncodedRead {
 impl EncodedRead {
     pub fn from(id: String, seq: Vec<ChunkedUnit>) -> Self {
         Self { id, seq }
+    }
+    pub fn id(&self)->&str{
+        &self.id
+    }
+    pub fn seq(&self)->&[ChunkedUnit]{
+        &self.seq
     }
 }
 
@@ -26,7 +32,7 @@ impl fmt::Display for EncodedRead {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone,Serialize,Deserialize)]
 pub enum ChunkedUnit {
     En(Encode),
     Gap(GapUnit),
@@ -41,7 +47,7 @@ impl fmt::Display for ChunkedUnit {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone,Serialize,Deserialize)]
 pub struct GapUnit {
     bases: Vec<u8>,
 }
@@ -75,10 +81,10 @@ impl GapUnit {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone,Serialize,Deserialize)]
 pub struct Encode {
     pub contig: u16,
-    pub unit: u16,
+    pub uit: u16,
     pub subunit: u16,
     pub bases: Vec<u8>,
     pub ops: Vec<lasttab::Op>,
@@ -101,6 +107,12 @@ impl Encode {
             bases,
             ops,
         }
+    }
+    pub fn len(&self)->usize{
+        self.bases.len()
+    }
+    pub fn is_empty(&self)->bool{
+        self.bases.is_empty()
     }
     pub fn set_bases(&mut self, seq: &[u8]) {
         self.bases.clear();

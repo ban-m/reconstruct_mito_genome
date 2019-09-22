@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 rmp-serde = "*"
+serde_json = "*"
 bio_utils = {path = "../../bio_utils"}
 log = "*"
 env_logger = "*"

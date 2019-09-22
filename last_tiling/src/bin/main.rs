@@ -3,9 +3,13 @@ extern crate last_tiling;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
+extern crate serde;
+extern crate serde_json;
 use env_logger::Env;
+use std::io::{BufWriter, Write};
 fn main() -> std::io::Result<()> {
-    env_logger::from_env(Env::default().default_filter_or("debug")).init();
+    // env_logger::from_env(Env::default().default_filter_or("debug")).init();
+    env_logger::from_env(Env::default().default_filter_or("warn")).init();
     let args: Vec<_> = std::env::args().collect();
     info!("Start");
     let alignments = last_tiling::parse_tab_file(&args[1])?;
@@ -16,23 +20,31 @@ fn main() -> std::io::Result<()> {
     debug!("Read num\t{}", fasta.len());
     let encoded_reads = last_tiling::encoding(&fasta, &peaks, &alignments);
     debug!("Encoded:\t{}", encoded_reads.len());
-    for read in encoded_reads {
-        for unit in &read.seq {
-            match unit {
-                last_tiling::unit::ChunkedUnit::En(encode) => {
-                    let peak = peaks.search_unit(encode.contig, encode.unit).unwrap();
-                    let pulled = peaks.pull_unit(&peak).unwrap();
-                    let refr = &pulled[last_tiling::SUBUNIT_SIZE * encode.subunit as usize
-                        ..last_tiling::SUBUNIT_SIZE * (encode.subunit + 1) as usize];
-                    encode.view(refr);
-                    println!();
-                }
-
-                last_tiling::unit::ChunkedUnit::Gap(gap) => {
-                    debug!("{:?}", gap);
-                }
-            }
-        }
+    let out = std::io::stdout();
+    let mut out = BufWriter::new(out.lock());
+    for read in &encoded_reads {
+        writeln!(&mut out, "{}", read)?;
     }
-    Ok(())
+    eprintln!("Output dump");
+    let mut wtr = std::fs::File::create("peaks.json")?;
+    wtr.write_all(serde_json::ser::to_string_pretty(&peaks)?.as_bytes())?;
+    let mut wtr = std::fs::File::create("reads.json")?;
+    wtr.write_all(serde_json::ser::to_string(&encoded_reads)?.as_bytes())
+    // for unit in &read.seq {
+    //     match unit {
+    //         last_tiling::unit::ChunkedUnit::En(encode) => {
+    //             let peak = peaks.search_unit(encode.contig, encode.unit).unwrap();
+    //             let pulled = peaks.pull_unit(&peak).unwrap();
+    //             let refr = &pulled[last_tiling::SUBUNIT_SIZE * encode.subunit as usize
+    //                 ..last_tiling::SUBUNIT_SIZE * (encode.subunit + 1) as usize];
+    //             encode.view(refr);
+    //             println!();
+    //         }
+
+    //         last_tiling::unit::ChunkedUnit::Gap(gap) => {
+    //             debug!("{:?}", gap);
+    //         }
+    //     }
+    // }
+    // }
 }
