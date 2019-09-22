@@ -84,7 +84,7 @@ impl GapUnit {
 #[derive(Debug, Default, Clone,Serialize,Deserialize)]
 pub struct Encode {
     pub contig: u16,
-    pub uit: u16,
+    pub unit: u16,
     pub subunit: u16,
     pub bases: Vec<u8>,
     pub ops: Vec<lasttab::Op>,
