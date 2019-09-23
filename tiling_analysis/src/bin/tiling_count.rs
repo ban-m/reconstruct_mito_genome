@@ -1,40 +1,30 @@
+extern crate tiling_analysis;
 use std::collections::HashMap;
-use std::io::Read;
-
-fn count_line(line:&str)-> Vec<usize>{
-    let encoded = match line.split(':').nth(1){
-        Some(res) => res,
-        None => return vec![],
-    };
-    let mut units:Vec<_> = encoded
-        .split_whitespace()
-        .filter_map(|e|e.split('-').nth(0).and_then(|e|e.parse::<usize>().ok()))
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use tiling_analysis::encoded_read::*;
+fn main() -> std::io::Result<()> {
+    let args: Vec<_> = std::env::args().collect();
+    let reads: Vec<_> = BufReader::new(File::open(&args[1])?)
+        .lines()
+        .filter_map(|e| e.ok())
+        .filter_map(|e| EncodedRead::new(&e))
+        .filter(|e| !e.is_empty())
         .collect();
-    units.sort();
-    units.dedup();
-    units
-}
-
-fn count(file:&str)->std::io::Result<Vec<usize>>{
-    let mut file = std::fs::File::open(file)?;
-    let mut input = String::new();
-    file.read_to_string(&mut input)?;
-    Ok(input.lines().flat_map(count_line).collect())
-}
-
-fn count_from_file(file:&str)->std::io::Result<HashMap<usize, usize>>{
-    let mut result = HashMap::new();
-    for unit in count(file)?{
-        let count = result.entry(unit).or_insert(0);
-        *count += 1;
-    }
-    Ok(result)
-}
-
-fn main()->std::io::Result<()>{
-    let args:Vec<_> = std::env::args().collect();
-    for (unit, count) in count_from_file(&args[1])?{
-        println!("{}\t{}", unit,count);
+    let unit_count:HashMap<_,usize> =
+        reads
+            .into_iter()
+            .flat_map(|e| e.read)
+            .fold(HashMap::new(), |mut res, unit| {
+                let entry = res.entry(unit).or_default();
+                *entry += 1;
+                res
+            });
+    println!("ctg\tunit\tsubunit\tcount");
+    for (unit, count) in unit_count {
+        if let Unit::Encoded(ctg, unit, subunit) = unit {
+            println!("{}\t{}\t{}\t{}", ctg, unit, subunit, count);
+        }
     }
     Ok(())
 }
