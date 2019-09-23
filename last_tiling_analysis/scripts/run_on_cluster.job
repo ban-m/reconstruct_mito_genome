@@ -1,0 +1,20 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N Encode
+#$ -cwd
+#$ -pe smp 12
+#$ -e ./logfiles/run.log
+#$ -o ./logfiles/run.log
+#$ -V
+#$ -m e
+READ=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/filtered_reads.fasta
+REFERENCE=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/racon/canu.0.fa
+PEAK=/grid/ban-m/arabidopsis_thaliana/sequel/guided_asm/mapback/guided_asm_sequel_canu.contigs.fasta.mapback.peaks.tsv
+# mkdir -p data
+# cd data
+# lastdb -uNEAR -P 12 -R11 reference ${REFERENCE}
+# last-train -Q0 reference ${READ} -P12 > ./score.matrix
+# lastal -Q0 -f TAB -P 12 -p ./score.matrix reference ${READ} > ./mappings.entire.tab
+# cd ../
+cargo run --release --bin create_dataset \
+      -- ./data/mappings.entire.tab ${PEAK} ${REFERENCE} ${READ} > ./data/dump.txt
