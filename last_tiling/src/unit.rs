@@ -20,6 +20,10 @@ impl EncodedRead {
     pub fn seq(&self)->&[ChunkedUnit]{
         &self.seq
     }
+    // pub fn to_forward(&self)->Self{
+    // }
+    // pub fn fill_gap(&self)->Self{
+    // }
 }
 
 impl fmt::Display for EncodedRead {

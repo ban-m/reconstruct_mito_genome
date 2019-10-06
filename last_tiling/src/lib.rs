@@ -97,6 +97,9 @@ fn into_encoding(
         {
             aln_to_encode(&w[0], w[0].seq2_end_from_forward(), defs, bases)
         } else {
+            debug!("Overlapping aln");
+            debug!("{}",&w[0]);
+            debug!("{}",&w[1]);
             aln_to_encode(&w[1], w[1].seq2_start_from_forward(), defs, bases)
         };
         if start_pos < start {
@@ -104,7 +107,7 @@ fn into_encoding(
             read.push(gapunit);
         }
         read.append(&mut encodes);
-        debug!("SP:{}->{}",start_pos,end);
+        debug!("SP:{}->{}", start_pos, end);
         start_pos = end;
     }
     if let Some(last) = bucket.last() {
@@ -213,9 +216,9 @@ fn aln_to_encode(
     // }
     let (ref_encode_start, _, chunks) =
         chop_reference_into_chunk(def, ctgname, aln.seq1_start(), aln.seq1_end_from_forward());
-    debug!("{:?},{}", chunks,ref_encode_start);
-    if chunks.is_empty(){
-        return (vec![],0,aln.seq2_end_from_forward())
+    debug!("{:?},{}", chunks, ref_encode_start);
+    if chunks.is_empty() {
+        return (vec![], 0, stop);
     }
     let (mut ops, read_encode_start) = seek_to_head(aln, ref_encode_start);
     let mut read_pos = read_encode_start;
@@ -228,7 +231,6 @@ fn aln_to_encode(
         "Refr:{}",
         String::from_utf8_lossy(&refr[aln.seq1_start()..refr_pos])
     );
-
     let chunks: Vec<_> = chunks
         .into_iter()
         .filter_map(|chunk| {
