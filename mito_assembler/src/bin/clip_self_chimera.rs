@@ -3,7 +3,7 @@ extern crate rayon;
 use bio::alignment::pairwise;
 use bio::io::fasta;
 use rayon::prelude::*;
-const SCORE_THR: i32 = 100;
+const SCORE_THR: i32 = 80;
 const MAP_DIFF_THR: isize = 100;
 fn main() -> std::io::Result<()> {
     let start = std::time::Instant::now();
@@ -30,9 +30,11 @@ fn main() -> std::io::Result<()> {
 
 #[inline]
 fn trim_self_chimera(read: fasta::Record) -> fasta::Record {
-    let mut aligner = pairwise::Aligner::new(-4, -1, |a, b| if a == b { 1 } else { -1 });
     let seq = read.seq();
     let seq2 = bio::alphabets::dna::revcomp(seq);
+    let w = seq.len() * seq.len() / 12_000_000;
+    let mut aligner =
+        pairwise::banded::Aligner::new(-4, -1, |a, b| if a == b { 1 } else { -1 }, 5, w);
     let result = aligner.local(seq, &seq2);
     if let Some((start, end)) = determine(&result) {
         let seq = &read.seq()[start..end];
