@@ -1,7 +1,7 @@
 //! LastTAB is a struct to represent an alignment record produced by `last` program.
 
 /// The direction of the alignment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq,Serialize,Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Strand {
     /// The strand is forward.
     Forward,
@@ -21,11 +21,19 @@ impl std::fmt::Display for Strand {
         }
     }
 }
+impl Strand {
+    pub fn is_forward(&self) -> bool {
+        match self {
+            Self::Forward => true,
+            Self::Reverse => false,
+        }
+    }
+}
 
 /// This is the information of alignment for a single strand.
 /// Usually, a TAB-formatted alignment is losslessly represented by two `AlignInfo`
 /// , an alignment pattern, and scores.
-#[derive(Debug, Clone,Serialize,Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AlignInfo {
     /// The name of the sequence.
     seqname: String,
@@ -80,7 +88,7 @@ impl AlignInfo {
 }
 
 /// A struct to represent a last's TAB-format alignment.
-#[derive(Debug, Clone,Serialize,Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LastTAB {
     seq1_information: AlignInfo,
     seq2_information: AlignInfo,

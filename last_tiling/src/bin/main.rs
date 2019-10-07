@@ -8,17 +8,17 @@ extern crate serde_json;
 use env_logger::Env;
 use std::io::{BufWriter, Write};
 fn main() -> std::io::Result<()> {
-    // env_logger::from_env(Env::default().default_filter_or("debug")).init();
-    env_logger::from_env(Env::default().default_filter_or("warn")).init();
+    env_logger::from_env(Env::default().default_filter_or("debug")).init();
+    // env_logger::from_env(Env::default().default_filter_or("warn")).init();
     let args: Vec<_> = std::env::args().collect();
     info!("Start");
     let alignments = last_tiling::parse_tab_file(&args[1])?;
     debug!("Alignments:{}", alignments.len());
-    let peaks = last_tiling::parse_peak_file(&args[2], &args[3])?;
-    debug!("\nPeak call files:{}", peaks);
-    let fasta = bio_utils::fasta::parse_into_vec(&args[4])?;
+    let contigs = last_tiling::contig::Contigs::from_file(&args[2])?;
+    debug!("Contig files:\n{}", contigs);
+    let fasta = bio_utils::fasta::parse_into_vec(&args[3])?;
     debug!("Read num\t{}", fasta.len());
-    let encoded_reads = last_tiling::encoding(&fasta, &peaks, &alignments);
+    let encoded_reads = last_tiling::encoding(&fasta, &contigs, &alignments);
     debug!("Encoded:\t{}", encoded_reads.len());
     let out = std::io::stdout();
     let mut out = BufWriter::new(out.lock());
@@ -26,10 +26,10 @@ fn main() -> std::io::Result<()> {
         writeln!(&mut out, "{}", read)?;
     }
     eprintln!("Output dump");
-    let mut wtr = std::fs::File::create("peaks.json")?;
-    wtr.write_all(serde_json::ser::to_string_pretty(&peaks)?.as_bytes())?;
+    let mut wtr = std::fs::File::create("contigs.json")?;
+    wtr.write_all(serde_json::ser::to_string_pretty(&contigs)?.as_bytes())?;
     let mut wtr = std::fs::File::create("reads.json")?;
-    wtr.write_all(serde_json::ser::to_string(&encoded_reads)?.as_bytes())
+    wtr.write_all(serde_json::ser::to_string(&encoded_reads)?.as_bytes())?;
     // for unit in &read.seq {
     //     match unit {
     //         last_tiling::unit::ChunkedUnit::En(encode) => {
@@ -40,11 +40,11 @@ fn main() -> std::io::Result<()> {
     //             encode.view(refr);
     //             println!();
     //         }
-
     //         last_tiling::unit::ChunkedUnit::Gap(gap) => {
     //             debug!("{:?}", gap);
     //         }
     //     }
     // }
     // }
+    Ok(())
 }
