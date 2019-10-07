@@ -1,0 +1,74 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N workflow
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/workflow.log
+#$ -o ./logfiles/workflow.out
+#$ -V
+#$ -m e
+
+## ---- Variables ----
+##
+set -ue
+CORES=24
+READ=$1
+OUTPATH=$2
+REFERENCE=$3
+
+## ---- Setup ----
+
+rm -r ${OUTPATH}
+mkdir -p ${OUTPATH}
+samtools faidx ${REFERENCE} NC_003070.9 NC_003071.7 NC_003074.8 NC_003075.7 NC_003076.8 NC_000932.1 > ${OUTPATH}/genome_and_chr.fa
+samtools faidx ${REFERENCE} NC_037304.1 > ${OUTPATH}/mito.fa
+
+## ---- Initial filtering ----
+
+minimap2 -t 24 -x map-pb --secondary=no ${OUTPATH}/genome_and_chr.fa ${READ} | \
+    cargo run --release --bin filter_genomic_reads -- ${READ} \
+          > ${OUTPATH}/non_genomic_reads.fasta
+minimap2 -t 24 -x map-pb --secondary=no ${OUTPATH}/mito.fa ${OUTPATH}/non_genomic_reads.fasta |\
+    cargo run --release --bin select_mito_reads -- ${OUTPATH}/non_genomic_reads.fasta |\
+    cargo run --release --bin split_subreads |\
+    cargo run --release --bin filter_low_quality |\
+    cargo run --release --bin clip_self_chimera > \
+          ${OUTPATH}/filtered_read.fasta
+READ=${OUTPATH}/filtered_read.fasta
+
+## --- Initial contigs ----
+flye --pacbio-raw ${READ} --genome-size 1M \
+     --out-dir ${OUTPATH}/initial_asm \
+     --threads 24 --iteration 2 --meta 
+
+## --- Tiling ----
+
+ROOT=$PWD
+mkdir -p ${OUTPATH}/last_db
+cd ${OUTPATH}/last_db
+lastdb -P 24 -R 00 initial ${OUTPATH}/initial_asm/scaffolds.fasta
+last-train initial ${READ} > initial.matrix
+lastal -Q0 -f TAB -P 24 initial ${READ} -p initial.matrix -R00 > initial.tab
+lastal -Q0 -f MAF -P 24 initial ${READ} -p initial.matrix -R00 > initial.maf
+cd ${ROOT}
+exit 0;
+
+## --- Decompose ---
+
+# cargo run --release --bin decompose ${READ} ${ALIGN} ${CONTIGS} ${OUT_PATH}/decomposed
+
+## --- Re-assemble ---
+
+# for read in ${OUT_PATH}/decomposed/*.fasta
+# do
+#     NAME=${read%.fasta}
+#     flye --pacbio-raw ${READ} --genome-size 1M \
+#          --out-dir ${OUTPATH}/${NAME}_asm \
+#          --threads 24 --iteration 2 --meta 
+# done
+
+## --- Calc stats ----
+
+
+## --- Coding region prediction, circos plot, and downstream analysis ---
+

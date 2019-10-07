@@ -1,0 +1,11 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N test
+#$ -cwd
+#$ -pe smp 1
+#$ -e ./logfiles/test
+#$ -o ./logfiles/test
+#$ -V
+#$ -m e
+conda activate pbbioconda
+bam2fastq 
