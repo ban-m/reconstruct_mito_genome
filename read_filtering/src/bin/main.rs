@@ -25,7 +25,7 @@ fn pacbio_fasta(fasta: &str) -> std::io::Result<()> {
     let mut buffer :Vec<_> = Vec::with_capacity(10);
     let mut stdout = io::fasta::Writer::new(std::io::stdout());
     let parse_well = |id:&str|{
-        match id.rsplitn(2,'-').nth(1){
+        match id.rsplitn(2,'/').nth(1){
             Some(res) => res.to_string(),
             None => {eprintln!("{}",id);"".to_string()},
         }
