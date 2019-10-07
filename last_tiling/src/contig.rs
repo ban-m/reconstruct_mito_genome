@@ -56,6 +56,9 @@ impl Contigs {
     pub fn get_by_id_revcmp(&self, id: u16) -> Option<&[u8]> {
         self.names.get(id as usize).and_then(|e| self.get_revcmp(e))
     }
+    pub fn names(&self) -> &[String] {
+        &self.names
+    }
 }
 
 #[inline]

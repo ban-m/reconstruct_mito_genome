@@ -7,14 +7,16 @@ extern crate rmp_serde;
 #[macro_use]
 extern crate serde;
 extern crate bio_utils;
-use bio_utils::fasta;
 pub mod contig;
 pub mod unit;
-pub use unit::EncodedRead;
 pub mod lasttab;
-use contig::Contigs;
-use lasttab::LastTAB;
-use lasttab::Op;
+
+pub use contig::Contigs;
+pub use lasttab::LastTAB;
+pub use unit::EncodedRead;
+pub use lasttab::Op;
+
+use bio_utils::fasta;
 use std::collections::HashMap;
 use std::path::Path;
 use unit::*;
