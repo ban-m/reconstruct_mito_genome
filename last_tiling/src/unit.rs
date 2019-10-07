@@ -4,7 +4,7 @@ use std::fmt;
 
 /// A struct to represent encoded read.
 /// It should be used with the corresponding UnitDefinitions.
-#[derive(Debug, Default, Clone,Serialize,Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct EncodedRead {
     pub id: String,
     pub seq: Vec<ChunkedUnit>,
@@ -14,10 +14,10 @@ impl EncodedRead {
     pub fn from(id: String, seq: Vec<ChunkedUnit>) -> Self {
         Self { id, seq }
     }
-    pub fn id(&self)->&str{
+    pub fn id(&self) -> &str {
         &self.id
     }
-    pub fn seq(&self)->&[ChunkedUnit]{
+    pub fn seq(&self) -> &[ChunkedUnit] {
         &self.seq
     }
     // pub fn to_forward(&self)->Self{
@@ -36,7 +36,7 @@ impl fmt::Display for EncodedRead {
     }
 }
 
-#[derive(Debug, Clone,Serialize,Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ChunkedUnit {
     En(Encode),
     Gap(GapUnit),
@@ -51,9 +51,9 @@ impl fmt::Display for ChunkedUnit {
     }
 }
 
-#[derive(Clone,Serialize,Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct GapUnit {
-    bases: Vec<u8>,
+    bases: String,
 }
 
 impl fmt::Display for GapUnit {
@@ -64,13 +64,13 @@ impl fmt::Display for GapUnit {
 
 impl fmt::Debug for GapUnit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", String::from_utf8_lossy(&self.bases))
+        write!(f, "{}", &self.bases)
     }
 }
 
 impl GapUnit {
     pub fn new(seq: &[u8]) -> Self {
-        let bases = seq.to_vec();
+        let bases = String::from_utf8(seq.to_vec()).unwrap();
         Self { bases }
     }
     pub fn len(&self) -> usize {
@@ -81,65 +81,68 @@ impl GapUnit {
     }
     pub fn set_bases(&mut self, seq: &[u8]) {
         self.bases.clear();
-        self.bases.extend(seq);
+        self.bases.push_str(&String::from_utf8_lossy(seq));
     }
 }
 
-#[derive(Debug, Default, Clone,Serialize,Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Encode {
     pub contig: u16,
     pub unit: u16,
-    pub subunit: u16,
-    pub bases: Vec<u8>,
+    pub bases: String,
     pub ops: Vec<lasttab::Op>,
+    pub is_forward: bool,
 }
 
 impl fmt::Display for Encode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}:{}:{}", self.contig, self.unit, self.subunit)
+        let t = if self.is_forward { 'F' } else { 'R' };
+        write!(f, "{}:{}({})", self.contig, self.unit, t)
     }
 }
 
 impl Encode {
-    pub fn sketch(contig: u16, unit: u16, subunit: u16) -> Self {
-        let bases = vec![];
+    pub fn sketch(contig: u16, unit: u16, is_forward:bool) -> Self {
+        let bases = String::new();
         let ops = vec![];
         Self {
             contig,
             unit,
-            subunit,
             bases,
             ops,
+            is_forward
         }
     }
-    pub fn len(&self)->usize{
+    pub fn len(&self) -> usize {
         self.bases.len()
     }
-    pub fn is_empty(&self)->bool{
+    pub fn is_empty(&self) -> bool {
         self.bases.is_empty()
     }
     pub fn set_bases(&mut self, seq: &[u8]) {
         self.bases.clear();
-        self.bases.extend(seq);
+        self.bases.push_str(&String::from_utf8_lossy(seq));
     }
     pub fn set_ops(&mut self, ops: &[lasttab::Op]) {
         self.ops.clear();
         self.ops.extend(ops);
     }
+    // The reference should be consistent with the `is_forward` value.
     pub fn view(&self, refr: &[u8]) {
         let (mut r, mut q) = (0, 0);
+        let bases = self.bases.as_bytes();
         let (mut rs, mut qs) = (vec![], vec![]);
         for op in &self.ops {
             match op {
                 lasttab::Op::Match(l) => {
                     rs.extend(&refr[r..r + l]);
-                    qs.extend(&self.bases[q..q + l]);
+                    qs.extend(&bases[q..q + l]);
                     r += l;
                     q += l;
                 }
                 lasttab::Op::Seq1In(l) => {
                     rs.extend(&vec![b'-'; *l]);
-                    qs.extend(&self.bases[q..q + l]);
+                    qs.extend(&bases[q..q + l]);
                     q += l;
                 }
                 lasttab::Op::Seq2In(l) => {
@@ -153,6 +156,5 @@ impl Encode {
         println!("{}", String::from_utf8_lossy(&qs[..100]));
         println!("{}", String::from_utf8_lossy(&rs[100..]));
         println!("{}", String::from_utf8_lossy(&qs[100..]));
-
     }
 }

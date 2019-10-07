@@ -8,17 +8,17 @@ extern crate rmp_serde;
 extern crate serde;
 extern crate bio_utils;
 use bio_utils::fasta;
-mod peak;
-pub use peak::UnitDefinitions;
+pub mod contig;
 pub mod unit;
-pub use peak::SUBUNIT_SIZE;
 pub use unit::EncodedRead;
 pub mod lasttab;
+use contig::Contigs;
 use lasttab::LastTAB;
+use lasttab::Op;
 use std::collections::HashMap;
 use std::path::Path;
 use unit::*;
-
+pub const UNIT_SIZE: usize = 200;
 /// The function to parse Last's TAB format. To see more detail,
 /// see [lasttab] module.
 /// # Example
@@ -36,20 +36,7 @@ pub fn parse_tab_file<P: AsRef<Path>>(tab_file: P) -> std::io::Result<Vec<LastTA
         .collect())
 }
 
-pub fn parse_peak_file<P: AsRef<Path>>(
-    peak_file: P,
-    ctg_file: P,
-) -> std::io::Result<UnitDefinitions> {
-    let ctgs: Vec<_> = bio_utils::fasta::parse_into_vec(ctg_file)?;
-    let peaks = std::fs::read_to_string(peak_file)?;
-    Ok(peak::UnitDefinitions::open_peak_with_contigs(peaks, ctgs))
-}
-
-pub fn encoding(
-    fasta: &[fasta::Record],
-    defs: &UnitDefinitions,
-    alns: &[LastTAB],
-) -> Vec<EncodedRead> {
+pub fn encoding(fasta: &[fasta::Record], defs: &Contigs, alns: &[LastTAB]) -> Vec<EncodedRead> {
     // Distribute alignments to each reads.
     // bucket[i] is the alignment for fasta[i].
     let buckets = distribute(fasta, alns);
@@ -64,11 +51,7 @@ pub fn encoding(
         .collect()
 }
 
-fn into_encoding(
-    bucket: Vec<&LastTAB>,
-    seq: &fasta::Record,
-    defs: &UnitDefinitions,
-) -> EncodedRead {
+fn into_encoding(bucket: Vec<&LastTAB>, seq: &fasta::Record, defs: &Contigs) -> EncodedRead {
     if bucket.is_empty() {
         let read = vec![ChunkedUnit::Gap(GapUnit::new(seq.seq()))];
         return EncodedRead::from(seq.id().to_string(), read);
@@ -87,19 +70,18 @@ fn into_encoding(
             aln.seq1_end_from_forward()
         );
     }
-    let mut start_pos = 0;
-    let mut read = vec![];
+    let (mut start_pos, mut read) = (0, vec![]);
     let bases = seq.seq();
     for w in bucket.windows(2) {
-        // Determine whether we can useentire alignment of w[0].
-        let (mut encodes, start, end) = if w[0].score() > w[1].score()
-            || w[0].seq2_end_from_forward() < w[1].seq2_start_from_forward()
-        {
+        // Determine whether we can use entire alignment of w[0].
+        let former_name = w[0].seq1_name();
+        let later_name = w[1].seq1_name();
+        let (mut encodes, start, end) = if w[0].score() > w[1].score() || former_name < later_name {
             aln_to_encode(&w[0], w[0].seq2_end_from_forward(), defs, bases)
         } else {
             debug!("Overlapping aln");
-            debug!("{}",&w[0]);
-            debug!("{}",&w[1]);
+            debug!("{}", &w[0]);
+            debug!("{}", &w[1]);
             aln_to_encode(&w[1], w[1].seq2_start_from_forward(), defs, bases)
         };
         if start_pos < start {
@@ -110,18 +92,16 @@ fn into_encoding(
         debug!("SP:{}->{}", start_pos, end);
         start_pos = end;
     }
-    if let Some(last) = bucket.last() {
-        let (mut encodes, start, end) =
-            aln_to_encode(last, last.seq2_end_from_forward(), defs, bases);
-        if start_pos < start {
-            let gapunit = ChunkedUnit::Gap(GapUnit::new(&bases[start_pos..start]));
-            read.push(gapunit);
-        }
-        read.append(&mut encodes);
-        if end < bases.len() {
-            let gapunit = ChunkedUnit::Gap(GapUnit::new(&bases[end..]));
-            read.push(gapunit);
-        }
+    let last = bucket.last().unwrap();
+    let (mut encodes, start, end) = aln_to_encode(last, last.seq2_end_from_forward(), defs, bases);
+    if start_pos < start {
+        let gapunit = ChunkedUnit::Gap(GapUnit::new(&bases[start_pos..start]));
+        read.push(gapunit);
+    }
+    read.append(&mut encodes);
+    if end < bases.len() {
+        let gapunit = ChunkedUnit::Gap(GapUnit::new(&bases[end..]));
+        read.push(gapunit);
     }
     unit::EncodedRead::from(seq.id().to_string(), read)
 }
@@ -140,82 +120,26 @@ pub fn revcmp(seq: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-fn chop_reference_into_chunk(
-    def: &UnitDefinitions,
-    id: &str,
-    start: usize,
-    end: usize,
-) -> (usize, usize, Vec<ChunkedUnit>) {
-    // First, determine the location to start tiling.
-    let encode_start = {
-        // If the first subunit crossing boundary, skip to the next unit.
-        let current_unit = def.definition(id, start).unwrap();
-        let next_unit = def.definition(id, start + SUBUNIT_SIZE).unwrap();
-        if current_unit == next_unit {
-            current_unit.start()
-                + ((start - current_unit.start()) / SUBUNIT_SIZE + 1) * SUBUNIT_SIZE
-        } else {
-            next_unit.start()
-        }
-    };
-    assert!(start <= encode_start);
-    let mut chunks = vec![];
-    let mut pos = encode_start;
-    while pos + SUBUNIT_SIZE < end {
-        let unit = def.definition(id, pos).unwrap();
-        assert!(pos <= unit.end(), "{:?},{}", unit, pos);
-        let remaining = unit.end() - pos;
-        if remaining < SUBUNIT_SIZE && end < SUBUNIT_SIZE + pos + remaining {
-            // Too near the boundary and there's no additional unit.
-            break;
-        } else if remaining < SUBUNIT_SIZE {
-            // Too near the boundary. Go to next unit.
-            chunks.push(ChunkedUnit::Gap(GapUnit::new(&vec![b'-'; remaining])));
-            pos = unit.end();
-        } else {
-            let subunit = ((pos - unit.start()) / SUBUNIT_SIZE) as u16;
-            chunks.push(ChunkedUnit::En(Encode::sketch(
-                unit.contig(),
-                unit.num(),
-                subunit,
-            )));
-            pos += SUBUNIT_SIZE;
-        }
-    }
-    (encode_start, pos, chunks)
-}
-
+// (ChunkedAlignment, Start position of encoding, End position of encoding).
+// These locations are the position at the read, not references.
+type AlnToEncode = (Vec<ChunkedUnit>, usize, usize);
 // Stop is the location where the tiling stops, at `seq`.
-fn aln_to_encode(
-    aln: &LastTAB,
-    stop: usize,
-    def: &UnitDefinitions,
-    seq: &[u8],
-) -> (Vec<ChunkedUnit>, usize, usize) {
+fn aln_to_encode(aln: &LastTAB, stop: usize, def: &Contigs, seq: &[u8]) -> AlnToEncode {
     debug!("Refr:{}-{}", aln.seq1_start(), aln.seq1_end_from_forward());
     debug!(
         "Read:{}-{}",
         aln.seq2_start_from_forward(),
         aln.seq2_end_from_forward()
     );
-    let seq = match aln.seq2_direction() {
-        lasttab::Strand::Forward => seq.to_vec(),
-        lasttab::Strand::Reverse => revcmp(seq),
-    };
     let ctgname = aln.seq1_name();
-    let refr = def.get_reference_sequence(aln.seq1_name()).unwrap().seq();
+    // Flip reference rather than query.
+    let refr = match aln.seq2_direction() {
+        lasttab::Strand::Forward => def.get(ctgname).unwrap(),
+        lasttab::Strand::Reverse => def.get_revcmp(ctgname).unwrap(),
+    };
     debug!("Ctgname:{}", ctgname);
     // First, chunk the reference into subunits.
-    // debug!("{:?}", aln);
-    // let (rs, qs) = recover(aln, &refr, &seq);
-    // let dig = 100;
-    // for i in 0..rs.len() / dig {
-    //     debug!("{}", String::from_utf8_lossy(&rs[i * dig..(i + 1) * dig]));
-    //     debug!("{}", String::from_utf8_lossy(&qs[i * dig..(i + 1) * dig]));
-    //     debug!("");
-    // }
-    let (ref_encode_start, _, chunks) =
-        chop_reference_into_chunk(def, ctgname, aln.seq1_start(), aln.seq1_end_from_forward());
+    let (ref_encode_start, _, chunks) = chop_reference_into_chunk(def, aln);
     debug!("{:?},{}", chunks, ref_encode_start);
     if chunks.is_empty() {
         return (vec![], 0, stop);
@@ -223,56 +147,105 @@ fn aln_to_encode(
     let (mut ops, read_encode_start) = seek_to_head(aln, ref_encode_start);
     let mut read_pos = read_encode_start;
     let mut refr_pos = ref_encode_start;
-    debug!(
-        "Read:{}",
-        String::from_utf8_lossy(&seq[aln.seq2_start()..read_pos])
-    );
-    debug!(
-        "Refr:{}",
-        String::from_utf8_lossy(&refr[aln.seq1_start()..refr_pos])
-    );
-    let chunks: Vec<_> = chunks
-        .into_iter()
-        .filter_map(|chunk| {
-            // debug!("Refr:{}, Read:{}", refr_pos, read_pos);
-            if stop < read_pos {
-                return None;
-            }
-            match chunk {
-                ChunkedUnit::Gap(mut gu) => {
-                    // The length in the reference.
-                    let ref_len = gu.len();
-                    //  the length in the read.
-                    let (read_len, _) = seek_len(ref_len, &mut ops);
-                    gu.set_bases(&seq[read_pos..read_pos + read_len]);
-
-                    read_pos += read_len;
-                    refr_pos += ref_len;
-                    Some(ChunkedUnit::Gap(gu))
-                }
-                ChunkedUnit::En(mut encode) => {
-                    let ref_len = SUBUNIT_SIZE;
-                    let (read_len, operations) = seek_len(ref_len, &mut ops);
-                    encode.set_bases(&seq[read_pos..read_pos + read_len]);
-                    encode.set_ops(&operations);
-                    read_pos += read_len;
-                    refr_pos += SUBUNIT_SIZE;
-                    Some(ChunkedUnit::En(encode))
-                }
-            }
-        })
-        .collect();
+    {
+        let start = ref_start_end(aln).0;
+        debug!(
+            "Read:{}",
+            String::from_utf8_lossy(&seq[aln.seq2_start_from_forward()..read_pos])
+        );
+        debug!("Refr:{}", String::from_utf8_lossy(&refr[start..refr_pos]));
+    }
+    let chunks: Vec<_> = chunks.into_iter().fold(vec![], |mut chunks, mut encode| {
+        // debug!("Refr:{}, Read:{}", refr_pos, read_pos);
+        if read_pos < stop {
+            let ref_len = UNIT_SIZE;
+            let (read_len, operations) = seek_len(ref_len, &mut ops);
+            encode.set_bases(&seq[read_pos..read_pos + read_len]);
+            encode.set_ops(&operations); // This is the vectrized version of operations. Not stack-version.
+            read_pos += read_len;
+            refr_pos += UNIT_SIZE;
+            chunks.push(ChunkedUnit::En(encode));
+        }
+        chunks
+    });
     (chunks, read_encode_start, read_pos)
 }
 
-// Seek ops to `len` length.
+// Convert alignment into array of unit.
+// Reference's start and end position also returned.
+fn chop_reference_into_chunk(def: &Contigs, aln: &LastTAB) -> (usize, usize, Vec<Encode>) {
+    // First, determine the location to start tiling.
+    let (start, end) = (aln.seq1_start(), aln.seq1_end_from_forward());
+    let name = aln.seq1_name();
+    let id = def.get_id(name).unwrap();
+    let encode_start = start / UNIT_SIZE + 1;
+    let encode_end = end / UNIT_SIZE;
+    assert!(start <= UNIT_SIZE * encode_start);
+    if aln.seq2_direction().is_forward() {
+        let chunks: Vec<_> = (encode_start..encode_end)
+            .map(|i| Encode::sketch(id, i as u16, true))
+            .collect();
+        (encode_start * UNIT_SIZE, encode_end * UNIT_SIZE, chunks)
+    } else {
+        let len = aln.seq1_len();
+        let chunks: Vec<_> = (encode_start..encode_end)
+            .map(|i| Encode::sketch(id, i as u16, false))
+            .rev()
+            .collect();
+        let start = len - encode_end * UNIT_SIZE;
+        let end = len - encode_start * UNIT_SIZE;
+        (start, end, chunks)
+    }
+}
+
+// Seek the alignment operation up to ref_encode_start position.
+// Note that if the alignment is reverse complement, the operations should be treated as such.
+// The second returned value is the position of the read, which the first op would be applied.
+fn seek_to_head(aln: &LastTAB, ref_encode_start: usize) -> (Vec<Op>, usize) {
+    let mut ops = match aln.seq2_direction() {
+        lasttab::Strand::Forward => aln.alignment(),
+        lasttab::Strand::Reverse => {
+            let mut a = aln.alignment();
+            a.reverse();
+            a
+        }
+    };
+    // Additional reverse, which should be needed because we want to
+    // treat the alignment operations like a stack, rather than a vector.
+    ops.reverse();
+    let start = ref_start_end(aln).0;
+    let (len, _) = seek_len(ref_encode_start - start, &mut ops);
+    (ops, aln.seq2_start_from_forward() + len)
+}
+
+// [start..end) of reference. If the alignment is reverse complement,
+// the coordinate would be reversed.
+fn ref_start_end(aln: &LastTAB) -> (usize, usize) {
+    match aln.seq2_direction() {
+        lasttab::Strand::Forward => (aln.seq1_start(), aln.seq1_end_from_forward()),
+        lasttab::Strand::Reverse => {
+            let len = aln.seq1_len();
+            let mlen = aln.seq1_matchlen();
+            let start = len - mlen - aln.seq1_start();
+            (start, start + mlen)
+        }
+    }
+}
+
+// Seek ops to `len` length in the reference. Here, one need not to consider
+// whether the alignment is reverse or forward. It should be
+// treated beforehand(such as in `seek_head`).
+// The first returned value is the consumed length of the query.
+// The second is the consumed operations.
+// Input: [Op4 Op3 Op2 Op1] <- From this direction the operation should be applied.
+// Output: [Op1 Op2 Op3'] <- The last popped operation is the last element of the retuned value.
+// The remaining ops is [Op4 Op3']. Here, Op3 is splited into two operations(every ops has its length, men).
 fn seek_len(len: usize, ops: &mut Vec<Op>) -> (usize, Vec<Op>) {
     // debug!("{}",len);
     let mut read_len = 0;
     let mut refr_len = 0;
     let mut popped_ops = vec![];
     while refr_len < len {
-        // debug!("{},{}",refr_len,read_len);
         match ops.pop().unwrap() {
             Op::Match(l) => {
                 if len < refr_len + l {
@@ -303,15 +276,6 @@ fn seek_len(len: usize, ops: &mut Vec<Op>) -> (usize, Vec<Op>) {
         }
     }
     (read_len, popped_ops)
-}
-
-use lasttab::Op;
-fn seek_to_head(aln: &LastTAB, ref_encode_start: usize) -> (Vec<Op>, usize) {
-    let mut ops = aln.alignment();
-    ops.reverse();
-    let refr_pos = aln.seq1_start();
-    let (len, _) = seek_len(ref_encode_start - refr_pos, &mut ops);
-    (ops, aln.seq2_start() + len)
 }
 
 fn filter_contained_alignment<'a>(mut bucket: Vec<&'a LastTAB>) -> Vec<&'a LastTAB> {
@@ -366,10 +330,7 @@ fn distribute<'a>(fasta: &[fasta::Record], alns: &'a [LastTAB]) -> Vec<Vec<&'a L
         .enumerate()
         .map(|(idx, id)| (id, idx))
         .collect();
-    for aln in alns
-        .iter()
-        .filter(|aln| aln.alignment_length() > SUBUNIT_SIZE)
-    {
+    for aln in alns.iter().filter(|aln| aln.alignment_length() > UNIT_SIZE) {
         alignments_bucket[id_to_idx[aln.seq2_name()]].push(aln);
     }
     alignments_bucket
