@@ -178,7 +178,7 @@ fn chop_reference_into_chunk(def: &Contigs, aln: &LastTAB) -> (usize, usize, Vec
     let (start, end) = (aln.seq1_start(), aln.seq1_end_from_forward());
     let name = aln.seq1_name();
     let id = def.get_id(name).unwrap();
-    let encode_start = start / UNIT_SIZE + 1;
+    let encode_start = if start == 0 { 0 } else { start / UNIT_SIZE + 1 };
     let encode_end = end / UNIT_SIZE;
     assert!(start <= UNIT_SIZE * encode_start);
     if aln.seq2_direction().is_forward() {

@@ -50,6 +50,12 @@ impl Contigs {
             .filter_map(|(idx, name)| if name == key { Some(idx as u16) } else { None })
             .nth(0)
     }
+    pub fn get_by_id(&self, id: u16) -> Option<&[u8]> {
+        self.names.get(id as usize).and_then(|e| self.get(e))
+    }
+    pub fn get_by_id_revcmp(&self, id: u16) -> Option<&[u8]> {
+        self.names.get(id as usize).and_then(|e| self.get_revcmp(e))
+    }
 }
 
 #[inline]

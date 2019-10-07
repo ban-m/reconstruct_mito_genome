@@ -63,7 +63,7 @@ impl std::fmt::Display for AlignInfo {
 impl AlignInfo {
     fn from_splits(splits: &[&str]) -> Option<Self> {
         let seqname = splits[0].to_string();
-        let seqstart = splits[1].parse().ok()?;
+        let seqstart: usize = splits[1].parse().ok()?;
         let matchlen = splits[2].parse().ok()?;
         let direction = if splits[3] == "+" {
             Strand::Forward
@@ -82,7 +82,7 @@ impl AlignInfo {
     fn seqstart_from_forward(&self) -> usize {
         match self.direction {
             Strand::Forward => self.seqstart,
-            Strand::Reverse => self.seqlen + 1 - self.matchlen - self.seqstart,
+            Strand::Reverse => self.seqlen - self.matchlen - self.seqstart,
         }
     }
 }

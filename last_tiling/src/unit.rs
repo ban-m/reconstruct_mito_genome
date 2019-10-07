@@ -127,6 +127,9 @@ impl Encode {
         self.ops.clear();
         self.ops.extend(ops);
     }
+    pub fn is_forward(&self)->bool{
+        self.is_forward
+    }
     // The reference should be consistent with the `is_forward` value.
     pub fn view(&self, refr: &[u8]) {
         let (mut r, mut q) = (0, 0);
