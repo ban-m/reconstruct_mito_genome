@@ -6,7 +6,7 @@ const theta_margin = 0.10;
 const contig_thick = 10; 
 const coverage_thick = 5;
 const read_thick = 4;
-const eplison = 2.3;
+const eplison = 0.7;
 
 // Radius
 const contig_radius = 350;
@@ -16,7 +16,7 @@ const handle_points_radius = 100;
 const read_radius = contig_radius-30;
 const gap_min_radius = read_radius;
 const gap_max_radius = contig_radius-3;
-const gap_min = 2000;
+const gap_min = 100;
 const gap_max = 5000;
 const gap_scale = d3.scaleLog()
       .domain([gap_min,gap_max])
@@ -194,13 +194,32 @@ const calcID = (read,unit_length)=>{
     }
 };
 
-const plotData = (dataset, unit_length) =>
-      d3.json(dataset).then(values => {
+
+const selectRead = read => {
+    // Input: JSON object
+    // Output: boolean
+    // Requirements: input object should have "units" property,
+    // which is actually vector of object with "Gap" or "Encode" property.
+    // Filter read as you like.
+    const from = 0;
+    const to = 1;
+    const set = new Set(read.units.filter(u => u.hasOwnProperty("Encode")).map(u => u.Encode[0]));
+    return true;
+    // return set.has(from) && set.has(to) && read.units.length > 15 ;
+    // return set.has(2) &&  set.has(1) && set.has(0) && read.units.length > 140;
+};
+
+const plotData = (dataset, repeats, unit_length) =>
+      Promise.all([dataset, repeats]
+                  .map(file => d3.json(file)))
+      .then(([values, repeats]) => {
           // Unpack
           // This is array.
           const contigs = values.contigs;
           // This is also an array.
-          const reads = values.reads;
+          // const reads = values.reads;
+          // Or select reads as you like.
+          const reads = values.reads.filter(selectRead);
           // let reads = values.reads.slice(0,10);
           // reads.push({"name":"test",
           //             "units":[{"Gap":1000},
@@ -229,6 +248,21 @@ const plotData = (dataset, unit_length) =>
                   return arc();
               })
               .attr("fill",c => d3.schemeCategory10[c.id% 10]);
+          contigs_layer
+              .selectAll(".repeats")
+              .data(repeats.flatMap(rp => [rp.rep1, rp.rep2]))
+              .enter()
+              .append("path")
+              .attr("class","repeats")
+              .attr("d", repeat => {
+                  const arc = d3.arc()
+                        .innerRadius(contig_radius - 3)
+                        .outerRadius(contig_radius + contig_thick + 3)
+                        .startAngle(start_pos[repeat.id] + bp_scale(repeat.start))
+                        .endAngle(start_pos[repeat.id] + bp_scale(repeat.end));
+                  return arc();
+              })
+              .attr("fill", "gray");
           coverage_layer
               .selectAll(".coverage")
               .data(contigs)

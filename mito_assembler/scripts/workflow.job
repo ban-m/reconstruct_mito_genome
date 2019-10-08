@@ -50,6 +50,9 @@ lastdb -P 24 -R 00 initial ${OUTPATH}/initial_asm/scaffolds.fasta
 last-train initial ${READ} > initial.matrix
 lastal -Q0 -f TAB -P 24 initial ${READ} -p initial.matrix -R00 > initial.tab
 lastal -Q0 -f MAF -P 24 initial ${READ} -p initial.matrix -R00 > initial.maf
+
+last-train -P 24 initial  ${OUTPATH}/initial_asm/scaffolds.fasta > self.matrix
+lastal -Q0 -f TAB -P 24 initial  ${OUTPATH}/initial_asm/scaffolds.fasta -p self.matrix -R 00 > self.tab
 cd ${ROOT}
 exit 0;
 

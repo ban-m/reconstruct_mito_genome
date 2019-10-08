@@ -76,9 +76,9 @@ fn into_encoding(bucket: Vec<&LastTAB>, seq: &fasta::Record, defs: &Contigs) -> 
     let bases = seq.seq();
     for w in bucket.windows(2) {
         // Determine whether we can use entire alignment of w[0].
-        let former_name = w[0].seq1_name();
-        let later_name = w[1].seq1_name();
-        let (mut encodes, start, end) = if w[0].score() > w[1].score() || former_name < later_name {
+        let former_stop = w[0].seq2_end_from_forward();
+        let later_start = w[1].seq2_start_from_forward();
+        let (mut encodes, start, end) = if w[0].score() > w[1].score() || former_stop < later_start {
             aln_to_encode(&w[0], w[0].seq2_end_from_forward(), defs, bases)
         } else {
             debug!("Overlapping aln");
@@ -305,18 +305,14 @@ fn filter_contained_alignment<'a>(mut bucket: Vec<&'a LastTAB>) -> Vec<&'a LastT
             aln.seq1_end_from_forward()
         );
     }
-    let (mut start, mut end) = (0, 0);
+    let  mut end = 0;
     bucket
         .into_iter()
         .filter(|aln| {
-            let s = aln.seq2_start_from_forward();
             let e = aln.seq2_end_from_forward();
-            assert!(start <= s);
             if e <= end + 1 {
-                start = s;
                 false
             } else {
-                start = s;
                 end = e;
                 true
             }
