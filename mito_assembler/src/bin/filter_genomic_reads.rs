@@ -1,11 +1,11 @@
 // Filtering out the reads mapped to genomic region.
 // It leave the unmapped reads as-is so you might have to filter out low quality reads afterwords.
-// Current "mapped" criteria is "Mapped region is more than 80 percent of entire read."
+// Current "mapped" criteria is "Mapped region is more than 60 percent of entire read."
 extern crate bio_utils;
 use bio_utils::fasta;
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader};
-const THR: f64 = 0.8;
+const THR: f64 = 0.6;
 fn main() -> std::io::Result<()> {
     let args: Vec<_> = std::env::args().collect();
     let stdin = std::io::stdin();
