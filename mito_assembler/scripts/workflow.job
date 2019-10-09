@@ -28,12 +28,16 @@ samtools faidx ${REFERENCE} NC_037304.1 > ${OUTPATH}/mito.fa
 minimap2 -t 24 -x map-pb --secondary=no ${OUTPATH}/genome_and_chr.fa ${READ} | \
     cargo run --release --bin filter_genomic_reads -- ${READ} \
           > ${OUTPATH}/non_genomic_reads.fasta
+
+### Below you can ass `cargo run --release --bin split_subreads |\ ` at any location of the pipeline.
+### Make sure that each ID of fasta file should have PacBio's nomenclature, if you add `split-subreads` procedure.
+
 minimap2 -t 24 -x map-pb --secondary=no ${OUTPATH}/mito.fa ${OUTPATH}/non_genomic_reads.fasta |\
     cargo run --release --bin select_mito_reads -- ${OUTPATH}/non_genomic_reads.fasta |\
-    cargo run --release --bin split_subreads |\
     cargo run --release --bin filter_low_quality |\
     cargo run --release --bin clip_self_chimera > \
           ${OUTPATH}/filtered_read.fasta
+
 READ=${OUTPATH}/filtered_read.fasta
 
 ## --- Initial contigs ----

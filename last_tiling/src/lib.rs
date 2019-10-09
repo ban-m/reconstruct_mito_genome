@@ -7,6 +7,7 @@ extern crate rmp_serde;
 #[macro_use]
 extern crate serde;
 extern crate bio_utils;
+extern crate rayon;
 pub mod contig;
 pub mod lasttab;
 pub mod repeat;
@@ -17,6 +18,7 @@ pub use lasttab::LastTAB;
 pub use lasttab::Op;
 pub use unit::EncodedRead;
 
+use rayon::prelude::*;
 use bio_utils::fasta;
 use repeat::RepeatPairs;
 use std::collections::HashMap;
@@ -50,7 +52,7 @@ pub fn remove_repeats(alns: Vec<LastTAB>, defs: &Contigs, rep: &[RepeatPairs]) -
             });
             map
         });
-    alns.into_iter()
+    alns.into_par_iter()
         .filter(|aln| {
             let id = match defs.get_id(aln.seq1_name()) {
                 Some(res) => res,
@@ -75,9 +77,11 @@ pub fn encoding(fasta: &[fasta::Record], defs: &Contigs, alns: &[LastTAB]) -> Ve
     // bucket[i] is the alignment for fasta[i].
     let buckets = distribute(fasta, alns);
     debug!("There are {} buckets.", buckets.len());
-    buckets
+    let buckets:Vec<_> = buckets
         .into_iter()
         .zip(fasta.iter())
+        .collect();
+    buckets.into_par_iter()
         .map(|(bucket, seq)| into_encoding(bucket, seq, defs))
         // .enumerate()
         // .inspect(|(idx, read)| debug!("{},{}", idx, read))
@@ -361,7 +365,7 @@ fn distribute<'a>(fasta: &[fasta::Record], alns: &'a [LastTAB]) -> Vec<Vec<&'a L
         .enumerate()
         .map(|(idx, id)| (id, idx))
         .collect();
-    for aln in alns.iter().filter(|aln| aln.alignment_length() > UNIT_SIZE) {
+    for aln in alns.iter().filter(|aln| aln.alignment_length() > 3 * UNIT_SIZE) {
         alignments_bucket[id_to_idx[aln.seq2_name()]].push(aln);
     }
     alignments_bucket

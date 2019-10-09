@@ -6,7 +6,7 @@
     <link rel="stylesheet" type="text/css" href="./style.css">
   </head>
   <body>
-    <div>
+    <div class = "title">
       Circos plot of Plant mitochondria.
     </div>
     <div id = "plot"></div>
@@ -15,8 +15,11 @@
     <script>
       <!-- const dataset = "/data/d3.json"; -->
       <!-- const repeats = "/data/repeats.json"; -->
-      const dataset = "/data/mine_d3.json";
-      const repeats = "/data/mine_repeats.json";
+      <!-- const dataset = "/data/mine_d3.json"; -->
+      <!-- const repeats = "/data/mine_repeats.json"; -->
+      const dataset = "/data/mine_wo_repeat_d3.json";
+      const repeats = "/data/mine_wo_repeat_repeats.json";
+      
       const unit_length = 200;
       plotData(dataset,repeats,200);
     </script>

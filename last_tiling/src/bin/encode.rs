@@ -18,7 +18,7 @@ fn main() -> std::io::Result<()> {
     let fasta = bio_utils::fasta::parse_into_vec(&args[3])?;
     info!("Read num\t{}", fasta.len());
     let repeats = last_tiling::repeat::open(&args[4])?;
-    info!("Repeats:{:?}", repeats);
+    info!("Repeats:{:?}", repeats.len());
     let alignments = last_tiling::remove_repeats(alignments, &contigs, &repeats);
     info!("Filter repeat:{}", alignments.len());
     let encoded_reads = last_tiling::encoding(&fasta, &contigs, &alignments);

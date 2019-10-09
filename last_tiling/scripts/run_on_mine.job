@@ -5,18 +5,20 @@
 #$ -pe smp 12
 #$ -e ./logfiles/convert.log
 #$ -o ./logfiles/convert.out
-#$ -V 
+#$ -V
+set -ue
 ROOT=/grid/ban-m/arabidopsis_thaliana/sequel/assemble/mine
 LASTTAB=${ROOT}/last_db/initial.tab
 READ=${ROOT}/filtered_read.fasta
 CONTIGS=${ROOT}/initial_asm/scaffolds.fasta
 SELF_LASTTAB=${ROOT}/last_db/self.tab
+PREFIX=./data/mine_wo_repeat
 cargo run --release --bin annotate_dotplot -- ${CONTIGS} ${SELF_LASTTAB} \
-      > ./data/mine_repeats.json
+      > ${PREFIX}_repeats.json
 cargo run --release --bin encode \
-      -- ${LASTTAB} ${CONTIGS} ${READ} ./data/mine_repeats.json \
-      ./data/mine_contig.json ./data/mine_reads.json 
+      -- ${LASTTAB} ${CONTIGS} ${READ} ${PREFIX}_repeats.json \
+      ${PREFIX}_contig.json ${PREFIX}_reads.json 
 cargo run --release --bin convert_to_d3_data \
-      -- ./data/mine_contig.json ./data/mine_reads.json \
-      > ./data/mine_d3.json
+      -- ${PREFIX}_contig.json ${PREFIX}_reads.json \
+      > ${PREFIX}_d3.json
 

@@ -1,12 +1,15 @@
 const width = 1000;
 const height = 1000;
 // Margin in radian
-const theta_margin = 0.10;
+const theta_margin = 0.15;
+const gap_position = 0.05;
 // the height of a contigs.
 const contig_thick = 10; 
 const coverage_thick = 5;
+const gap_jitters = d3.randomNormal(0,0.01);
 const read_thick = 4;
-const eplison = 0.7;
+const eplison = 5.001;
+const jitters = d3.randomNormal(0,eplison);
 
 // Radius
 const contig_radius = 350;
@@ -16,7 +19,7 @@ const handle_points_radius = 100;
 const read_radius = contig_radius-30;
 const gap_min_radius = read_radius;
 const gap_max_radius = contig_radius-3;
-const gap_min = 100;
+const gap_min = 1000;
 const gap_max = 5000;
 const gap_scale = d3.scaleLog()
       .domain([gap_min,gap_max])
@@ -93,9 +96,9 @@ const calcCovScale = (contigs)=>{
     // Requirements: each input object should have "length" attribute
     // Scale for convert coverage into radius.
     const max = Math.max(...contigs.map(contig => Math.max(...contig.coverages)));
-    const min = Math.min(...contigs.map(contig => Math.min(...contig.coverages)));
+    // const min = Math.min(...contigs.map(contig => Math.min(...contig.coverages)));
     return d3.scaleLinear()
-        .domain([min,max])
+        .domain([0,max])
         .range([coverage_min,coverage_max]);
 };
 
@@ -106,13 +109,12 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
     // should have either "Gap" or "Encode"
     let path = d3.path();
     let units = Array.from(read.units).reverse();
-    let jitters = d3.randomNormal(0,eplison);
+    const r = read_radius + jitters();
     let gap = 0;
     let unit = {};
     while(!unit.hasOwnProperty("Encode")){
         unit = units.pop();
         if (unit == undefined){
-            console.log(`${read} is full of gap!`);
             return "";
         }else if (unit.hasOwnProperty("Gap")){
             gap = unit.Gap;
@@ -128,31 +130,41 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
     }else{
         path.moveTo(read_radius * Math.cos(radian), read_radius * Math.sin(radian));
     }
-    while (1){
-        let next = units.pop();
-        if (next == undefined){
-            break;
-        }else if (next.hasOwnProperty("Gap")){
+    gap = 0;
+    for (unit of units.reverse()){
+        if (unit.hasOwnProperty("Gap")){
+            if (unit.Gap > unit_length * 2){
+                gap = unit.Gap;
+            }
             continue;
-        };
-        if (next.Encode[0] == contig){
-            radian = start + bp_scale(unit_length*next.Encode[1]);
-            const r = read_radius + jitters();
+        }
+        if (unit.Encode[0] == contig){
+            radian = start + bp_scale(unit_length*unit.Encode[1]);
             path.lineTo(r * Math.cos(radian), r*Math.sin(radian));
         }else{
             // Change contig. Connect them.
-            const new_radian = start_pos[next.Encode[0]];
-            radian = new_radian + bp_scale(unit_length*next.Encode[1]) - Math.PI/2;
+            // If there are remaining gap, clean them.
+            if (gap != 0){
+                const control_radian = start_pos[contig] - Math.PI/2;
+                const new_radian = control_radian - gap_position;
+                const control_x = handle_points_radius * Math.cos(control_radian);
+                const control_y = handle_points_radius * Math.sin(control_radian);
+                const jt = gap_jitters();
+                path.quadraticCurveTo(control_x, control_y, r * Math.cos(new_radian), r * Math.sin(new_radian));
+                path.moveTo(gap_scale(gap) * Math.cos(new_radian + jt), gap_scale(gap)*Math.sin(new_radian + jt));
+                path.lineTo(r * Math.cos(new_radian), r * Math.sin(new_radian));
+            }
+            gap = 0;
+            const new_radian = start_pos[unit.Encode[0]];
+            radian = new_radian + bp_scale(unit_length*unit.Encode[1]) - Math.PI/2;
             // Bezier Curve to new point from here.
-            const control_radius = handle_points[contig][next.Encode[0]] - Math.PI/2;
+            const control_radius = handle_points[contig][unit.Encode[0]] - Math.PI/2;
             const control_x = handle_points_radius*Math.cos(control_radius);
             const control_y = handle_points_radius*Math.sin(control_radius);
-            contig = next.Encode[0];
+            contig = unit.Encode[0];
             start = start_pos[contig] - Math.PI/2;
-            const r = read_radius + jitters();
             path.quadraticCurveTo(control_x,control_y,r*Math.cos(radian),r*Math.sin(radian));
         }
-        unit = next;
     }
     return path.toString();
 };
@@ -204,9 +216,31 @@ const selectRead = read => {
     const from = 0;
     const to = 1;
     const set = new Set(read.units.filter(u => u.hasOwnProperty("Encode")).map(u => u.Encode[0]));
+    const max_gap = Math.max(...read.units.filter(u => u.hasOwnProperty("Gap")).map(u => u.Gap));
     return true;
+    // return set.has(4) && set.size == 1;
     // return set.has(from) && set.has(to) && read.units.length > 15 ;
-    // return set.has(2) &&  set.has(1) && set.has(0) && read.units.length > 140;
+    // return read.units.length < 140 && read.units.length > 75 && set.size > 1 && set.has(0) && set.has(1) && max_gap < 4000;
+    // return set.size == 2 && set.has(0) && set.has(1); // && max_gap < 4000;
+    // return set.size == 1 && set.has(1) ;
+};
+
+const getNumOfGapRead = reads => {
+    // Input: [JSON object]
+    // Output: Num
+    // Requirements: each element should be 'read' object.
+    // Return numbers of reads which is just Gap.
+    return reads.filter(read => {
+        let units = Array.from(read.units);
+        let unit = {};
+        while(!unit.hasOwnProperty("Encode")){
+            unit = units.pop();
+            if (unit == undefined){
+                return true;
+            }
+        };
+        return false;
+    }).length;
 };
 
 const plotData = (dataset, repeats, unit_length) =>
@@ -298,25 +332,57 @@ const plotData = (dataset, repeats, unit_length) =>
                       return d3.schemeCategory10[identity.id % 10];
                   }
               });
+          info.append("div")
+              .attr("class","numofgapread")
+              .append("p")
+              .text(`Gap Read:${getNumOfGapRead(reads)} out of ${reads.length}`);
           // Draw ticks.
+          const b_tick = svg.append("g")
+                .attr("class","scale")
+                .attr("transform",`translate(0,40)`);
+          b_tick.append("text")
+              .text("Base Pair Scale");
+          {
+              const bscale = d3.scaleLinear()
+                    .domain([0,100000])
+                    .range([contig_radius*bp_scale(0),contig_radius*bp_scale(100000)]);
+              b_tick.append("g")
+                  .attr("transform","translate(50,5)")
+                  .call(d3.axisBottom(bscale)
+                        .tickFormat(d3.format(".2s"))
+                        .ticks(4));
+          }
           const c_tick = svg.append("g")
                 .attr("class","scale")
                 .attr("transform",`translate(0,100)`);
           c_tick.append("text")
               .text("Coverage Scale");
-          c_tick.append("g")
-              .attr("transform",`translate(-200,0)`)
-              .call(d3.axisBottom(coverage_scale)
-                    .ticks(2));
+          {
+              const cscale = d3.scaleLinear()
+                    .domain([0,1500])
+                    .range([0,coverage_scale(1500)-coverage_scale(0)]);
+              c_tick.append("g")
+                  .attr("transform",`translate(50,5)`)
+                  .call(d3.axisBottom(cscale)
+                        .tickFormat(d3.format(".2s"))
+                        .ticks(4));
+          }
           const g_tick = svg.append("g")
                 .attr("class","scale")
-                .attr("transform",`translate(0,150)`);
+                .attr("transform",`translate(0,160)`);
           g_tick.append("text")
               .text("Gap Scale");
-          g_tick.append("g")
-              .attr("transform",`translate(-200,0)`)
-              .call(d3.axisBottom(gap_scale)
-                    .ticks(1));
+          {
+              const gscale = d3.scaleLog()
+                    .domain([gap_min,5*gap_max])
+                    .range([0, 5*(gap_max_radius-gap_min_radius)]);
+              g_tick.append("g")
+                  .attr("transform",`translate(50,5)`)
+                  .call(d3.axisBottom(gscale)
+                        .tickFormat(d3.format(".2s"))
+                        .ticks(1)
+                       );
+          }
           // const pic = document.getElementById("plot");
           //get svg source.
           // var serializer = new XMLSerializer();

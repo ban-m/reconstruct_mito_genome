@@ -13,3 +13,4 @@ serde_json = "*"
 bio_utils = {path = "../../bio_utils"}
 log = "*"
 env_logger = "*"
+rayon = "*"
