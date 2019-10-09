@@ -5,7 +5,7 @@ extern crate bio_utils;
 use bio_utils::fasta;
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader};
-const THR:usize = 5_000;
+const THR:usize = 1_000;
 fn main() -> std::io::Result<()> {
     let args: Vec<_> = std::env::args().collect();
     let stdin = std::io::stdin();
