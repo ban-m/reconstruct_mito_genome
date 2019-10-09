@@ -248,9 +248,10 @@ const plotData = (dataset, repeats, unit_length) =>
                   return arc();
               })
               .attr("fill",c => d3.schemeCategory10[c.id% 10]);
+          // Draw repeat.
           contigs_layer
               .selectAll(".repeats")
-              .data(repeats.flatMap(rp => [rp.rep1, rp.rep2]))
+              .data(repeats.flatMap(rp => rp.reps))
               .enter()
               .append("path")
               .attr("class","repeats")

@@ -8,21 +8,24 @@ extern crate serde_json;
 use env_logger::Env;
 use std::io::Write;
 fn main() -> std::io::Result<()> {
-    env_logger::from_env(Env::default().default_filter_or("warn")).init();
+    env_logger::from_env(Env::default().default_filter_or("info")).init();
     let args: Vec<_> = std::env::args().collect();
     info!("Start");
     let alignments = last_tiling::parse_tab_file(&args[1])?;
-    debug!("Alignments:{}", alignments.len());
+    info!("Alignments:{}", alignments.len());
     let contigs = last_tiling::contig::Contigs::from_file(&args[2])?;
-    debug!("Contig files:\n{}", contigs);
+    info!("Contig files:\n{}", contigs);
     let fasta = bio_utils::fasta::parse_into_vec(&args[3])?;
-    debug!("Read num\t{}", fasta.len());
+    info!("Read num\t{}", fasta.len());
+    let repeats = last_tiling::repeat::open(&args[4])?;
+    info!("Repeats:{:?}", repeats);
+    let alignments = last_tiling::remove_repeats(alignments, &contigs, &repeats);
+    info!("Filter repeat:{}", alignments.len());
     let encoded_reads = last_tiling::encoding(&fasta, &contigs, &alignments);
-    debug!("Encoded:\t{}", encoded_reads.len());
-    eprintln!("Output dump");
-    let mut wtr = std::fs::File::create(&args[4])?;
+    info!("Encoded:\t{}", encoded_reads.len());
+    let mut wtr = std::fs::File::create(&args[5])?;
     wtr.write_all(serde_json::ser::to_string_pretty(&contigs)?.as_bytes())?;
-    let mut wtr = std::fs::File::create("./data/reads.json")?;
+    let mut wtr = std::fs::File::create(&args[6])?;
     wtr.write_all(serde_json::ser::to_string(&encoded_reads)?.as_bytes())?;
     Ok(())
 }

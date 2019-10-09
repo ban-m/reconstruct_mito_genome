@@ -8,19 +8,22 @@ extern crate rmp_serde;
 extern crate serde;
 extern crate bio_utils;
 pub mod contig;
-pub mod unit;
 pub mod lasttab;
+pub mod repeat;
+pub mod unit;
 
 pub use contig::Contigs;
 pub use lasttab::LastTAB;
-pub use unit::EncodedRead;
 pub use lasttab::Op;
+pub use unit::EncodedRead;
 
 use bio_utils::fasta;
+use repeat::RepeatPairs;
 use std::collections::HashMap;
 use std::path::Path;
 use unit::*;
 pub const UNIT_SIZE: usize = 200;
+
 /// The function to parse Last's TAB format. To see more detail,
 /// see [lasttab] module.
 /// # Example
@@ -36,6 +39,35 @@ pub fn parse_tab_file<P: AsRef<Path>>(tab_file: P) -> std::io::Result<Vec<LastTA
         .filter(|e| !e.starts_with('#'))
         .filter_map(LastTAB::from_line)
         .collect())
+}
+
+pub fn remove_repeats(alns: Vec<LastTAB>, defs: &Contigs, rep: &[RepeatPairs]) -> Vec<LastTAB> {
+    let repeats: HashMap<u16, Vec<(usize, usize)>> =
+        rep.iter().fold(HashMap::new(), |mut map, reps| {
+            reps.inner().iter().for_each(|rep| {
+                let entry = map.entry(rep.id()).or_default();
+                entry.push((rep.start(), rep.end()));
+            });
+            map
+        });
+    alns.into_iter()
+        .filter(|aln| {
+            let id = match defs.get_id(aln.seq1_name()) {
+                Some(res) => res,
+                None => {
+                    eprintln!("Error. Seq1 of {} is not in the referneces.", aln);
+                    return false;
+                }
+            };
+            let start = aln.seq1_start_from_forward();
+            let end = aln.seq1_end_from_forward();
+            match repeats.get(&id) {
+                Some(ref reps) => !reps.iter().any(|&(s, e)| s < start && end < e),
+                // Corresponds to "no repeats there."
+                None => true,
+            }
+        })
+        .collect()
 }
 
 pub fn encoding(fasta: &[fasta::Record], defs: &Contigs, alns: &[LastTAB]) -> Vec<EncodedRead> {
@@ -78,7 +110,8 @@ fn into_encoding(bucket: Vec<&LastTAB>, seq: &fasta::Record, defs: &Contigs) -> 
         // Determine whether we can use entire alignment of w[0].
         let former_stop = w[0].seq2_end_from_forward();
         let later_start = w[1].seq2_start_from_forward();
-        let (mut encodes, start, end) = if w[0].score() > w[1].score() || former_stop < later_start {
+        let (mut encodes, start, end) = if w[0].score() > w[1].score() || former_stop < later_start
+        {
             aln_to_encode(&w[0], w[0].seq2_end_from_forward(), defs, bases)
         } else {
             debug!("Overlapping aln");
@@ -305,7 +338,7 @@ fn filter_contained_alignment<'a>(mut bucket: Vec<&'a LastTAB>) -> Vec<&'a LastT
             aln.seq1_end_from_forward()
         );
     }
-    let  mut end = 0;
+    let mut end = 0;
     bucket
         .into_iter()
         .filter(|aln| {
