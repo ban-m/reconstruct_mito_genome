@@ -5,13 +5,14 @@ extern crate bio_utils;
 use bio_utils::fasta;
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader};
+const THR:usize = 5_000;
 fn main() -> std::io::Result<()> {
     let args: Vec<_> = std::env::args().collect();
     let stdin = std::io::stdin();
     let reads_id: HashSet<_> = BufReader::new(stdin.lock())
         .lines()
         .filter_map(|e| e.ok())
-        .filter_map(|e| e.split('\t').nth(0).map(|e|e.to_string()))
+        .filter_map(is_good_aln)
         .collect();
     let stdout = std::io::stdout();
     let mut stdout = fasta::Writer::new(stdout.lock());
@@ -21,4 +22,16 @@ fn main() -> std::io::Result<()> {
         .filter_map(|read| stdout.write_record(&read).ok())
         .count();
     Ok(())
+}
+
+// Determine whether or not alignment is good(i.e. cover more than THR fraction).
+fn is_good_aln(paf: String) -> Option<String> {
+    let contents: Vec<&str> = paf.split('\t').collect();
+    let start: usize = contents[2].parse().unwrap();
+    let end: usize = contents[3].parse().unwrap();
+    if contents[5] == "NC_037304.1" && (end - start) > THR{
+        Some(contents[0].to_string())
+    } else {
+        None
+    }
 }
