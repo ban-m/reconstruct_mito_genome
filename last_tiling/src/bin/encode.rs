@@ -19,9 +19,9 @@ fn main() -> std::io::Result<()> {
     info!("Read num\t{}", fasta.len());
     let repeats = last_tiling::repeat::open(&args[4])?;
     info!("Repeats:{:?}", repeats.len());
-    let alignments = last_tiling::remove_repeats(alignments, &contigs, &repeats);
-    info!("Filter repeat:{}", alignments.len());
-    let encoded_reads = last_tiling::encoding(&fasta, &contigs, &alignments);
+    // let alignments = last_tiling::remove_repeats(alignments, &contigs, &repeats);
+    // info!("Filter repeat:{}", alignments.len());
+    let encoded_reads = last_tiling::encoding(&fasta, &contigs, &alignments, &repeats);
     info!("Encoded:\t{}", encoded_reads.len());
     let mut wtr = std::fs::File::create(&args[5])?;
     wtr.write_all(serde_json::ser::to_string_pretty(&contigs)?.as_bytes())?;

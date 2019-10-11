@@ -18,7 +18,7 @@ fn main() -> std::io::Result<()> {
     debug!("Contig files:\n{}", contigs);
     let fasta = bio_utils::fasta::parse_into_vec(&args[3])?;
     debug!("Read num\t{}", fasta.len());
-    let encoded_reads = last_tiling::encoding(&fasta, &contigs, &alignments);
+    let encoded_reads = last_tiling::encoding(&fasta, &contigs, &alignments,&vec![]);
     debug!("Encoded:\t{}", encoded_reads.len());
     // let out = std::io::stdout();
     // let mut out = BufWriter::new(out.lock());

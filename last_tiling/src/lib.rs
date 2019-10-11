@@ -18,8 +18,8 @@ pub use lasttab::LastTAB;
 pub use lasttab::Op;
 pub use unit::EncodedRead;
 
-use rayon::prelude::*;
 use bio_utils::fasta;
+use rayon::prelude::*;
 use repeat::RepeatPairs;
 use std::collections::HashMap;
 use std::path::Path;
@@ -72,24 +72,32 @@ pub fn remove_repeats(alns: Vec<LastTAB>, defs: &Contigs, rep: &[RepeatPairs]) -
         .collect()
 }
 
-pub fn encoding(fasta: &[fasta::Record], defs: &Contigs, alns: &[LastTAB]) -> Vec<EncodedRead> {
+pub fn encoding(
+    fasta: &[fasta::Record],
+    defs: &Contigs,
+    alns: &[LastTAB],
+    repeats: &[RepeatPairs],
+) -> Vec<EncodedRead> {
     // Distribute alignments to each reads.
     // bucket[i] is the alignment for fasta[i].
     let buckets = distribute(fasta, alns);
     debug!("There are {} buckets.", buckets.len());
-    let buckets:Vec<_> = buckets
-        .into_iter()
-        .zip(fasta.iter())
-        .collect();
-    buckets.into_par_iter()
-        .map(|(bucket, seq)| into_encoding(bucket, seq, defs))
+    let buckets: Vec<_> = buckets.into_iter().zip(fasta.iter()).collect();
+    buckets
+        .into_par_iter()
+        .map(|(bucket, seq)| into_encoding(bucket, seq, defs, repeats))
         // .enumerate()
         // .inspect(|(idx, read)| debug!("{},{}", idx, read))
         // .map(|(_, read)| read)
         .collect()
 }
 
-fn into_encoding(bucket: Vec<&LastTAB>, seq: &fasta::Record, defs: &Contigs) -> EncodedRead {
+fn into_encoding(
+    bucket: Vec<&LastTAB>,
+    seq: &fasta::Record,
+    defs: &Contigs,
+    repeats: &[RepeatPairs],
+) -> EncodedRead {
     if bucket.is_empty() {
         let read = vec![ChunkedUnit::Gap(GapUnit::new(seq.seq()))];
         return EncodedRead::from(seq.id().to_string(), read);
@@ -112,16 +120,20 @@ fn into_encoding(bucket: Vec<&LastTAB>, seq: &fasta::Record, defs: &Contigs) -> 
     let bases = seq.seq();
     for w in bucket.windows(2) {
         // Determine whether we can use entire alignment of w[0].
-        let former_stop = w[0].seq2_end_from_forward();
-        let later_start = w[1].seq2_start_from_forward();
-        let (mut encodes, start, end) = if w[0].score() > w[1].score() || former_stop < later_start
-        {
+        let (former_start, former_stop) = ref_start_end(&w[0]);
+        let (later_start, later_stop) = ref_start_end(&w[1]);
+        let (mut encodes, start, end) = if former_stop < later_start {
+            // No overlap.
             aln_to_encode(&w[0], w[0].seq2_end_from_forward(), defs, bases)
         } else {
-            debug!("Overlapping aln");
-            debug!("{}", &w[0]);
-            debug!("{}", &w[1]);
-            aln_to_encode(&w[1], w[1].seq2_start_from_forward(), defs, bases)
+            if repeats
+                .iter()
+                .all(|rp| is_not_contained_by(rp, &w[0], former_start, former_stop))
+            {
+                aln_to_encode(&w[0], w[0].seq2_end_from_forward(), defs, bases)
+            } else {
+                aln_to_encode(&w[1], w[1].seq2_start_from_forward(), defs, bases)
+            }
         };
         if start_pos < start {
             let gapunit = ChunkedUnit::Gap(GapUnit::new(&bases[start_pos..start]));
@@ -143,6 +155,15 @@ fn into_encoding(bucket: Vec<&LastTAB>, seq: &fasta::Record, defs: &Contigs) -> 
         read.push(gapunit);
     }
     unit::EncodedRead::from(seq.id().to_string(), read)
+}
+
+fn is_not_contained_by(rs: &RepeatPairs, a: &LastTAB, s: usize, t: usize) -> bool {
+    rs.inner().iter().all(|r| is_not_contained(r, a, s, t))
+}
+
+#[inline]
+fn is_not_contained(r: &repeat::Repeat, a: &LastTAB, s: usize, t: usize) -> bool {
+    r.name() != a.seq2_name() || s < r.start() || r.end() < t
 }
 
 #[inline]
@@ -365,7 +386,10 @@ fn distribute<'a>(fasta: &[fasta::Record], alns: &'a [LastTAB]) -> Vec<Vec<&'a L
         .enumerate()
         .map(|(idx, id)| (id, idx))
         .collect();
-    for aln in alns.iter().filter(|aln| aln.alignment_length() > 3 * UNIT_SIZE) {
+    for aln in alns
+        .iter()
+        .filter(|aln| aln.alignment_length() > 3 * UNIT_SIZE)
+    {
         alignments_bucket[id_to_idx[aln.seq2_name()]].push(aln);
     }
     alignments_bucket

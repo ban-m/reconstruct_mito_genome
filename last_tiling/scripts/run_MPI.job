@@ -7,12 +7,12 @@
 #$ -o ./logfiles/convert.out
 #$ -V
 set -ue
-ROOT=/grid/ban-m/arabidopsis_thaliana/sequel/assemble/mine
+ROOT=/grid/ban-m/arabidopsis_thaliana/sequel/assemble/mpi
 LASTTAB=${ROOT}/last_db/initial.tab
 READ=${ROOT}/filtered_read.fasta
 CONTIGS=${ROOT}/initial_asm/scaffolds.contigs.fasta
 SELF_LASTTAB=${ROOT}/last_db/self.tab
-PREFIX=./data/mine_w_repeat
+PREFIX=./data/mpi_w_repeat
 cargo run --release --bin annotate_dotplot -- ${CONTIGS} ${SELF_LASTTAB} \
       > ${PREFIX}_repeats.json
 cargo run --release --bin encode \

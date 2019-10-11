@@ -26,6 +26,11 @@ const gap_scale = d3.scaleLog()
       .range([gap_min_radius, gap_max_radius])
       .clamp(true);
 
+// Circle radius
+const min_radius = 1;
+const max_radius = 8;
+const min_read_num = 3;
+
 const svg = d3.select("#plot")
       .append("svg")
       .attr("width",width)
@@ -36,6 +41,9 @@ const contigs_layer = svg.append("g")
 const coverage_layer = svg.append("g")
       .attr("transform", `translate(${width/2},${height/2})`)
       .attr("class","coverages");
+const start_stop_layer = svg.append("g")
+      .attr("transform", `translate(${width/2},${height/2})`)
+      .attr("class","start-stop-read");
 const read_layer = svg.append("g")
       .attr("transform", `translate(${width/2},${height/2})`)
       .attr("class","read");
@@ -102,6 +110,22 @@ const calcCovScale = (contigs)=>{
         .range([coverage_min,coverage_max]);
 };
 
+const calcReadNumScale = (contigs) => {
+    // Input: Array on JSON object
+    // Output: d3.scale object
+    // Requirements: Each object in the argument should have an array of integer, which is
+    // named "start_stop."
+    // Calculate the scale for start/stop vizualization.
+    const total = contigs.flatMap(c => c.start_stop).reduce((x,y) => x+y);
+    const num = contigs.map(c => c.start_stop.length).reduce((x,y)=> x+y);
+    const max = Math.max(...contigs.flatMap(c => c.start_stop));
+    console.log("mean", total/ num);
+    return d3.scaleLog()
+        .domain([min_read_num,9*max/10])
+        .range([min_radius,max_radius])
+        .clamp(true);
+};
+
 const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
     // Input: JSON object, Array[Array[Num]], d3.scale, Array[Num], Num
     // Output: String
@@ -109,7 +133,7 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
     // should have either "Gap" or "Encode"
     let path = d3.path();
     let units = Array.from(read.units).reverse();
-    const r = read_radius + jitters();
+    const r = read_radius; // + jitters();
     let gap = 0;
     let unit = {};
     while(!unit.hasOwnProperty("Encode")){
@@ -130,12 +154,12 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
     }else{
         path.moveTo(read_radius * Math.cos(radian), read_radius * Math.sin(radian));
     }
-    gap = 0;
+    // gap = 0;
     for (unit of units.reverse()){
         if (unit.hasOwnProperty("Gap")){
-            if (unit.Gap > unit_length * 2){
-                gap = unit.Gap;
-            }
+            // if (unit.Gap > unit_length * 2){
+            //     gap = unit.Gap;
+            // }
             continue;
         }
         if (unit.Encode[0] == contig){
@@ -144,17 +168,17 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
         }else{
             // Change contig. Connect them.
             // If there are remaining gap, clean them.
-            if (gap != 0){
-                const control_radian = start_pos[contig] - Math.PI/2;
-                const new_radian = control_radian - gap_position;
-                const control_x = handle_points_radius * Math.cos(control_radian);
-                const control_y = handle_points_radius * Math.sin(control_radian);
-                const jt = gap_jitters();
-                path.quadraticCurveTo(control_x, control_y, r * Math.cos(new_radian), r * Math.sin(new_radian));
-                path.moveTo(gap_scale(gap) * Math.cos(new_radian + jt), gap_scale(gap)*Math.sin(new_radian + jt));
-                path.lineTo(r * Math.cos(new_radian), r * Math.sin(new_radian));
-            }
-            gap = 0;
+            // if (gap != 0){
+            //     const control_radian = start_pos[contig] - Math.PI/2;
+            //     const new_radian = control_radian - gap_position;
+            //     const control_x = handle_points_radius * Math.cos(control_radian);
+            //     const control_y = handle_points_radius * Math.sin(control_radian);
+            //     const jt = gap_jitters();
+            //     path.quadraticCurveTo(control_x, control_y, r * Math.cos(new_radian), r * Math.sin(new_radian));
+            //     path.moveTo(gap_scale(gap) * Math.cos(new_radian + jt), gap_scale(gap)*Math.sin(new_radian + jt));
+            //     path.lineTo(r * Math.cos(new_radian), r * Math.sin(new_radian));
+            // }
+            // gap = 0;
             const new_radian = start_pos[unit.Encode[0]];
             radian = new_radian + bp_scale(unit_length*unit.Encode[1]) - Math.PI/2;
             // Bezier Curve to new point from here.
@@ -171,7 +195,7 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
 
 const calcID = (read,unit_length)=>{
     // Input: Json object
-    // Output: Num
+    // Output: JSON object having "type" property and "id" property(maybe).
     // Requirements: read should have "units" property, which is a vector
     // and each of element should have eigther "Gap" or "Encode" type.
     // Returns the most assigned type of given read.
@@ -207,8 +231,8 @@ const calcID = (read,unit_length)=>{
 };
 
 
-const selectRead = read => {
-    // Input: JSON object
+const selectRead = (read,unitlen) => {
+    // Input: JSON object, Num
     // Output: boolean
     // Requirements: input object should have "units" property,
     // which is actually vector of object with "Gap" or "Encode" property.
@@ -217,11 +241,11 @@ const selectRead = read => {
     const to = 1;
     const set = new Set(read.units.filter(u => u.hasOwnProperty("Encode")).map(u => u.Encode[0]));
     const max_gap = Math.max(...read.units.filter(u => u.hasOwnProperty("Gap")).map(u => u.Gap));
-    return true;
+    // return true;
     // return set.has(4) && set.size == 1;
     // return set.has(from) && set.has(to) && read.units.length > 15 ;
     // return read.units.length < 140 && read.units.length > 75 && set.size > 1 && set.has(0) && set.has(1) && max_gap < 4000;
-    // return set.size == 2 && set.has(0) && set.has(1); // && max_gap < 4000;
+    return set.size == 1 && (set.has(0) || set.has(1)) && calcID(read,unitlen).type == "Contig" ; // && max_gap < 4000;
     // return set.size == 1 && set.has(1) ;
 };
 
@@ -253,7 +277,7 @@ const plotData = (dataset, repeats, unit_length) =>
           // This is also an array.
           // const reads = values.reads;
           // Or select reads as you like.
-          const reads = values.reads.filter(selectRead);
+          const reads = values.reads.filter(r => selectRead(r,unit_length));
           // let reads = values.reads.slice(0,10);
           // reads.push({"name":"test",
           //             "units":[{"Gap":1000},
@@ -263,6 +287,7 @@ const plotData = (dataset, repeats, unit_length) =>
           const bp_scale = calcScale(contigs);
           const coverage_scale = calcCovScale(contigs);
           const start_pos = calcStartPosition(contigs);
+          const readnum_scale = calcReadNumScale(contigs);
           const handle_points = calcHandlePoints(start_pos);
           const contig_num = start_pos.length;
           // Draw contigs.
@@ -298,6 +323,7 @@ const plotData = (dataset, repeats, unit_length) =>
                   return arc();
               })
               .attr("fill", "gray");
+          // Draw coverage
           coverage_layer
               .selectAll(".coverage")
               .data(contigs)
@@ -313,7 +339,26 @@ const plotData = (dataset, repeats, unit_length) =>
               })
               .attr("fill","none")
               .attr("stroke",c => d3.schemeCategory10[c.id% 10]);
-          // console.log(reads);
+          // Draw start/stop reads.
+          start_stop_layer
+              .selectAll(".start-stop-count")
+              .data(contigs.flatMap(c => {
+                  const start = start_pos[c.id] - Math.PI/2;
+                  return c.start_stop.map((num,i) => {
+                      const radian = start + bp_scale(i * unit_length);
+                      const r = contig_radius + contig_thick/2;
+                      const x = r * Math.cos(radian);
+                      const y = r * Math.sin(radian);
+                      return {"r":readnum_scale(num), "x": x, "y":y, "id":c.id};
+                  });
+              }))
+              .enter()
+              .append("circle")
+              .attr("class",".start-stop-count")
+              .attr("r", stst => stst.r)
+              .attr("cx",stst => stst.x)
+              .attr("cy",stst => stst.y)
+              .attr("fill",stst => d3.schemeCategory10[stst.id % 10]);
           // Draw reads
           read_layer
               .selectAll(".read")
@@ -323,7 +368,7 @@ const plotData = (dataset, repeats, unit_length) =>
               .attr("class","read")
               .attr("d",read => readToPath(read,handle_points,bp_scale,start_pos,unit_length))
               .attr("fill","none")
-              .attr("opacity",0.2)
+              .attr("opacity",0.3)
               .attr("stroke",read => {
                   const identity = calcID(read,unit_length);
                   if (identity.type == "Gap"){
@@ -382,6 +427,34 @@ const plotData = (dataset, repeats, unit_length) =>
                         .tickFormat(d3.format(".2s"))
                         .ticks(1)
                        );
+          }
+          const n_tick = svg.append("g")
+                .attr("class","scale")
+                .attr("transform", `translate(0,220)`);
+          n_tick.append("text")
+              .text("Number of Reads");
+          {
+              const sizes = [3,9,20];
+              n_tick.append("g")
+                  .attr("transform",`translate(60,15)`)
+                  .selectAll("specimen")
+                  .data(sizes)
+                  .enter()
+                  .append("circle")
+                  .attr("class","specimen")
+                  .attr("cx", (_,i) => 20 *i)
+                  .attr("cy", 0)
+                  .attr("r" , r => readnum_scale(r))
+                  .attr("fill","black");
+              n_tick.append("g")
+                  .attr("transform",`translate(60,35)`)
+                  .selectAll("ticks")
+                  .data(sizes)
+                  .enter()
+                  .append("text")
+                  .attr("x", (_,i) => 20 *i)
+                  .attr("y", 0)
+                  .text(r => r);
           }
           // const pic = document.getElementById("plot");
           //get svg source.

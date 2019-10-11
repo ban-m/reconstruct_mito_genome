@@ -42,6 +42,21 @@ pub enum ChunkedUnit {
     Gap(GapUnit),
 }
 
+impl ChunkedUnit {
+    pub fn is_gap(&self) -> bool {
+        match self {
+            ChunkedUnit::En(_) => false,
+            ChunkedUnit::Gap(_) => true,
+        }
+    }
+    pub fn is_encode(&self) -> bool {
+        match self {
+            ChunkedUnit::En(_) => true,
+            ChunkedUnit::Gap(_) => false,
+        }
+    }
+}
+
 impl fmt::Display for ChunkedUnit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -102,7 +117,7 @@ impl fmt::Display for Encode {
 }
 
 impl Encode {
-    pub fn sketch(contig: u16, unit: u16, is_forward:bool) -> Self {
+    pub fn sketch(contig: u16, unit: u16, is_forward: bool) -> Self {
         let bases = String::new();
         let ops = vec![];
         Self {
@@ -110,7 +125,7 @@ impl Encode {
             unit,
             bases,
             ops,
-            is_forward
+            is_forward,
         }
     }
     pub fn len(&self) -> usize {
@@ -127,7 +142,7 @@ impl Encode {
         self.ops.clear();
         self.ops.extend(ops);
     }
-    pub fn is_forward(&self)->bool{
+    pub fn is_forward(&self) -> bool {
         self.is_forward
     }
     // The reference should be consistent with the `is_forward` value.

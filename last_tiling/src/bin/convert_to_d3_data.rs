@@ -30,6 +30,7 @@ struct Contig {
     id: u16,
     length: usize,
     coverages: Vec<u32>,
+    start_stop: Vec<u32>,
 }
 
 fn summarize_contig(
@@ -44,23 +45,35 @@ fn summarize_contig(
             let id = id as u16;
             let length = contigs.get(name).unwrap().len();
             let coverages = vec![0; length / last_tiling::UNIT_SIZE + 1];
+            let start_stop = vec![0; length / last_tiling::UNIT_SIZE + 1];
             let name = name.to_string();
             Contig {
                 id,
                 length,
                 coverages,
                 name,
+                start_stop,
             }
         })
         .collect();
     for read in reads {
+        let mut first = true;
         for unit in &read.seq {
             match unit {
                 last_tiling::unit::ChunkedUnit::En(encode) => {
+                    if first {
+                        cs[encode.contig as usize].start_stop[encode.unit as usize] += 1;
+                        first = false;
+                    }
                     cs[encode.contig as usize].coverages[encode.unit as usize] += 1
                 }
                 _ => {}
             }
+        }
+        if let Some(last_tiling::unit::ChunkedUnit::En(encode)) =
+            &read.seq.iter().rev().filter(|e| e.is_encode()).nth(0)
+        {
+            cs[encode.contig as usize].start_stop[encode.unit as usize] += 1;
         }
     }
     cs
