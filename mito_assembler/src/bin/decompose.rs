@@ -7,7 +7,8 @@ fn main() -> std::io::Result<()> {
     let read = bio_utils::fasta::parse_into_vec(&args[1])?;
     let alignments = last_tiling::parse_tab_file(&args[2])?;
     let contigs = bio_utils::fasta::parse_into_vec(&args[3])?;
-    let output_path = &args[4];
+    let self_alignments = last_tiling::parse_tab_file(&args[4])?;
+    let output_path = &args[5];
     let decomposed = last_decompose::decompose(read, alignments, contigs);
     for (idx, reads) in decomposed {
         let path = format!("{}/{}.rs", output_path, idx);

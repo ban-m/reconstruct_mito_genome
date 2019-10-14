@@ -64,8 +64,9 @@ lastal -Q0 -f TAB -P 24 initial  ${OUTPATH}/initial_asm/scaffolds.contigs.fasta 
 cd ${ROOT}
 
 ## --- Decompose ---
-
-cargo run --release --bin decompose ${READ} ${ALIGN} ${CONTIGS} ${OUT_PATH}/decomposed
+ALIGN=${OUTPATH}/last_db/initial.tab
+SELF=${OUTPATH}/last_db/self.tab
+cargo run --release --bin decompose ${READ} ${ALIGN} ${CONTIGS} ${SELF} ${OUT_PATH}/decomposed
 
 ## --- Re-assemble ---
 

@@ -455,6 +455,14 @@ version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "last_decompose"
+version = "0.1.0"
+dependencies = [
+ "bio_utils 0.1.0",
+ "last_tiling 0.1.0",
+]
+
+[[package]]
 name = "last_tiling"
 version = "0.1.0"
 dependencies = [
@@ -555,6 +563,7 @@ version = "0.1.0"
 dependencies = [
  "bio 0.29.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bio_utils 0.1.0",
+ "last_decompose 0.1.0",
  "last_tiling 0.1.0",
  "rayon 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
