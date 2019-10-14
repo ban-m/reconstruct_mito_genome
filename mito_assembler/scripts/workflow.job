@@ -65,20 +65,30 @@ cd ${ROOT}
 
 ## --- Decompose ---
 
-# cargo run --release --bin decompose ${READ} ${ALIGN} ${CONTIGS} ${OUT_PATH}/decomposed
+cargo run --release --bin decompose ${READ} ${ALIGN} ${CONTIGS} ${OUT_PATH}/decomposed
 
 ## --- Re-assemble ---
 
-# for read in ${OUT_PATH}/decomposed/*.fasta
-# do
-#     NAME=${read%.fasta}
-#     flye --pacbio-raw ${READ} --genome-size 1M \
-#          --out-dir ${OUTPATH}/${NAME}_asm \
-#          --threads 24 --iteration 2 --meta 
-# done
+for read in ${OUT_PATH}/decomposed/*.fasta
+do
+    NAME=${read%.fasta}
+    NAME=${NAME#${OUT_PATH}/decomposed}
+    canu \
+	genomeSize=500K \
+	useGrid=false\
+	-d ${OUTPATH}/${NAME} -p scaffolds -pacbio-raw ${read}
+    ## TODO: rename contig names, alignment the reads.
+done
 
 ## --- Calc stats ----
 
+## TODO: calculate statistics
 
 ## --- Coding region prediction, circos plot, and downstream analysis ---
+
+
+## TODO: Visualizing the contigs. Pull other reads which is in the 'non-genomic-read'
+## TODO: Coding region prediction. There should be some software to do that.
+## TODO: Variant calling. Graphicalize pileup if possible. It can be "hardcoded" if
+## All we want to do is to make reproducibility fair.
 

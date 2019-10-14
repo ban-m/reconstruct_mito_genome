@@ -64,7 +64,11 @@ Output: Entropies<TSV>
 Requirements: No
 Calcurate the k-mer entorpy for each read for k = 2,3,4,5,6. Read information would be lost.
 
-
+- decompose.rs
+Input: Read<Fasta>, Alignment<LASTTAB>, Contigs<Fasta> and the location where the output would be written<Path>,
+Output: None,
+Requirements: None
+Decompose the reads into blocks.
 
 ### ./scripts
 

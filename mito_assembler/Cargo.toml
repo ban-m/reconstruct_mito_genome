@@ -10,3 +10,4 @@ edition = "2018"
 bio_utils = {path = "../../bio_utils"}
 bio = "*"
 rayon = "*"
+last_tiling = {path = "../last_tiling"}

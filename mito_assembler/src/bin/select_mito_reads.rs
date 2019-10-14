@@ -5,7 +5,7 @@ extern crate bio_utils;
 use bio_utils::fasta;
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader};
-const THR:usize = 1_000;
+const THR: usize = 1_000;
 fn main() -> std::io::Result<()> {
     let args: Vec<_> = std::env::args().collect();
     let stdin = std::io::stdin();
@@ -29,7 +29,7 @@ fn is_good_aln(paf: String) -> Option<String> {
     let contents: Vec<&str> = paf.split('\t').collect();
     let start: usize = contents[2].parse().unwrap();
     let end: usize = contents[3].parse().unwrap();
-    if contents[5] == "NC_037304.1" && (end - start) > THR{
+    if contents[5] == "NC_037304.1" && (end - start) > THR {
         Some(contents[0].to_string())
     } else {
         None
