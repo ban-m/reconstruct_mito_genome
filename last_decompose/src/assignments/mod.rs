@@ -4,6 +4,10 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 /// if the similatity between two cluster is higher than SIM_THR, an edge would be drawn.
 pub const SIM_THR: f64 = 6.0;
+/// The number of read spanned.
+pub const READ_NUM: usize = 10;
+/// The spanning road with reads less than REMOVE_CLUSTER would be discarded.
+pub const REMOVE_CLUSTER:usize = 3;
 mod bipartite_matching;
 mod minimum_spanning_tree;
 #[derive(Debug, Clone, Default)]
@@ -28,6 +32,7 @@ impl Assignment {
     pub fn len(&self) -> usize {
         self.weight[0].len()
     }
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -107,14 +112,25 @@ impl Assignment {
     }
 }
 
-#[allow(unused_variables)]
+use std::collections::BinaryHeap;
+
+/// Locally decompose the critical region, and then
+/// wave it to remaining reads.
 pub fn local_decompose(
     cr: BroadRepeat,
-    alns: &[LastTAB],
+    _alns: &[LastTAB],
     reads: &[EncodedRead],
     contigs: &Contigs,
     repeat: &[RepeatPairs],
 ) -> Assignment {
+    // Check if there are sufficient number of spannning reads.
+    let num_of_spanning_reads = reads.iter().filter(|r| cr.is_spanned_by(r)).count();
+    let mut dbg_hmms = if num_of_spanning_reads > READ_NUM{
+        // Go on classification.
+    }else{
+        // Fallback.
+    };
+    // From here, generic classification starts.
     Assignment::default()
 }
 

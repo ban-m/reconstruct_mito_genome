@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate log;
+extern crate env_logger;
 extern crate bio_utils;
 extern crate last_tiling;
 extern crate rand;
