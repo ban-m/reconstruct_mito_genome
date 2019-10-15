@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 bio_utils = {path = "../../bio_utils"}
 last_tiling = {path = "../last_tiling"}
+rand = "0.7.2"

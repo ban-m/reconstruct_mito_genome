@@ -472,6 +472,7 @@ version = "0.1.0"
 dependencies = [
  "bio_utils 0.1.0",
  "last_tiling 0.1.0",
+ "rand 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
