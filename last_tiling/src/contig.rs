@@ -59,6 +59,15 @@ impl Contigs {
     pub fn names(&self) -> &[String] {
         &self.names
     }
+    pub fn get_num_of_contigs(&self) -> usize {
+        self.names.len()
+    }
+    pub fn get_last_unit(&self, id: u16) -> Option<u16> {
+        self.names
+            .get(id as usize)
+            .and_then(|e| self.get(e))
+            .map(|seq| (seq.len() / super::UNIT_SIZE - 1) as u16)
+    }
 }
 
 #[inline]

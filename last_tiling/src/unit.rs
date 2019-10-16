@@ -10,6 +10,21 @@ pub struct EncodedRead {
     pub seq: Vec<ChunkedUnit>,
 }
 
+use std::hash::{Hash, Hasher};
+
+impl Hash for EncodedRead {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
+impl PartialEq for EncodedRead {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+impl Eq for EncodedRead {}
+
 impl EncodedRead {
     pub fn from(id: String, seq: Vec<ChunkedUnit>) -> Self {
         Self { id, seq }
@@ -55,6 +70,12 @@ impl ChunkedUnit {
             ChunkedUnit::Gap(_) => false,
         }
     }
+    pub fn len(&self) -> usize {
+        match self {
+            ChunkedUnit::En(e) => e.len(),
+            ChunkedUnit::Gap(e) => e.len(),
+        }
+    }
 }
 
 impl fmt::Display for ChunkedUnit {
@@ -68,25 +89,34 @@ impl fmt::Display for ChunkedUnit {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct GapUnit {
+    contig_pair: Option<(u16, u16)>,
     bases: String,
 }
 
 impl fmt::Display for GapUnit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.bases.len())
+        if let Some((s, e)) = self.contig_pair {
+            write!(f, "{}->[{}]->{}", s, &self.bases, e)
+        } else {
+            write!(f, "[{}]", &self.bases)
+        }
     }
 }
 
 impl fmt::Debug for GapUnit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", &self.bases)
+        if let Some((s, e)) = self.contig_pair {
+            write!(f, "{}->[{}]->{}", s, &self.bases, e)
+        } else {
+            write!(f, "[{}]", &self.bases)
+        }
     }
 }
 
 impl GapUnit {
-    pub fn new(seq: &[u8]) -> Self {
+    pub fn new(seq: &[u8], contig_pair: Option<(u16, u16)>) -> Self {
         let bases = String::from_utf8(seq.to_vec()).unwrap();
-        Self { bases }
+        Self { bases, contig_pair }
     }
     pub fn len(&self) -> usize {
         self.bases.len()

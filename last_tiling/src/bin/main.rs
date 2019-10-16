@@ -6,7 +6,6 @@ extern crate env_logger;
 extern crate serde;
 extern crate serde_json;
 use env_logger::Env;
-use std::io::Write;
 fn main() -> std::io::Result<()> {
     // env_logger::from_env(Env::default().default_filter_or("debug")).init();
     env_logger::from_env(Env::default().default_filter_or("warn")).init();
@@ -17,19 +16,26 @@ fn main() -> std::io::Result<()> {
     let contigs = last_tiling::contig::Contigs::from_file(&args[2])?;
     debug!("Contig files:\n{}", contigs);
     let fasta = bio_utils::fasta::parse_into_vec(&args[3])?;
+    // let fasta: Vec<_> = fasta
+    //     .into_iter()
+    //     .filter(|e| e.id() == "m54113_160913_184949/48432029/0_6399")
+    //     .collect();
+    use std::collections::HashMap;
+    let readlen: HashMap<_, _> = fasta
+        .iter()
+        .map(|e| (e.id().to_string(), e.seq().len()))
+        .collect();
     debug!("Read num\t{}", fasta.len());
-    let encoded_reads = last_tiling::encoding(&fasta, &contigs, &alignments,&vec![]);
+    let repeats = last_tiling::repeat::open(&args[4])?;
+    info!("Repeats:{:?}", repeats.len());
+    let encoded_reads = last_tiling::encoding(&fasta, &contigs, &alignments, &repeats);
     debug!("Encoded:\t{}", encoded_reads.len());
-    // let out = std::io::stdout();
-    // let mut out = BufWriter::new(out.lock());
-    // for read in &encoded_reads {
-    //     writeln!(&mut out, "{}", read)?;
-    // }
-    eprintln!("Output dump");
-    let mut wtr = std::fs::File::create("./data/contigs.json")?;
-    wtr.write_all(serde_json::ser::to_string_pretty(&contigs)?.as_bytes())?;
-    let mut wtr = std::fs::File::create("./data/reads.json")?;
-    wtr.write_all(serde_json::ser::to_string(&encoded_reads)?.as_bytes())?;
+    for read in encoded_reads.iter().take(10) {
+        let len = read.seq().iter().map(|e| e.len()).sum::<usize>();
+        let raw_len = readlen[read.id()];
+        eprintln!("{}\t{}\t{}", read.id(), len, raw_len);
+        eprintln!("{}", read);
+    }
     // for read in encoded_reads {
     //     println!("{:?}", read.id);
     //     for unit in &read.seq {

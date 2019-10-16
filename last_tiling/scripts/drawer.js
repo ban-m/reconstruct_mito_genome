@@ -241,11 +241,11 @@ const selectRead = (read,unitlen) => {
     const to = 1;
     const set = new Set(read.units.filter(u => u.hasOwnProperty("Encode")).map(u => u.Encode[0]));
     const max_gap = Math.max(...read.units.filter(u => u.hasOwnProperty("Gap")).map(u => u.Gap));
-    // return true;
+    return true;
     // return set.has(4) && set.size == 1;
     // return set.has(from) && set.has(to) && read.units.length > 15 ;
     // return read.units.length < 140 && read.units.length > 75 && set.size > 1 && set.has(0) && set.has(1) && max_gap < 4000;
-    return set.size == 1 && (set.has(0) || set.has(1)) && calcID(read,unitlen).type == "Contig" ; // && max_gap < 4000;
+    // return set.size == 1 && (set.has(0) || set.has(1)) && calcID(read,unitlen).type == "Contig" ; // && max_gap < 4000;
     // return set.size == 1 && set.has(1) ;
 };
 
