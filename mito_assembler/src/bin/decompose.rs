@@ -9,12 +9,12 @@ fn main() -> std::io::Result<()> {
     let contigs = bio_utils::fasta::parse_into_vec(&args[3])?;
     let self_alignments = last_tiling::parse_tab_file(&args[4])?;
     let output_path = &args[5];
-    let decomposed = last_decompose::decompose(read, alignments, contigs);
-    for (idx, reads) in decomposed {
+    let decomposed = last_decompose::decompose(read, alignments, contigs, self_alignments);
+    for (idx, reads) in decomposed.into_iter().enumerate() {
         let path = format!("{}/{}.rs", output_path, idx);
         use std::io::BufWriter;
         let mut writer =
-            bio_utils::fasta::Writer::new(BufWriter::new(std::fs::File::create(&path))?);
+            bio_utils::fasta::Writer::new(BufWriter::new(std::fs::File::create(&path)?));
         for r in reads {
             writer.write_record(&r)?;
         }
