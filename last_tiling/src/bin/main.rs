@@ -30,11 +30,13 @@ fn main() -> std::io::Result<()> {
     info!("Repeats:{:?}", repeats.len());
     let encoded_reads = last_tiling::encoding(&fasta, &contigs, &alignments, &repeats);
     debug!("Encoded:\t{}", encoded_reads.len());
-    for read in encoded_reads.iter().take(10) {
+    for read in encoded_reads.iter() {
         let len = read.seq().iter().map(|e| e.len()).sum::<usize>();
         let raw_len = readlen[read.id()];
-        eprintln!("{}\t{}\t{}", read.id(), len, raw_len);
-        eprintln!("{}", read);
+        if len != raw_len {
+            eprintln!("{}\t{}\t{}", read.id(), len, raw_len);
+        }
+        // println!("{}", read);
     }
     // for read in encoded_reads {
     //     println!("{:?}", read.id);
@@ -62,31 +64,31 @@ fn main() -> std::io::Result<()> {
     //         }
     //     }
     // }
-    // let contig = 0;
-    // let unit_n = 20;
-    // for read in encoded_reads {
-    //     for unit in &read.seq {
-    //         match unit {
-    //             last_tiling::unit::ChunkedUnit::En(encode) => {
-    //                 if encode.contig == contig && encode.unit == unit_n {
-    //                     let start = encode.unit as usize * last_tiling::UNIT_SIZE;
-    //                     let end = (encode.unit + 1) as usize * last_tiling::UNIT_SIZE;
-    //                     let refr = if encode.is_forward() {
-    //                         println!("[F]");
-    //                         &contigs.get_by_id(encode.contig).unwrap()[start..end]
-    //                     } else {
-    //                         println!("[R]");
-    //                         let len = contigs.get_by_id(encode.contig).unwrap().len();
-    //                         let (start, end) = (len - end, len - start);
-    //                         assert!(start < end, "{},{},{}", start, end, len);
-    //                         &contigs.get_by_id_revcmp(encode.contig).unwrap()[start..end]
-    //                     };
-    //                     encode.view(refr);
-    //                 }
-    //             }
-    //             _ => {}
-    //         }
-    //     }
-    // }
+    let contig = 0;
+    let unit_n = 20;
+    for read in encoded_reads {
+        for unit in &read.seq {
+            match unit {
+                last_tiling::unit::ChunkedUnit::En(encode) => {
+                    if encode.contig == contig && encode.unit == unit_n {
+                        let start = encode.unit as usize * last_tiling::UNIT_SIZE;
+                        let end = (encode.unit + 1) as usize * last_tiling::UNIT_SIZE;
+                        let refr = if encode.is_forward() {
+                            println!("[F]");
+                            &contigs.get_by_id(encode.contig).unwrap()[start..end]
+                        } else {
+                            println!("[R]");
+                            let len = contigs.get_by_id(encode.contig).unwrap().len();
+                            let (start, end) = (len - end, len - start);
+                            assert!(start < end, "{},{},{}", start, end, len);
+                            &contigs.get_by_id_revcmp(encode.contig).unwrap()[start..end]
+                        };
+                        encode.view(refr);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
     Ok(())
 }

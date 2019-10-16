@@ -26,6 +26,22 @@ use std::path::Path;
 use unit::*;
 pub const UNIT_SIZE: usize = 200;
 
+/// Parse given aln files into repeats. It needs contig information such as index of a contig.
+pub fn into_repeats(alns: &[LastTAB], contig: &Contigs) -> Vec<RepeatPairs> {
+    const THR: usize = 1_000;
+    alns.into_iter()
+        .filter(|aln| {
+            // Check complete alignment.
+            let seq1_cmp = aln.seq1_matchlen() != aln.seq1_len();
+            let seq2_cmp = aln.seq2_matchlen() != aln.seq2_len();
+            // Check Long alignment.
+            let long = aln.seq1_matchlen() > THR && aln.seq2_matchlen() > THR;
+            seq1_cmp && seq2_cmp && long
+        })
+        .filter_map(|aln| repeat::RepeatPairs::new(&aln, &contig))
+        .collect()
+}
+
 /// The function to parse Last's TAB format. To see more detail,
 /// see [lasttab] module.
 /// # Example
@@ -72,21 +88,6 @@ pub fn remove_repeats(alns: Vec<LastTAB>, defs: &Contigs, rep: &[RepeatPairs]) -
         .collect()
 }
 
-pub fn into_repeats(alns: &[LastTAB], contig: &Contigs) -> Vec<RepeatPairs> {
-    const THR: usize = 1_000;
-    alns.into_iter()
-        .filter(|aln| {
-            // Check complete alignment.
-            let seq1_cmp = aln.seq1_matchlen() != aln.seq1_len();
-            let seq2_cmp = aln.seq2_matchlen() != aln.seq2_len();
-            // Check Long alignment.
-            let long = aln.seq1_matchlen() > THR && aln.seq2_matchlen() > THR;
-            seq1_cmp && seq2_cmp && long
-        })
-        .filter_map(|aln| repeat::RepeatPairs::new(&aln, &contig))
-        .collect()
-}
-
 pub fn encoding(
     fasta: &[fasta::Record],
     defs: &Contigs,
@@ -99,11 +100,15 @@ pub fn encoding(
     debug!("There are {} buckets.", buckets.len());
     let buckets: Vec<_> = buckets.into_iter().zip(fasta.iter()).collect();
     buckets
-        .into_par_iter()
-        .map(|(bucket, seq)| into_encoding(bucket, seq, defs, repeats))
-        // .enumerate()
-        // .inspect(|(idx, read)| debug!("{},{}", idx, read))
-        // .map(|(_, read)| read)
+        .into_iter()
+        .map(|(bucket, seq)| {
+            if bucket.is_empty() {
+                let read = vec![ChunkedUnit::Gap(GapUnit::new(seq.seq(), None))];
+                EncodedRead::from(seq.id().to_string(), read)
+            } else {
+                into_encoding(bucket, seq, defs, repeats)
+            }
+        })
         .collect()
 }
 
@@ -113,13 +118,9 @@ fn into_encoding(
     defs: &Contigs,
     repeats: &[RepeatPairs],
 ) -> EncodedRead {
-    if bucket.is_empty() {
-        let read = vec![ChunkedUnit::Gap(GapUnit::new(seq.seq(), None))];
-        return EncodedRead::from(seq.id().to_string(), read);
-    }
     debug!("Encoding {} alignments", bucket.len());
     debug!("Read:{},{}len", seq.id(), seq.seq().len());
-    let bucket = filter_contained_alignment(bucket);
+    let bucket = filter_contained_alignment(bucket, defs);
     debug!("Filter contained. Remain {} alignments", bucket.len());
     for aln in &bucket {
         debug!(
@@ -134,73 +135,117 @@ fn into_encoding(
     let (mut start_pos, mut read) = (0, vec![]);
     let bases = seq.seq();
     // Id of bucket[buclet.len()-2]. If bucket.len()==1, it should be None.
-    let mut last_two_contig_id = None;
-    for w in bucket.windows(2) {
-        // Determine whether we can use entire alignment of w[0].
-        let (former_start, former_stop) = ref_start_end(&w[0]);
-        let (later_start, _later_stop) = ref_start_end(&w[1]);
-        let (encodes, mut start, end) = if former_stop < later_start {
-            // No overlap.
-            aln_to_encode(&w[0], w[0].seq2_end_from_forward(), defs, bases)
-        } else {
-            if repeats
-                .iter()
-                .all(|rp| is_not_contained_by(rp, &w[0], former_start, former_stop))
-            {
-                aln_to_encode(&w[0], w[0].seq2_end_from_forward(), defs, bases)
-            } else {
-                aln_to_encode(&w[0], w[1].seq2_start_from_forward(), defs, bases)
-            }
-        };
-        let mut encodes = encodes.into_iter();
-        // If there are overlapping, there would be some "doubly encoded" regions.
-        while start < start_pos {
-            match encodes.next() {
-                Some(unit) => start += unit.len(),
-                None => break,
-            }
-        }
-        debug!("Start from {} in read", start);
-        if start_pos < start {
-            let cs = defs
-                .get_id(&w[0].seq1_name())
-                .and_then(|e| Some((e, defs.get_id(&w[1].seq1_name())?)))
-                .map(|(c1, c2)| (c1.min(c2), c1.max(c2)));
-            let gapunit = ChunkedUnit::Gap(GapUnit::new(&bases[start_pos..start], cs));
-            read.push(gapunit);
-        }
-        read.extend(encodes);
-        debug!("SP:{}->{}", start_pos, end.max(start_pos));
-        start_pos = end.max(start_pos);
-        last_two_contig_id = defs.get_id(&w[0].seq1_name());
+    let mut prev_contig_id = defs.get_id(bucket[0].seq1_name()).unwrap();
+    // The procedure here would be a little bit tricky.
+    let mut bucket = bucket.iter();
+    let mut target = bucket.next().unwrap();
+    'outer: while let Some(mut next) = bucket.next() {
+        // let c = defs.get_id(target.seq1_name()).unwrap();
+        // while check_contained(target, next) {
+        //     // Contained read!
+        //     assert!(defs.get_id(target.seq1_name()).unwrap() < def.get_id(next.seq1_name()));
+        //     // up to next's start.
+        //     let (encodes, start, end) = aln_to_encode(target, next.seq2_start_from_forward(), defs, bases);
+        //     let (start, encodes) = pop_encodes_until(start, start_pos, encodes);
+        //     debug!("Start from {} in read", start);
+        //     if start_pos < start{
+        //         let cs = Some(prev_contig_id.min(c), prev_contig_id.max(c));
+        //         reads.push(ChunkedUnit::Gap(GapUnit::new(&bases[start_pos..start],cs)));
+        //     }
+        //     reads.extend(encodes);
+        //     debug!("SP:{}->{}", start_pos, end.max(start_pos));
+        //     start_pos = end.max(start_pos);
+        //     // encode next.
+        //     let (encodes, start, end) = aln_to_encode(next,
+        //     next = match bucket.next() {
+        //         Some(res) => res,
+        //         None => break 'outer,
+        //     };
+        // }
+        let (sp, units) =
+            encoding_single_alignment(target, next, defs, bases, start_pos, prev_contig_id);
+        read.extend(units);
+        start_pos = sp;
+        target = next;
+        prev_contig_id = defs.get_id(target.seq1_name()).unwrap();
     }
-    let last = bucket.last().unwrap();
-    let (encodes, mut start, end) = aln_to_encode(last, last.seq2_end_from_forward(), defs, bases);
-    let mut encodes = encodes.into_iter();
+    let last = target;
+    let (encodes, start, end) = aln_to_encode(last, last.seq2_end_from_forward(), defs, bases);
     let c = defs.get_id(&last.seq1_name()).unwrap();
     debug!("Start from {} in read", start);
-    while start < start_pos {
-        match encodes.next() {
-            Some(unit) => start += unit.len(),
-            None => break,
-        }
-    }
+    let (start, encodes) = pop_encodes_until(start, start_pos, encodes);
     if start_pos < start {
-        let cs = match last_two_contig_id {
-            Some(res) => Some((c.min(res), c.max(res))),
-            None => Some((c, c)),
-        };
-        let gapunit = ChunkedUnit::Gap(GapUnit::new(&bases[start_pos..start], cs));
+        let cs = (c.min(prev_contig_id), c.max(prev_contig_id));
+        let gapunit = ChunkedUnit::Gap(GapUnit::new(&bases[start_pos..start], Some(cs)));
         read.push(gapunit);
     }
     read.extend(encodes);
     debug!("SP:{}->{}", start_pos, end.max(start_pos));
     start_pos = end.max(start_pos);
     if start_pos < bases.len() {
-        let gapunit = ChunkedUnit::Gap(GapUnit::new(&bases[end..], Some((c, c))));
+        let gapunit = ChunkedUnit::Gap(GapUnit::new(&bases[start_pos..], Some((c, c))));
         read.push(gapunit);
     }
     unit::EncodedRead::from(seq.id().to_string(), read)
+}
+
+type ChunkedUnits = Vec<ChunkedUnit>;
+fn encoding_single_alignment(
+    target: &LastTAB,
+    next: &LastTAB,
+    defs: &Contigs,
+    bases: &[u8],
+    start_pos: usize,
+    prev: u16,
+) -> (usize, ChunkedUnits) {
+    assert!(!check_contained(target, next));
+    let former_stop = target.seq2_end_from_forward();
+    let later_start = next.seq2_start_from_forward();
+    let (encodes, start, end) = if former_stop < later_start {
+        // No overlap.
+        aln_to_encode(target, target.seq2_end_from_forward(), defs, bases)
+    } else if defs.get_id(target.seq1_name()).unwrap() < defs.get_id(next.seq1_name()).unwrap() {
+        // Overlap.Take the younger contig.
+        aln_to_encode(target, target.seq2_end_from_forward(), defs, bases)
+    } else {
+        aln_to_encode(target, next.seq2_start_from_forward(), defs, bases)
+    };
+    // If there are overlapping, there would be some "doubly encoded" regions.
+    let (start, mut encodes) = pop_encodes_until(start, start_pos, encodes);
+    debug!("Start from {} in read", start);
+    let mut units = vec![];
+    if start_pos < start {
+        let cs = defs
+            .get_id(target.seq1_name())
+            .map(|c| (c.min(prev), c.max(prev)));
+        let gapunit = ChunkedUnit::Gap(GapUnit::new(&bases[start_pos..start], cs));
+        units.push(gapunit);
+    }
+    units.append(&mut encodes);
+    debug!("SP:{}->{}", start_pos, end.max(start_pos));
+    (end.max(start_pos), units)
+}
+
+fn pop_encodes_until(
+    mut encode_start: usize,
+    actual_start: usize,
+    encodes: ChunkedUnits,
+) -> (usize, ChunkedUnits) {
+    let mut encodes = encodes.into_iter();
+    while encode_start < actual_start {
+        match encodes.next() {
+            Some(unit) => encode_start += unit.len(),
+            None => break,
+        }
+    }
+    (encode_start, encodes.collect())
+}
+
+fn check_contained(a1: &LastTAB, a2: &LastTAB) -> bool {
+    // Check whether a1 covers a2.
+    let (s, t) = (a1.seq2_start_from_forward(), a1.seq2_end_from_forward());
+    let (x, y) = (a2.seq2_start_from_forward(), a2.seq2_end_from_forward());
+    (s < x) && (y < t)
 }
 
 fn is_not_contained_by(rs: &RepeatPairs, a: &LastTAB, s: usize, t: usize) -> bool {
@@ -384,7 +429,10 @@ fn seek_len(len: usize, ops: &mut Vec<Op>) -> (usize, Vec<Op>) {
     (read_len, popped_ops)
 }
 
-fn filter_contained_alignment<'a>(mut bucket: Vec<&'a LastTAB>) -> Vec<&'a LastTAB> {
+fn filter_contained_alignment<'a>(
+    mut bucket: Vec<&'a LastTAB>,
+    defs: &Contigs,
+) -> Vec<&'a LastTAB> {
     use std::cmp::Ordering;
     bucket.sort_by(|aln1, aln2| {
         if aln1.seq2_start_from_forward() < aln2.seq2_start_from_forward() {
@@ -399,8 +447,9 @@ fn filter_contained_alignment<'a>(mut bucket: Vec<&'a LastTAB>) -> Vec<&'a LastT
             Ordering::Equal
         }
     });
+    eprintln!("{}", bucket.last().map(|e| e.seq2_name()).unwrap_or(""));
     for aln in &bucket {
-        debug!(
+        eprintln!(
             "{}-{}({}:{}-{})",
             aln.seq2_start_from_forward(),
             aln.seq2_end_from_forward(),
@@ -410,14 +459,22 @@ fn filter_contained_alignment<'a>(mut bucket: Vec<&'a LastTAB>) -> Vec<&'a LastT
         );
     }
     let mut end = 0;
+    let mut contig_order = std::u16::MAX;
     bucket
         .into_iter()
         .filter(|aln| {
             let e = aln.seq2_end_from_forward();
-            if e <= end + 1 {
+            let order = defs.get_id(aln.seq1_name()).unwrap();
+            if e <= end + 1 && contig_order < order {
+                false
+            } else if e <= end {
+                //  Even though the alignment contained, the contig order prevents
+                // us to remove this alignment.
+                // PLEASE CHANGE HERE
                 false
             } else {
                 end = e;
+                contig_order = order;
                 true
             }
         })

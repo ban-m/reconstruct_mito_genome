@@ -96,9 +96,9 @@ pub struct GapUnit {
 impl fmt::Display for GapUnit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if let Some((s, e)) = self.contig_pair {
-            write!(f, "{}->[{}]->{}", s, &self.bases, e)
+            write!(f, "{}->[{}]->{}", s, &self.bases.len(), e)
         } else {
-            write!(f, "[{}]", &self.bases)
+            write!(f, "[{}]", &self.bases.len())
         }
     }
 }

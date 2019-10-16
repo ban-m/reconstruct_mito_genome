@@ -1,7 +1,7 @@
+use super::UNIT_SIZE;
 use last_tiling::unit::*;
 use last_tiling::Contigs;
 use std::collections::HashSet;
-
 const READ_NUM: usize = 8;
 
 #[allow(dead_code)]
@@ -12,10 +12,24 @@ pub enum CriticalRegion {
     JP(JointPoint),
 }
 
-/// A trait to classify a given read.
+// A trait to classify a given read.
+// (read class, read index, read itself)
+type ReadWithClassAndIndex<'a> = (usize, usize, &'a EncodedRead);
 pub trait ReadClassify {
     /// Whether the read spans `self`.
     fn is_spanned_by(&self, r: &EncodedRead) -> bool;
+    /// Whether the read touches `self`. Return false if the read is contained.
+    fn overlaps_with(&self, r: &EncodedRead) -> bool;
+    /// Wether `self` contains the read.
+    fn contains(&self, r: &EncodedRead) -> bool;
+    /// Separate (spanned) reads into corresponding slots.
+    /// It automatically remove some of the reads supporting very weak connections.
+    /// This method should not invoke heavy procs such as HMMs or other prediction methods.
+    /// For example, `self` should use the most naive approach such as just distributing reads.
+    fn separate_reads_into_clusteres<'a>(
+        &self,
+        reads: Vec<(usize, &'a EncodedRead)>,
+    ) -> (usize, Vec<ReadWithClassAndIndex<'a>>);
 }
 
 #[derive(Debug, Clone)]
@@ -25,22 +39,50 @@ pub struct BroadRepeat {
 }
 
 /// Return the maximum/minumum index of encoded read's unit with contig of `contig`.
-pub fn get_max_min_unit(r: &EncodedRead, contig: u16) -> (u16, u16) {
-    r.seq()
-        .iter()
-        .filter_map(|e| match e {
-            ChunkedUnit::En(e) if e.contig == contig => Some(e.unit),
-            _ => None,
-        })
-        .fold((std::u16::MAX, std::u16::MIN), |(max, min), x| {
-            if x < min {
-                (x, max)
-            } else if max < x {
-                (min, x)
-            } else {
-                (min, max)
+/// Note that if the start unit is 0-th unit of `contig`, followed by large gap>UNIT_SIZE
+/// It assigns -1.
+/// And if the reads ended at i-th unit of `contig`, followed by large gap>UNIT_SIZE,
+/// it assigns i+1.
+/// TODO:TEST THIS FUNCTION.
+pub fn get_max_min_unit(r: &EncodedRead, contig: u16) -> (i32, i32) {
+    let (mut min, mut max) = (std::i32::MAX, std::i32::MIN);
+    let mut last_met_unitnum = None;
+    let mut had_not_met_encode = true;
+    let mut last_unit_was_large_gap = false;
+    let mut first_unit_was_large_gap = false;
+    for unit in r.seq() {
+        match unit {
+            ChunkedUnit::En(e) if e.contig == contig => {
+                if had_not_met_encode && first_unit_was_large_gap {
+                    min = e.unit as i32 - 1;
+                    max = e.unit as i32 + 1;
+                } else {
+                    min = min.min(e.unit as i32);
+                    max = max.max(e.unit as i32);
+                }
+                had_not_met_encode = false;
+                last_unit_was_large_gap = false;
+                last_met_unitnum = Some(e.unit as i32);
             }
-        })
+            ChunkedUnit::En(_) => {
+                had_not_met_encode = false;
+                last_unit_was_large_gap = false;
+            }
+            ChunkedUnit::Gap(g) if g.len() > UNIT_SIZE => {
+                last_unit_was_large_gap = true;
+                first_unit_was_large_gap = true;
+            }
+            _ => {}
+        }
+    }
+    // It indicate that last encoded unit is the wanted one, and followed by long gap.
+    // Increment the maximum number of unit by 1.
+    if last_met_unitnum == Some(max) && last_unit_was_large_gap {
+        max += 1;
+    } else if last_met_unitnum == Some(min) && last_unit_was_large_gap {
+        min -= 1;
+    }
+    (min, max)
 }
 
 impl ReadClassify for BroadRepeat {
@@ -49,6 +91,12 @@ impl ReadClassify for BroadRepeat {
     // -----C||||||D----
     // There can be *6* pattern of spanning
     // Let them 1:A<->B, 2:A<->D, 3:A<->C, 4:C<->D, 5:C<->B, 6:D<->B).
+    // Even thought Either A<->C or A<->D is feasible, since the
+    // strand information, I check the all possibilities
+    // such as non-stringient recombinations.
+    // Remark: It can handle the tail gap correctly.
+    // Formally speaking, it converts all the variables into signed variable,
+    // and assign -1 to head gap, +1 to tail gap.
     fn is_spanned_by(&self, r: &EncodedRead) -> bool {
         let c1 = self.contig1.contig;
         let c2 = self.contig2.contig;
@@ -64,11 +112,49 @@ impl ReadClassify for BroadRepeat {
         let span6 = c2_e < c2_max && c1_e < c1_max;
         span1 || span2 || span3 || span4 || span5 || span6
     }
+    // Overlapping can be detected similary.
+    // TODO
+    fn overlaps_with(&self, _r: &EncodedRead) -> bool {
+        true
+    }
+    // TODO
+    fn separate_reads_into_clusteres<'a>(
+        &self,
+        _reads: Vec<(usize, &'a EncodedRead)>,
+    ) -> (usize, Vec<ReadWithClassAndIndex<'a>>) {
+        (0, vec![])
+    }
+    //TODO
+    fn contains(&self, _r: &EncodedRead) -> bool {
+        true
+    }
 }
 
 impl BroadRepeat {
-    fn new(contig1: Position, contig2: Position) -> Self {
+    pub fn new(contig1: Position, contig2: Position) -> Self {
         Self { contig1, contig2 }
+    }
+    // TODO
+    pub fn get_competitive_pair(&self) -> Vec<[usize; 2]> {
+        vec![]
+    }
+    // TODO
+    pub fn clustering_reads_into_points<'a>(
+        &self,
+        _reads: &[(usize, &'a EncodedRead)],
+    ) -> (usize, Vec<Vec<(usize, &'a EncodedRead)>>) {
+        (0, vec![])
+    }
+    // TODO
+    pub fn separete_reads_into_clusters<'a>(
+        &self,
+        _reads: Vec<(usize, &EncodedRead)>,
+    ) -> (usize, Vec<(usize, usize, &'a EncodedRead)>) {
+        (0,vec![])
+    }
+    // TODO
+    pub fn distance(&self, _r:&EncodedRead)->u32{
+        0
     }
 }
 
@@ -105,8 +191,8 @@ impl Position {
             end_unit,
         }
     }
-    fn range(&self) -> (u16, u16) {
-        (self.start_unit, self.end_unit)
+    fn range(&self) -> (i32, i32) {
+        (self.start_unit as i32, self.end_unit as i32)
     }
 }
 

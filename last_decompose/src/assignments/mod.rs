@@ -1,15 +1,22 @@
 use super::find_breakpoint::BroadRepeat;
 use super::last_tiling::{repeat::RepeatPairs, Contigs, EncodedRead, LastTAB};
+//use last_tiling::UNIT_SIZE;
+use super::find_breakpoint::ReadClassify;
+use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::Rng;
+use rand::SeedableRng;
+use std::collections::HashSet;
 /// if the similatity between two cluster is higher than SIM_THR, an edge would be drawn.
 pub const SIM_THR: f64 = 6.0;
 /// The number of read spanned.
 pub const READ_NUM: usize = 10;
 /// The spanning road with reads less than REMOVE_CLUSTER would be discarded.
-pub const REMOVE_CLUSTER:usize = 3;
+pub const REMOVE_CLUSTER: usize = 3;
 mod bipartite_matching;
+mod dbg_hmms;
 mod minimum_spanning_tree;
+
 #[derive(Debug, Clone, Default)]
 pub struct Assignment {
     weight: Vec<Vec<f64>>,
@@ -18,6 +25,19 @@ pub struct Assignment {
 }
 
 impl Assignment {
+    pub fn new(len: usize, num_of_cluster: usize) -> Self {
+        let mut weight = vec![vec![0.; len]; num_of_cluster];
+        weight[0] = vec![1.; len];
+        let choises = (0..num_of_cluster).collect();
+        Self {
+            weight,
+            num_of_cluster,
+            choises,
+        }
+    }
+    // TODO
+    pub fn push(&mut self, _idx: usize, _weights: &[f64]) {}
+
     pub fn assign<R: Rng>(&self, idx: usize, r: &mut R) -> usize {
         *self
             .choises
@@ -112,7 +132,103 @@ impl Assignment {
     }
 }
 
-use std::collections::BinaryHeap;
+fn local_first_order_decomposing<'a>(
+    reads: &'a [EncodedRead],
+    cr: &BroadRepeat,
+    contigs: &Contigs,
+) -> (
+    usize,
+    std::vec::Vec<(usize, usize, &'a EncodedRead)>,
+    std::vec::Vec<(usize, &'a EncodedRead)>,
+) {
+    let (overlapping_reads, remainings): (Vec<(usize, &EncodedRead)>, Vec<(usize, &EncodedRead)>) =
+        reads
+            .iter()
+            .enumerate()
+            .partition(|(_idx, r)| cr.overlaps_with(r));
+    let (contained_reads, remainings): (Vec<(usize, &EncodedRead)>, Vec<(usize, &EncodedRead)>) =
+        remainings.into_iter().partition(|(_, r)| cr.contains(r));
+    // classed_reads[idx] would return the idx-th cluster
+    let (_num_of_cluster, classed_reads): (_, Vec<Vec<_>>) =
+        cr.clustering_reads_into_points(&overlapping_reads);
+    let pairs: Vec<[usize; 2]> = cr.get_competitive_pair();
+    // Let competitive pair be [[i,j],[l,m]]. Thus, we should chose one out of two options:
+    // i connets to l and j connects to m, OR, i connects to m, and j connects to l.
+    // First option is like:
+    // -----i----|->->->|----l----
+    // -----j----|->->->|----m----
+    // Second one is like
+    // -----i----|->->->|----m----
+    // -----j----|->->->|----l----
+    // Note that i-l are 0..4, but we can not tell which to which.
+    let mut rng: StdRng = SeedableRng::seed_from_u64(12123);
+    let separated_reads: Vec<[HashSet<_>; 2]> = pairs
+        .iter()
+        .map(|pair| {
+            let (i, j) = (pair[0], pair[1]);
+            let mut dbg_hmms = dbg_hmms::DeBruijnGraphHiddenMarkovs::new(contigs, 2);
+            classed_reads[i]
+                .iter()
+                .for_each(|(_, r)| dbg_hmms.push(0, r));
+            classed_reads[j]
+                .iter()
+                .for_each(|(_, r)| dbg_hmms.push(1, r));
+            let (mut class_i, mut class_j) = (HashSet::new(), HashSet::new());
+            contained_reads.iter().for_each(|(idx, read)| {
+                let weights = dbg_hmms.predict(read);
+                let assign = *[0, 1].choose_weighted(&mut rng, |&k| weights[k]).unwrap();
+                if assign == 0 {
+                    class_i.insert(idx);
+                } else {
+                    class_j.insert(idx);
+                }
+            });
+            [class_i, class_j]
+        })
+        .collect();
+    // (i->l and j->m) and (i->m and j -> l)
+    let connection_pattern = [[(0, 0, 0), (1, 1, 1)], [(0, 0, 1), (1, 1, 0)]];
+    let selected_pattern = connection_pattern
+        .iter()
+        .max_by_key(|pat| {
+            pat.iter()
+                .map(|&(x, y, z)| {
+                    separated_reads[x][y]
+                        .intersection(&separated_reads[x][z])
+                        .count()
+                })
+                .sum::<usize>()
+        })
+        .unwrap();
+    let classes: Vec<HashSet<usize>> = selected_pattern
+        .iter()
+        .map(|&(x, y, z)| {
+            separated_reads[x][y]
+                .intersection(&separated_reads[x][z])
+                .map(|&&e| e)
+                .collect()
+        })
+        .collect();
+    let mut result: Vec<(usize, usize, _)> = vec![];
+    for (class, y, z) in selected_pattern {
+        result.extend(
+            classed_reads[pairs[0][*y]]
+                .iter()
+                .chain(classed_reads[pairs[1][*z]].iter())
+                .map(|(idx, read)| (*class, *idx, *read)),
+        );
+    }
+    for (idx, read) in contained_reads {
+        if classes[0].contains(&idx) {
+            result.push((0, idx, read));
+        } else if classes[1].contains(&idx) {
+            result.push((1, idx, read));
+        } else {
+            panic!();
+        }
+    }
+    (2, result, remainings)
+}
 
 /// Locally decompose the critical region, and then
 /// wave it to remaining reads.
@@ -121,17 +237,53 @@ pub fn local_decompose(
     _alns: &[LastTAB],
     reads: &[EncodedRead],
     contigs: &Contigs,
-    repeat: &[RepeatPairs],
+    _repeat: &[RepeatPairs],
 ) -> Assignment {
     // Check if there are sufficient number of spannning reads.
     let num_of_spanning_reads = reads.iter().filter(|r| cr.is_spanned_by(r)).count();
-    let mut dbg_hmms = if num_of_spanning_reads > READ_NUM{
-        // Go on classification.
-    }else{
+    let (num_of_cluster, classed_reads, remaining_reads) = if num_of_spanning_reads > READ_NUM {
+        // First, determine the number of clusters
+        let (spanning_reads, mut remainings): (
+            Vec<(usize, &EncodedRead)>,
+            Vec<(usize, &EncodedRead)>,
+        ) = reads
+            .iter()
+            .enumerate()
+            .partition(|(_idx, r)| cr.is_spanned_by(r));
+        // (class, index, read)
+        let (num_of_cluster, classed_reads): (usize, Vec<(usize, usize, &EncodedRead)>) =
+            cr.separete_reads_into_clusters(spanning_reads);
+        remainings.sort_by_key(|(_, r)| cr.distance(r));
+        (num_of_cluster, classed_reads, remainings)
+    } else {
         // Fallback.
+        // Determine each elements.
+        local_first_order_decomposing(reads, &cr, contigs)
     };
     // From here, generic classification starts.
-    Assignment::default()
+    let mut assignment = Assignment::new(reads.len(), num_of_cluster);
+    // With default parameter
+    let mut dbg_hmms = dbg_hmms::DeBruijnGraphHiddenMarkovs::new(contigs, num_of_cluster);
+    // Go on classification.
+    for (class, idx, read) in classed_reads {
+        let mut weights = vec![0.; num_of_cluster];
+        weights[class] = 1.;
+        assignment.push(idx, &weights);
+        dbg_hmms.push(class, read);
+    }
+    let mut rng: StdRng = SeedableRng::seed_from_u64(12123);
+    for (idx, read) in remaining_reads {
+        // Calculate weight
+        let weights = dbg_hmms.predict(read);
+        assignment.push(idx, &weights);
+        // Detemine class.
+        let class = *assignment
+            .choises
+            .choose_weighted(&mut rng, |&k| weights[k])
+            .unwrap();
+        dbg_hmms.push(class, read);
+    }
+    assignment
 }
 
 /// Return the order in which the assignments should be marged.

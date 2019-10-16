@@ -1,16 +1,16 @@
 #[macro_use]
 extern crate log;
-extern crate env_logger;
 extern crate bio_utils;
+extern crate env_logger;
 extern crate last_tiling;
 extern crate rand;
 use bio_utils::fasta;
 use last_tiling::LastTAB;
-use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rand::SeedableRng;
 mod find_breakpoint;
 use find_breakpoint::critical_regions;
-
+use last_tiling::UNIT_SIZE;
 mod assignments;
 
 pub fn decompose(
@@ -39,23 +39,24 @@ pub fn decompose(
         // Merge `from` assignment into `to`.
         let f = match &assignments[from] {
             Some(ref f) => f,
-            None => continue,
+            None => panic!("{} should be some value, but none.", from),
         };
         let t = match &assignments[to] {
             Some(ref t) => t,
-            None => continue,
+            None => panic!("{} should be some value, but none.", from),
         };
         let new = assignments::merge_two_assignments(f, t);
         assignments[to] = Some(new);
         assignments[from] = None;
     }
-    let mut assignments:Vec<_> = assignments.into_iter().filter_map(|e| e).collect();
+    let mut assignments: Vec<_> = assignments.into_iter().filter_map(|e| e).collect();
     let assignment = assignments.pop().unwrap();
     assert!(assignments.is_empty());
-    let mut result = vec![vec![]; assignment.len()];
+    let mut result = vec![vec![]; assignment.get_num_of_cluster()];
     let mut rng: StdRng = SeedableRng::seed_from_u64(2444);
+    // The order of read is critical, since the assignments are just array of weight.
     for (idx, read) in read.into_iter().enumerate() {
-        let c = assignment.assign(idx,&mut rng);
+        let c = assignment.assign(idx, &mut rng);
         result[c].push(read);
     }
     result
