@@ -4,6 +4,7 @@ extern crate bio_utils;
 extern crate env_logger;
 extern crate last_tiling;
 extern crate rand;
+use log::Level;
 use bio_utils::fasta;
 use last_tiling::LastTAB;
 use rand::rngs::StdRng;
@@ -17,22 +18,22 @@ pub fn decompose(
     read: Vec<fasta::Record>,
     alignments: Vec<LastTAB>,
     contigs: Vec<fasta::Record>,
-    self_alns: Vec<LastTAB>,
 ) -> Vec<Vec<fasta::Record>> {
     let contigs = last_tiling::Contigs::new(contigs);
-    let repeats = last_tiling::into_repeats(&self_alns, &contigs);
-    let encoded_reads = last_tiling::encoding(&read, &contigs, &alignments, &repeats);
+    // Alignment informations are completely (losslessly) encoded into reads.
+    let encoded_reads = last_tiling::encoding(&read, &contigs, &alignments);
     let critical_regions = critical_regions(&encoded_reads, &contigs);
-    let mut assignments = vec![];
-    for cr in critical_regions {
-        assignments.push(assignments::local_decompose(
-            cr,
-            &alignments,
-            &encoded_reads,
-            &contigs,
-            &repeats,
-        ));
+    if log_enabled!(Level::Debug){
+        for c in critical_regions{
+            debug!("{:?}",c);
+        }
+        return vec![]
     }
+    let assignments: Vec<_> = critical_regions
+        .into_iter()
+        .map(|cr| assignments::local_decompose(&cr, &encoded_reads, &contigs))
+        .collect();
+    // We no longer need any annotataion for critical region.
     let merge_order = assignments::enumerate_merge_order(&assignments);
     let mut assignments: Vec<_> = assignments.into_iter().map(|e| Some(e)).collect();
     for (from, to) in merge_order {

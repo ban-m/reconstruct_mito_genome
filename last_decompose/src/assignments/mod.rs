@@ -1,5 +1,5 @@
-use super::find_breakpoint::BroadRepeat;
-use super::last_tiling::{repeat::RepeatPairs, Contigs, EncodedRead, LastTAB};
+use super::find_breakpoint::*;
+use super::last_tiling::{Contigs, EncodedRead};
 //use last_tiling::UNIT_SIZE;
 use super::find_breakpoint::ReadClassify;
 use rand::rngs::StdRng;
@@ -12,7 +12,7 @@ pub const SIM_THR: f64 = 6.0;
 /// The number of read spanned.
 pub const READ_NUM: usize = 10;
 /// The spanning road with reads less than REMOVE_CLUSTER would be discarded.
-pub const REMOVE_CLUSTER: usize = 3;
+pub const _REMOVE_CLUSTER: usize = 3;
 mod bipartite_matching;
 mod dbg_hmms;
 mod minimum_spanning_tree;
@@ -92,6 +92,11 @@ impl Assignment {
     // to j-th cluster of other, where (i,j) is an element of by.
     // Note that there can be at most one occurence of i and j.
     // In other words, `by` is a matching of self and other.
+    // f(i,.)(r) = f_i(r) * k_a / k
+    // f(.,j)(r) = f_j(r) * k_b / k
+    // f(i,j)(r) = f_i(r) * k_a / k + f_j(r) * k_b / k - 1/k
+    // where k_a = # of self's cluster
+    // k_b = # of other's cluster, k = # of result cluster.
     fn merge_with_by(&self, other: &Self, by: &[(usize, usize)]) -> Self {
         // Detemine the number of clusters.
         assert_eq!(self.len(), other.len());
@@ -102,6 +107,9 @@ impl Assignment {
         let mut has_merged_self = vec![false; num_cluster_self];
         let mut has_merged_other = vec![false; num_cluster_other];
         let mut weight = vec![];
+        let k_a = num_cluster_self as f64;
+        let k_b = num_cluster_other as f64;
+        let k = num_of_cluster as f64;
         for &(i, j) in by {
             has_merged_self[i] = true;
             has_merged_other[j] = true;
@@ -109,7 +117,7 @@ impl Assignment {
                 .get_weight_of(i)
                 .iter()
                 .zip(other.get_weight_of(j).iter())
-                .map(|(&w1, &w2)| (w1 + w2) / 2.)
+                .map(|(&w1, &w2)| (w1 * k_a + w2 * k_b - 1.) / k)
                 .collect();
             weight.push(new_weight);
         }
@@ -117,12 +125,26 @@ impl Assignment {
             .into_iter()
             .enumerate()
             .filter(|&(_, b)| !b)
-            .for_each(|(idx, _)| weight.push(self.get_weight_of(idx).to_vec()));
+            .for_each(|(idx, _)| {
+                let w = self
+                    .get_weight_of(idx)
+                    .iter()
+                    .map(|&e| e * k_a / k)
+                    .collect::<Vec<_>>();
+                weight.push(w);
+            });
         has_merged_other
             .into_iter()
             .enumerate()
             .filter(|&(_, b)| !b)
-            .for_each(|(idx, _)| weight.push(other.get_weight_of(idx).to_vec()));
+            .for_each(|(idx, _)| {
+                let w = other
+                    .get_weight_of(idx)
+                    .iter()
+                    .map(|&e| e * k_b / k)
+                    .collect::<Vec<_>>();
+                weight.push(w);
+            });
         assert_eq!(num_of_cluster, weight.len());
         Assignment {
             weight,
@@ -134,7 +156,7 @@ impl Assignment {
 
 fn local_first_order_decomposing<'a>(
     reads: &'a [EncodedRead],
-    cr: &BroadRepeat,
+    cr: &ContigPair,
     contigs: &Contigs,
 ) -> (
     usize,
@@ -233,11 +255,9 @@ fn local_first_order_decomposing<'a>(
 /// Locally decompose the critical region, and then
 /// wave it to remaining reads.
 pub fn local_decompose(
-    cr: BroadRepeat,
-    _alns: &[LastTAB],
+    cr: &CriticalRegion,
     reads: &[EncodedRead],
     contigs: &Contigs,
-    _repeat: &[RepeatPairs],
 ) -> Assignment {
     // Check if there are sufficient number of spannning reads.
     let num_of_spanning_reads = reads.iter().filter(|r| cr.is_spanned_by(r)).count();
@@ -252,13 +272,19 @@ pub fn local_decompose(
             .partition(|(_idx, r)| cr.is_spanned_by(r));
         // (class, index, read)
         let (num_of_cluster, classed_reads): (usize, Vec<(usize, usize, &EncodedRead)>) =
-            cr.separete_reads_into_clusters(spanning_reads);
+            cr.separate_reads_into_clusters(spanning_reads);
         remainings.sort_by_key(|(_, r)| cr.distance(r));
         (num_of_cluster, classed_reads, remainings)
     } else {
         // Fallback.
         // Determine each elements.
-        local_first_order_decomposing(reads, &cr, contigs)
+        // Note: here, the cr should be a instance of ContigPair,
+        // as RepeatJunction should have certain amount of spannning reads!
+        let cp = match cr {
+            CriticalRegion::CP(ref cp) => cp,
+            _ => unreachable!(),
+        };
+        local_first_order_decomposing(reads, cp, contigs)
     };
     // From here, generic classification starts.
     let mut assignment = Assignment::new(reads.len(), num_of_cluster);
