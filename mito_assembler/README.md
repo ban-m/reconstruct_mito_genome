@@ -58,6 +58,11 @@ Output: Read<Fasta>
 Requirements: Read<Fasta> should be supplied from stdin.
 Chop input reads at adaptor chimera.
 
+- split_repeat.rs
+Input: Contigs<Fasta>, and self-vs-self alignment<LastTAB>
+Output: Fasta
+Collupse all the repeat and output the remmaining contigs, with the split repeats.
+
 - entropy.rs
 Input: Read<Fasta>
 Output: Entropies<TSV>

@@ -19,7 +19,7 @@ REFERENCE=$3
 ## ---- Results -----
 
 ### Initial contig
-CONTIGS=${OUTPATH}/initial_asm/contigs.fasta
+CONTIGS=${OUTPATH}/contigs.fasta
 
 ### Decomposed reads
 
@@ -28,33 +28,33 @@ CONTIGS=${OUTPATH}/initial_asm/contigs.fasta
 
 ## ---- Setup ----
 
-rm -rf ${OUTPATH}
-mkdir -p ${OUTPATH}
-samtools faidx ${REFERENCE} NC_003070.9 NC_003071.7 NC_003074.8 NC_003075.7 NC_003076.8 NC_000932.1 > ${OUTPATH}/genome_and_chr.fa
-samtools faidx ${REFERENCE} NC_037304.1 > ${OUTPATH}/mito.fa
+# rm -rf ${OUTPATH}
+# mkdir -p ${OUTPATH}
+# samtools faidx ${REFERENCE} NC_003070.9 NC_003071.7 NC_003074.8 NC_003075.7 NC_003076.8 NC_000932.1 > ${OUTPATH}/genome_and_chr.fa
+# samtools faidx ${REFERENCE} NC_037304.1 > ${OUTPATH}/mito.fa
 
 ## ---- Initial filtering ----
 
-minimap2 -t 24 -x map-pb --secondary=no ${OUTPATH}/genome_and_chr.fa ${READ} | \
-    cargo run --release --bin filter_genomic_reads -- ${READ} \
-          > ${OUTPATH}/non_genomic_reads.fasta
+# minimap2 -t 24 -x map-pb --secondary=no ${OUTPATH}/genome_and_chr.fa ${READ} | \
+#     cargo run --release --bin filter_genomic_reads -- ${READ} \
+#           > ${OUTPATH}/non_genomic_reads.fasta
 
 ### Below you can ass `cargo run --release --bin split_subreads |\ ` at any location of the pipeline.
 ### Make sure that each ID of fasta file should have PacBio's nomenclature, if you add `split-subreads` procedure.
 
-minimap2 -t 24 -x map-pb --secondary=no ${OUTPATH}/mito.fa ${OUTPATH}/non_genomic_reads.fasta |\
-    cargo run --release --bin select_mito_reads -- ${OUTPATH}/non_genomic_reads.fasta |\
-    cargo run --release --bin filter_low_quality |\
-    cargo run --release --bin clip_self_chimera > \
-          ${OUTPATH}/filtered_read.fasta
+# minimap2 -t 24 -x map-pb --secondary=no ${OUTPATH}/mito.fa ${OUTPATH}/non_genomic_reads.fasta |\
+#     cargo run --release --bin select_mito_reads -- ${OUTPATH}/non_genomic_reads.fasta |\
+#     cargo run --release --bin filter_low_quality |\
+#     cargo run --release --bin clip_self_chimera > \
+#           ${OUTPATH}/filtered_read.fasta
 
 READ=${OUTPATH}/filtered_read.fasta
 
 ## --- Initial contigs ----
-canu \
-	genomeSize=1M \
-    useGrid=false \
-    -d ${OUTPATH}/initial_asm -p scaffolds -pacbio-raw ${READ}
+# canu \
+# 	genomeSize=1M \
+#     useGrid=false \
+#     -d ${OUTPATH}/initial_asm -p scaffolds -pacbio-raw ${READ}
 
 ## --- Tiling ----
 
@@ -64,39 +64,44 @@ mkdir -p ${OUTPATH}/last_db
 cd ${OUTPATH}/last_db
 
 ### First, split reference contigs into "collupsed" mode.
+lastdb -P 24 -R 00 initial ${OUTPATH}/initial_asm/scaffolds.contigs.fasta 
 last-train -P 24 initial  ${OUTPATH}/initial_asm/scaffolds.contigs.fasta > self.matrix
 lastal -Q0 -f TAB -P 24 initial  ${OUTPATH}/initial_asm/scaffolds.contigs.fasta -p self.matrix -R 00 > self.tab
+last-train -P 24 initial ${READ} > initial.matrix
+lastal -Q0 -f TAB -P 24 initial ${READ} -p initial.matrix > initial.tab
+
 
 cd ${ROOT}
-cargo run --release --bin split_repeats \
+cargo run --release --bin split_repeat \
       -- ${OUTPATH}/initial_asm/scaffolds.contigs.fasta ${OUTPATH}/last_db/self.tab \
       > ${CONTIGS}
+
+
 ### Next, map all reads into collpsed contigs.
 cd ${OUTPATH}/last_db
-lastdb -P 24 -R 00 initial ${CONTIGS}
-last-train initial ${READ} > initial.matrix
-lastal -Q0 -f TAB -P 24 initial ${READ} -p initial.matrix -R00 > initial.tab
-lastal -Q0 -f MAF -P 24 initial ${READ} -p initial.matrix -R00 > initial.maf
-lastal -Q0 -f TAB -P 24 initial ${CONTIGS} -p initial.matrix -R00 > self_no_repeat.tab
+lastdb -P 24 -R 00 collupsed ${CONTIGS}
+last-train collupsed ${READ} > collupsed.matrix
+lastal -Q0 -f TAB -P 24 collupsed ${READ} -p collupsed.matrix -R00 > collupsed.tab
+lastal -Q0 -f TAB -P 24 collupsed ${CONTIGS} -p collupsed.matrix -R00 > self_no_repeat.tab
 cd ${ROOT}
 
 ## --- Decompose ---
-ALIGN=${OUTPATH}/last_db/initial.tab
-SELF=${OUTPATH}/last_db/self_no_repeat.tab
-cargo run --release --bin decompose ${READ} ${ALIGN} ${CONTIGS} ${SELF} ${OUT_PATH}/decomposed
+# ALIGN=${OUTPATH}/last_db/collupsed.tab
+# SELF=${OUTPATH}/last_db/self_no_repeat.tab
+# cargo run --release --bin decompose ${READ} ${ALIGN} ${CONTIGS} ${SELF} ${OUT_PATH}/decomposed
 
 ## --- Re-assemble ---
 
-for read in ${OUT_PATH}/decomposed/*.fasta
-do
-    NAME=${read%.fasta}
-    NAME=${NAME#${OUT_PATH}/decomposed}
-    canu \
-	genomeSize=500K \
-	useGrid=false\
-	-d ${OUTPATH}/${NAME} -p scaffolds -pacbio-raw ${read}
-    ## TODO: rename contig names, alignment the reads.
-done
+# for read in ${OUT_PATH}/decomposed/*.fasta
+# do
+#     NAME=${read%.fasta}
+#     NAME=${NAME#${OUT_PATH}/decomposed}
+#     canu \
+# 	genomeSize=500K \
+# 	useGrid=false\
+# 	-d ${OUTPATH}/${NAME} -p scaffolds -pacbio-raw ${read}
+#     ## TODO: rename contig names, alignment the reads.
+# done
 
 ## --- Calc stats ----
 

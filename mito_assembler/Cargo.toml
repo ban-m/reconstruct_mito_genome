@@ -12,3 +12,5 @@ bio = "*"
 rayon = "*"
 last_tiling = {path = "../last_tiling"}
 last_decompose = {path = "../last_decompose"}
+log = "*"
+env_logger = "*"

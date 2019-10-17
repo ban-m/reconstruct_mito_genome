@@ -113,6 +113,27 @@ impl std::fmt::Display for LastTAB {
     }
 }
 
+impl PartialEq for LastTAB {
+    fn eq(&self, other: &Self) -> bool {
+        let seq1 = self.seq1_name() == other.seq1_name()
+            && self.seq1_start_from_forward() == other.seq1_start_from_forward()
+            && self.seq1_end_from_forward() == other.seq1_end_from_forward();
+        let seq2 = self.seq2_name() == other.seq2_name()
+            && self.seq2_start_from_forward() == other.seq2_start_from_forward()
+            && self.seq2_end_from_forward() == other.seq2_end_from_forward();
+        let temp = seq1 && seq2;
+        let seq1 = self.seq1_name() == other.seq2_name()
+            && self.seq1_start_from_forward() == other.seq2_start_from_forward()
+            && self.seq1_end_from_forward() == other.seq2_end_from_forward();
+        let seq2 = self.seq2_name() == other.seq1_name()
+            && self.seq2_start_from_forward() == other.seq1_start_from_forward()
+            && self.seq2_end_from_forward() == other.seq1_end_from_forward();
+        let rev = seq1 && seq2;
+        temp || rev
+    }
+}
+impl Eq for LastTAB {}
+
 impl LastTAB {
     pub fn from_line(line: &str) -> Option<Self> {
         let line: Vec<&str> = line.split('\t').collect();

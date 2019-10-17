@@ -116,7 +116,7 @@ fn into_encoding(
     bucket: Vec<&LastTAB>,
     seq: &fasta::Record,
     defs: &Contigs,
-    repeats: &[RepeatPairs],
+    _repeats: &[RepeatPairs],
 ) -> EncodedRead {
     debug!("Encoding {} alignments", bucket.len());
     debug!("Read:{},{}len", seq.id(), seq.seq().len());
@@ -139,7 +139,7 @@ fn into_encoding(
     // The procedure here would be a little bit tricky.
     let mut bucket = bucket.iter();
     let mut target = bucket.next().unwrap();
-    'outer: while let Some(mut next) = bucket.next() {
+    'outer: while let Some(next) = bucket.next() {
         // let c = defs.get_id(target.seq1_name()).unwrap();
         // while check_contained(target, next) {
         //     // Contained read!
@@ -241,17 +241,19 @@ fn pop_encodes_until(
     (encode_start, encodes.collect())
 }
 
+#[allow(dead_code)]
 fn check_contained(a1: &LastTAB, a2: &LastTAB) -> bool {
     // Check whether a1 covers a2.
     let (s, t) = (a1.seq2_start_from_forward(), a1.seq2_end_from_forward());
     let (x, y) = (a2.seq2_start_from_forward(), a2.seq2_end_from_forward());
     (s < x) && (y < t)
 }
-
+#[allow(dead_code)]
 fn is_not_contained_by(rs: &RepeatPairs, a: &LastTAB, s: usize, t: usize) -> bool {
     rs.inner().iter().all(|r| is_not_contained(r, a, s, t))
 }
 
+#[allow(dead_code)]
 #[inline]
 fn is_not_contained(r: &repeat::Repeat, a: &LastTAB, s: usize, t: usize) -> bool {
     r.name() != a.seq2_name() || s < r.start() || r.end() < t
