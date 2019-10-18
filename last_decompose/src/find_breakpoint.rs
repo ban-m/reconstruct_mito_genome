@@ -1,10 +1,11 @@
 use super::UNIT_SIZE;
 use last_tiling::unit::*;
 use last_tiling::Contigs;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 const READ_NUM: usize = 6;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CriticalRegion {
     CP(ContigPair),
     // CR(ConfluentRegion),
@@ -69,7 +70,7 @@ impl ReadClassify for CriticalRegion {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContigPair {
     contig1: Position,
     contig2: Position,
@@ -188,7 +189,7 @@ impl ContigPair {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepeatJunction {
     // Contains start and end position.
     pos: Position,
@@ -228,7 +229,7 @@ impl ReadClassify for RepeatJunction {
 }
 
 /// The position at contigs.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Position {
     contig: u16,
     start_unit: u16,
@@ -523,9 +524,9 @@ fn critical_regions_repeat_junction(
         debug!("{}\t{}", idx, count);
     }
     let region = calculate_average_more_than(&counts, 1);
-    debug!("{:?}",region);
+    debug!("{:?}", region);
     let region = merge_overlap_and_remove_contained(region);
-    debug!("{:?}",region);
+    debug!("{:?}", region);
     let result = region
         .into_iter()
         .map(|(start, end)| tighten_up(start, end, &counts))
@@ -634,7 +635,7 @@ fn merge_overlap_and_remove_contained(mut regions: Vec<(usize, usize)>) -> Vec<(
     let mut result = vec![];
     for &(s, e) in &contained_free[1..] {
         assert!(end < e);
-        if end + 4< s {
+        if end + 4 < s {
             // No overlap.
             result.push((start, end));
             start = s;

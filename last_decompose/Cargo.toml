@@ -12,3 +12,5 @@ last_tiling = {path = "../last_tiling"}
 rand = "0.7.2"
 log = "*"
 env_logger = "*"
+serde = "*"
+serde_json = "*"

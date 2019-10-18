@@ -92,7 +92,6 @@ pub fn encoding(
     fasta: &[fasta::Record],
     defs: &Contigs,
     alns: &[LastTAB],
-    repeats: &[RepeatPairs],
 ) -> Vec<EncodedRead> {
     // Distribute alignments to each reads.
     // bucket[i] is the alignment for fasta[i].
@@ -106,7 +105,7 @@ pub fn encoding(
                 let read = vec![ChunkedUnit::Gap(GapUnit::new(seq.seq(), None))];
                 EncodedRead::from(seq.id().to_string(), read)
             } else {
-                into_encoding(bucket, seq, defs, repeats)
+                into_encoding(bucket, seq, defs)
             }
         })
         .collect()
@@ -116,22 +115,21 @@ fn into_encoding(
     bucket: Vec<&LastTAB>,
     seq: &fasta::Record,
     defs: &Contigs,
-    _repeats: &[RepeatPairs],
 ) -> EncodedRead {
     debug!("Encoding {} alignments", bucket.len());
     debug!("Read:{},{}len", seq.id(), seq.seq().len());
     let bucket = filter_contained_alignment(bucket, defs);
     debug!("Filter contained. Remain {} alignments", bucket.len());
-    for aln in &bucket {
-        debug!(
-            "{}-{}({}:{}-{})",
-            aln.seq2_start_from_forward(),
-            aln.seq2_end_from_forward(),
-            aln.seq1_name(),
-            aln.seq1_start_from_forward(),
-            aln.seq1_end_from_forward()
-        );
-    }
+    // for aln in &bucket {
+    //     debug!(
+    //         "{}-{}({}:{}-{})",
+    //         aln.seq2_start_from_forward(),
+    //         aln.seq2_end_from_forward(),
+    //         aln.seq1_name(),
+    //         aln.seq1_start_from_forward(),
+    //         aln.seq1_end_from_forward()
+    //     );
+    // }
     let (mut start_pos, mut read) = (0, vec![]);
     let bases = seq.seq();
     // Id of bucket[buclet.len()-2]. If bucket.len()==1, it should be None.
@@ -139,29 +137,7 @@ fn into_encoding(
     // The procedure here would be a little bit tricky.
     let mut bucket = bucket.iter();
     let mut target = bucket.next().unwrap();
-    'outer: while let Some(next) = bucket.next() {
-        // let c = defs.get_id(target.seq1_name()).unwrap();
-        // while check_contained(target, next) {
-        //     // Contained read!
-        //     assert!(defs.get_id(target.seq1_name()).unwrap() < def.get_id(next.seq1_name()));
-        //     // up to next's start.
-        //     let (encodes, start, end) = aln_to_encode(target, next.seq2_start_from_forward(), defs, bases);
-        //     let (start, encodes) = pop_encodes_until(start, start_pos, encodes);
-        //     debug!("Start from {} in read", start);
-        //     if start_pos < start{
-        //         let cs = Some(prev_contig_id.min(c), prev_contig_id.max(c));
-        //         reads.push(ChunkedUnit::Gap(GapUnit::new(&bases[start_pos..start],cs)));
-        //     }
-        //     reads.extend(encodes);
-        //     debug!("SP:{}->{}", start_pos, end.max(start_pos));
-        //     start_pos = end.max(start_pos);
-        //     // encode next.
-        //     let (encodes, start, end) = aln_to_encode(next,
-        //     next = match bucket.next() {
-        //         Some(res) => res,
-        //         None => break 'outer,
-        //     };
-        // }
+    while let Some(next) = bucket.next() {
         let (sp, units) =
             encoding_single_alignment(target, next, defs, bases, start_pos, prev_contig_id);
         read.extend(units);
@@ -278,22 +254,22 @@ pub fn revcmp(seq: &[u8]) -> Vec<u8> {
 type AlnToEncode = (Vec<ChunkedUnit>, usize, usize);
 // Stop is the location where the tiling stops, at `seq`.
 fn aln_to_encode(aln: &LastTAB, stop: usize, def: &Contigs, seq: &[u8]) -> AlnToEncode {
-    debug!("Refr:{}-{}", aln.seq1_start(), aln.seq1_end_from_forward());
-    debug!(
-        "Read:{}-{}",
-        aln.seq2_start_from_forward(),
-        aln.seq2_end_from_forward()
-    );
-    let ctgname = aln.seq1_name();
+    // debug!("Refr:{}-{}", aln.seq1_start(), aln.seq1_end_from_forward());
+    // debug!(
+    //     "Read:{}-{}",
+    //     aln.seq2_start_from_forward(),
+    //     aln.seq2_end_from_forward()
+    // );
+    // let ctgname = aln.seq1_name();
     // Flip reference rather than query.
-    let refr = match aln.seq2_direction() {
-        lasttab::Strand::Forward => def.get(ctgname).unwrap(),
-        lasttab::Strand::Reverse => def.get_revcmp(ctgname).unwrap(),
-    };
-    debug!("Ctgname:{}", ctgname);
+    // let _refr = match aln.seq2_direction() {
+    //     lasttab::Strand::Forward => def.get(ctgname).unwrap(),
+    //     lasttab::Strand::Reverse => def.get_revcmp(ctgname).unwrap(),
+    // };
+    // debug!("Ctgname:{}", ctgname);
     // First, chunk the reference into subunits.
     let (ref_encode_start, _, chunks) = chop_reference_into_chunk(def, aln);
-    debug!("{:?},{}", chunks, ref_encode_start);
+    // debug!("{:?},{}", chunks, ref_encode_start);
     if chunks.is_empty() {
         return (vec![], 0, stop);
     }
@@ -301,12 +277,12 @@ fn aln_to_encode(aln: &LastTAB, stop: usize, def: &Contigs, seq: &[u8]) -> AlnTo
     let mut read_pos = read_encode_start;
     let mut refr_pos = ref_encode_start;
     {
-        let start = ref_start_end(aln).0;
-        debug!(
-            "Read:{}",
-            String::from_utf8_lossy(&seq[aln.seq2_start_from_forward()..read_pos])
-        );
-        debug!("Refr:{}", String::from_utf8_lossy(&refr[start..refr_pos]));
+        // let start = ref_start_end(aln).0;
+        // debug!(
+        //     "Read:{}",
+        //     String::from_utf8_lossy(&seq[aln.seq2_start_from_forward()..read_pos])
+        // );
+        // debug!("Refr:{}", String::from_utf8_lossy(&refr[start..refr_pos]));
     }
     let chunks: Vec<_> = chunks.into_iter().fold(vec![], |mut chunks, mut encode| {
         // debug!("Refr:{}, Read:{}", refr_pos, read_pos);
@@ -449,17 +425,6 @@ fn filter_contained_alignment<'a>(
             Ordering::Equal
         }
     });
-    eprintln!("{}", bucket.last().map(|e| e.seq2_name()).unwrap_or(""));
-    for aln in &bucket {
-        eprintln!(
-            "{}-{}({}:{}-{})",
-            aln.seq2_start_from_forward(),
-            aln.seq2_end_from_forward(),
-            aln.seq1_name(),
-            aln.seq1_start_from_forward(),
-            aln.seq1_end_from_forward()
-        );
-    }
     let mut end = 0;
     let mut contig_order = std::u16::MAX;
     bucket
@@ -467,12 +432,7 @@ fn filter_contained_alignment<'a>(
         .filter(|aln| {
             let e = aln.seq2_end_from_forward();
             let order = defs.get_id(aln.seq1_name()).unwrap();
-            if e <= end + 1 && contig_order < order {
-                false
-            } else if e <= end {
-                //  Even though the alignment contained, the contig order prevents
-                // us to remove this alignment.
-                // PLEASE CHANGE HERE
+            if e <= end + 1{
                 false
             } else {
                 end = e;

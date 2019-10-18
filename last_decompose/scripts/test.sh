@@ -12,3 +12,4 @@ READ=${ROOT}/filtered_read.fasta
 ALIGN=${ROOT}/last_db/collupsed.tab
 CONTIG=${ROOT}/contigs.fasta
 cargo run --release --bin test -- ${READ} ${ALIGN} ${CONTIG}
+cargo run --release --bin enumerate_cr -- ${READ} ${ALIGN} ${CONTIG} > ./logfiles/cr.json

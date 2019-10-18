@@ -35,6 +35,18 @@ impl EncodedRead {
     pub fn seq(&self) -> &[ChunkedUnit] {
         &self.seq
     }
+    pub fn recover_raw_sequence(&self) -> Vec<u8> {
+        self.seq
+            .iter()
+            .flat_map(|e| e.recover_raw_sequence())
+            .collect()
+    }
+    pub fn has(&self, contig: u16) -> bool {
+        self.seq.iter().any(|e| match e {
+            ChunkedUnit::En(ref e) => e.contig == contig,
+            _ => false,
+        })
+    }
     // pub fn to_forward(&self)->Self{
     // }
     // pub fn fill_gap(&self)->Self{
@@ -74,6 +86,12 @@ impl ChunkedUnit {
         match self {
             ChunkedUnit::En(e) => e.len(),
             ChunkedUnit::Gap(e) => e.len(),
+        }
+    }
+    pub fn recover_raw_sequence(&self) -> Vec<u8> {
+        match self {
+            ChunkedUnit::En(e) => e.bases.as_bytes().to_vec(),
+            ChunkedUnit::Gap(e) => e.bases.as_bytes().to_vec(),
         }
     }
 }

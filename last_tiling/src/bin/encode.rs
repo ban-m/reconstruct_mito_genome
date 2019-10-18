@@ -21,7 +21,7 @@ fn main() -> std::io::Result<()> {
     info!("Repeats:{:?}", repeats.len());
     // let alignments = last_tiling::remove_repeats(alignments, &contigs, &repeats);
     // info!("Filter repeat:{}", alignments.len());
-    let encoded_reads = last_tiling::encoding(&fasta, &contigs, &alignments, &repeats);
+    let encoded_reads = last_tiling::encoding(&fasta, &contigs, &alignments);
     info!("Encoded:\t{}", encoded_reads.len());
     let mut wtr = std::fs::File::create(&args[5])?;
     wtr.write_all(serde_json::ser::to_string_pretty(&contigs)?.as_bytes())?;

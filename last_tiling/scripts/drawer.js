@@ -241,12 +241,13 @@ const selectRead = (read,unitlen) => {
     const to = 1;
     const set = new Set(read.units.filter(u => u.hasOwnProperty("Encode")).map(u => u.Encode[0]));
     const max_gap = Math.max(...read.units.filter(u => u.hasOwnProperty("Gap")).map(u => u.Gap));
-    return true;
+    // return true;
     // return set.has(4) && set.size == 1;
     // return set.has(from) && set.has(to) && read.units.length > 15 ;
     // return read.units.length < 140 && read.units.length > 75 && set.size > 1 && set.has(0) && set.has(1) && max_gap < 4000;
     // return set.size == 1 && (set.has(0) || set.has(1)) && calcID(read,unitlen).type == "Contig" ; // && max_gap < 4000;
-    // return set.size == 1 && set.has(1) ;
+    return set.has(0) && set.has(4) ;
+    // return !set.has(6);
 };
 
 const getNumOfGapRead = reads => {
@@ -290,6 +291,12 @@ const plotData = (dataset, repeats, unit_length) =>
           const readnum_scale = calcReadNumScale(contigs);
           const handle_points = calcHandlePoints(start_pos);
           const contig_num = start_pos.length;
+          const scales = {"bp_scale":bp_scale,
+                          "coverage_scale":coverage_scale,
+                          "start_pos": start_pos,
+                          "readnum_scale":readnum_scale,
+                          "handle_points":handle_points,
+                          "start_pos": start_pos};
           // Draw contigs.
           contigs_layer
               .selectAll(".contig")
@@ -468,6 +475,72 @@ const plotData = (dataset, repeats, unit_length) =>
           // document.body.appendChild(downloadLink);
           // downloadLink.click();
           // document.body.removeChild(downloadLink);
+          return scales;
+      })
+      .then(ok => ok,
+            why => console.log(why));
+
+const make_path_between = (cr, scales,unit_length)=>{
+    // Input: JSON object, JSON object
+    // Output: String
+    // Requirements: Critical region object, scales
+    // Return the path btw critical region, or just the point.
+    let p = d3.path();
+    const inner = cr.CP;
+    const start1 = scales.start_pos[inner.contig1.contig] +
+          scales.bp_scale(inner.contig1.start_unit * unit_length) - Math.PI/2;
+    const end1 = scales.start_pos[inner.contig1.contig] +
+          scales.bp_scale(inner.contig1.start_unit * unit_length) - Math.PI/2;
+    const start2 = scales.start_pos[inner.contig2.contig] +
+          scales.bp_scale(inner.contig2.start_unit * unit_length) - Math.PI/2;
+    const end2 = scales.start_pos[inner.contig2.contig] +
+          scales.bp_scale(inner.contig2.start_unit * unit_length) - Math.PI/2;
+    const hp = scales.handle_points[inner.contig1.contig][inner.contig2.contig] - Math.PI/2;
+    const hpx = handle_points_radius * Math.cos(hp);
+    const hpy = handle_points_radius * Math.sin(hp);
+    p.moveTo(read_radius * Math.cos(start1), read_radius * Math.sin(start1));
+    p.lineTo(read_radius * Math.cos(start2), read_radius * Math.sin(start2));
+    // p.arc(0,0,read_radius, start1, end1);
+    // p.quadraticCurveTo(hpx,hpy,read_radius*Math.cos(start2), read_radius*Math.sin(start2));
+    // p.arc(0,0,read_radius, start2, end2);
+    // p.quadraticCurveTo(hpx,hpy, read_radius*Math.cos(start1), read_radius*Math.sin(start1));
+    // p.closePath();
+    return p.toString();
+};
+
+const overlay_cr = (scales,critical_regions, unit_length) =>
+      d3.json(critical_regions)
+      .then(critical_regions => {
+          console.log(scales);
+          console.log(critical_regions);
+          contigs_layer
+              .selectAll("critical_region")
+              .data(critical_regions.filter(d => d.hasOwnProperty("CP")))
+              .enter()
+              .append("path")
+              .attr("class","critical_region")
+              .attr("d", cr => make_path_between(cr, scales,unit_length))
+              .attr("stroke-width",4)
+              .attr("stroke", "yellow");
+          contigs_layer
+              .selectAll("critical_region")
+              .data(critical_regions.filter(d => d.hasOwnProperty("RJ")))
+              .enter()
+              .append("path")
+              .attr("class","critical_region")
+              .attr("d", d => {
+                  const inner = d.RJ.pos;
+                  const r = scales.start_pos[inner.contig];
+                  const start = r+ scales.bp_scale(unit_length*inner.start_unit);
+                  const end = r + scales.bp_scale(unit_length*inner.end_unit);
+                  const arc = d3.arc()
+                        .innerRadius(read_radius - 10)
+                        .outerRadius(read_radius)
+                        .startAngle(start)
+                        .endAngle(end);
+                  return arc();
+              })
+              .attr("fill", "yellow");
       })
       .then(ok => console.log("OK"),
             why => console.log(why));

@@ -21,6 +21,9 @@ impl std::fmt::Display for Contigs {
 }
 
 impl Contigs {
+    pub fn is_repeat(&self, id: u16) -> bool {
+        self.names[id as usize].starts_with("rep")
+    }
     pub fn from_file<P: AsRef<std::path::Path>>(file: P) -> std::io::Result<Self> {
         fasta::parse_into_vec(file).map(Self::new)
     }
@@ -49,6 +52,9 @@ impl Contigs {
             .enumerate()
             .filter_map(|(idx, name)| if name == key { Some(idx as u16) } else { None })
             .nth(0)
+    }
+    pub fn get_name_by_id(&self, id:u16)->&str{
+        &self.names[id as usize]
     }
     pub fn get_by_id(&self, id: u16) -> Option<&[u8]> {
         self.names.get(id as usize).and_then(|e| self.get(e))

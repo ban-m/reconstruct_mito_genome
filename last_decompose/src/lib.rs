@@ -4,16 +4,18 @@ extern crate bio_utils;
 extern crate env_logger;
 extern crate last_tiling;
 extern crate rand;
-use log::Level;
+extern crate serde;
+
+pub use find_breakpoint::critical_regions;
+
 use bio_utils::fasta;
 use last_tiling::LastTAB;
+use log::Level;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 mod find_breakpoint;
-use find_breakpoint::critical_regions;
 use last_tiling::UNIT_SIZE;
 mod assignments;
-
 pub fn decompose(
     read: Vec<fasta::Record>,
     alignments: Vec<LastTAB>,
@@ -23,11 +25,11 @@ pub fn decompose(
     // Alignment informations are completely (losslessly) encoded into reads.
     let encoded_reads = last_tiling::encoding(&read, &contigs, &alignments);
     let critical_regions = critical_regions(&encoded_reads, &contigs);
-    if log_enabled!(Level::Debug){
-        for c in critical_regions{
-            debug!("{:?}",c);
+    if log_enabled!(Level::Debug) {
+        for c in critical_regions {
+            debug!("{:?}", c);
         }
-        return vec![]
+        return vec![];
     }
     let assignments: Vec<_> = critical_regions
         .into_iter()
