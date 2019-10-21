@@ -8,7 +8,7 @@
 #$ -V
 set -ue
 ROOT=/grid/ban-m/arabidopsis_thaliana/sequel/assemble/mine
-LASTTAB=${ROOT}/last_db/collupsed.tab
+LASTTAB=${ROOT}/last_db/collapsed.tab
 READ=${ROOT}/filtered_read.fasta
 CONTIGS=${ROOT}/contigs.fasta
 SELF_LASTTAB=${ROOT}/last_db/self_no_repeat.tab

@@ -3,7 +3,7 @@ use last_tiling::unit::*;
 use last_tiling::Contigs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-const READ_NUM: usize = 6;
+const READ_NUM: usize = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CriticalRegion {
@@ -81,7 +81,6 @@ pub struct ContigPair {
 /// It assigns -1.
 /// And if the reads ended at i-th unit of `contig`, followed by large gap>UNIT_SIZE,
 /// it assigns i+1.
-/// TODO:TEST THIS FUNCTION.
 pub fn get_max_min_unit(r: &EncodedRead, contig: u16) -> (i32, i32) {
     let (mut min, mut max) = (std::i32::MAX, std::i32::MIN);
     let mut last_met_unitnum = None;
@@ -151,9 +150,24 @@ impl ReadClassify for ContigPair {
         span1 || span2 || span3 || span4 || span5 || span6
     }
     // Overlapping can be detected similary.
-    // TODO
-    fn overlaps_with(&self, _r: &EncodedRead) -> bool {
-        true
+    // Note that overlapping here means that
+    // the read "crosses" boundary or not.
+    // Shortly, if the read spans this region, it overlaps.
+    // Thus, it is sufficient and nessesary condition to
+    // check whther min < boundary < max holds for one of four
+    // breakpoints.
+    fn overlaps_with(&self, r: &EncodedRead) -> bool {
+        let (c1_min, c1_max) = get_max_min_unit(r,self.contig1.contig);
+        let (c2_min, c2_max) = get_max_min_unit(r,self.contig2.contig);
+        let (c1_s, c1_e) = self.contig1.range();
+        let (c2_s, c2_e) = self.contig2.range();
+        // The code below is correst, as c*_min would be std::i32::MAX
+        // if there is no contig * unit in the read `r`, and c*_max would be std::i32::MIN
+        // if there is no contig * unit.
+        c1_min <= c1_s && c1_s <= c1_max ||
+            c1_min <= c1_e && c1_e <= c1_max ||
+            c2_min <= c2_s && c2_s <= c2_max ||
+            c2_min <= c2_e && c2_e <= c2_max
     }
     // TODO
     fn separate_reads_into_clusters<'a>(
@@ -431,6 +445,9 @@ fn critical_regions_between(
             debug!("{}\t{}", idx, count);
         }
         let res = calculate_average_more_than(&raw_count, READ_NUM as i32);
+        for &(s, e) in &res {
+            debug!("FROM:[{},{})", s, e);
+        }
         let res = merge_overlap_and_remove_contained(res);
         res.into_iter()
             .map(|(s, e)| tighten_up(s, e, &raw_count))
@@ -448,6 +465,9 @@ fn critical_regions_between(
             debug!("{}\t{}", idx, count);
         }
         let res = calculate_average_more_than(&raw_count, READ_NUM as i32);
+        for &(s, e) in &res {
+            debug!("TO:[{},{})", s, e);
+        }
         let res = merge_overlap_and_remove_contained(res);
         res.into_iter()
             .map(|(s, e)| tighten_up(s, e, &raw_count))
@@ -672,5 +692,46 @@ pub mod tests {
         let input = vec![0, 0, 0, 0, 2, 1, 1, 1, 0];
         let (s, e) = tighten_up(3, 8, &input);
         assert_eq!((s, e), (4, 8));
+    }
+    #[test]
+    fn get_max_min_unit_test() {
+        let gen = |x, y| ChunkedUnit::En(Encode::sketch(x, y, true));
+        let gen_gap = |x, y| ChunkedUnit::Gap(GapUnit::new(&vec![], Some((x, y))));
+        let read = EncodedRead::from("test".to_string(), vec![gen(1, 2)]);
+        assert_eq!(get_max_min_unit(&read, 0), (std::i32::MAX, std::i32::MIN));
+        assert_eq!(get_max_min_unit(&read, 1), (2, 2));
+        let read = EncodedRead::from(
+            "test".to_string(),
+            vec![gen(1, 2), gen(1, 3), gen(1, 4), gen(1, 1)],
+        );
+        assert_eq!(get_max_min_unit(&read, 1), (1, 4));
+        let read = vec![
+            gen(1, 2),
+            gen(1, 3),
+            gen(0, 121),
+            gen(0, 89),
+            gen(0, 12),
+            gen(1, 0),
+            gen(1, 21),
+        ];
+        let read = EncodedRead::from("test".to_string(), read);
+        assert_eq!(get_max_min_unit(&read, 1), (0, 21));
+        assert_eq!(get_max_min_unit(&read, 0), (12, 121));
+        let read = vec![
+            gen_gap(1, 10),
+            gen(1, 10),
+            gen(1, 11),
+            gen(1, 12),
+            gen(1, 13),
+            gen_gap(10, 10),
+            gen(1, 12),
+            gen(1, 0),
+        ];
+        let read = EncodedRead::from("test".to_string(), read);
+        assert_eq!(get_max_min_unit(&read, 1), (0, 13));
+        let read = vec![gen_gap(10, 10), gen(10, 2), gen_gap(10, 11)];
+        let read = EncodedRead::from("test".to_string(), read);
+        assert_eq!(get_max_min_unit(&read, 10), (2, 2));
+        assert_eq!(get_max_min_unit(&read, 0), (std::i32::MAX, std::i32::MIN));
     }
 }

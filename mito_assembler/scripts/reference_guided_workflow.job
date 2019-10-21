@@ -1,0 +1,62 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N workflow
+#$ -cwd
+#$ -pe smp 24
+#$ -o ./logfiles/workflow.out
+#$ -V
+#$ -m e
+
+## ---- Variables ----
+##
+set -ue
+CORES=24
+READ=$1
+OUTPATH=$2
+REFERENCE=$3
+CONTIGS=${OUTPATH}/contigs.fasta
+
+## ---- Setup ----
+
+rm -rf ${OUTPATH}
+mkdir -p ${OUTPATH}
+samtools faidx ${REFERENCE} NC_037304.1 > ${OUTPATH}/mito.fa
+
+## ---- Tiling ----
+
+### Alignment
+function lastalign () {
+    ### 1st arg: reference, 2nd: query 3: database name 4: output name
+    lastdb -P ${CORES} -R00 $3 $1
+    last-train -P ${CORES} $3 $2 > $3.matrix
+    lastal -f TAB -P ${CORES} -Q0 -p $3.matrix $3 $2 > $4.tab
+}
+
+
+### 0. Selecting reads
+minimap2 -t 24 -x map-pb ${OUTPATH}/mito.fa ${READ} |\
+    cargo run --release --bin select_mito_reads -- ${READ} |\
+    cargo run --release --bin filter_low_quality |\
+    cargo run --release --bin clip_self_chimera > \
+          ${OUTPATH}/filtered_read.fasta
+READ=${OUTPATH}/filtered_read.fasta
+
+cargo build --release 
+ROOT=$PWD
+mkdir -p ${OUTPATH}/last_db
+cd ${OUTPATH}/last_db
+
+### 1.split reference contigs into "collapsed" mode.
+lastalign ${OUTPATH}/mito.fa ${OUTPATH}/mito.fa reference self
+lastalign ${OUTPATH}/mito.fa ${READ} reference initial
+
+cd ${ROOT}
+cargo run --release --bin split_repeat \
+      -- ${OUTPATH}/mito.fa ${OUTPATH}/last_db/self.tab \
+      > ${CONTIGS}
+
+
+### Next, map all reads into collpsed contigs.
+cd ${OUTPATH}/last_db
+lastalign ${CONTIGS} ${CONTIGS} no_repeat no_repeat_self
+lastalign ${CONTIGS} ${READ} no_repeat no_repeat_reads

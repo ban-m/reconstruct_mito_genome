@@ -17,10 +17,11 @@ fn main() -> std::io::Result<()> {
             .filter(|e| e.seq1_matchlen() > THR && e.seq2_matchlen() > THR)
             .filter(|e| {
                 e.seq1_len() != e.seq1_matchlen()
-                    && e.seq2_len() != e.seq2_matchlen()
-                    && e.seq1_name() != e.seq2_name()
+                    || e.seq2_len() != e.seq2_matchlen()
+                    || e.seq1_name() != e.seq2_name()
             })
             .collect();
+        debug!("{}", alns.len());
         let mut remove_dedup: Vec<last_tiling::LastTAB> = vec![];
         for aln in alns {
             if remove_dedup.iter().all(|a| &aln != a) {

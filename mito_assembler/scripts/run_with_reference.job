@@ -1,0 +1,7 @@
+#!/bin/bash
+qsub -e ./logfiles/run_with_reference.log\
+     ./scripts/reference_guided_workflow.job \
+     /data/ban-m/a_thaliana/sequel_reads/sequel.fasta /grid/ban-m/arabidopsis_thaliana/sequel/assemble/pacbio_w_reference \
+     /grid/ban-m/arabidopsis_thaliana/genome/GCF_000001735.4_TAIR10.1_genomic.fna
+
+     

@@ -1,0 +1,26 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N Convert
+#$ -cwd
+#$ -pe smp 12
+#$ -e ./logfiles/run_on_reference.log
+#$ -o ./logfiles/run_on_reference.out
+#$ -V
+set -ue
+ROOT=/grid/ban-m/arabidopsis_thaliana/sequel/assemble/pacbio_w_reference/
+READ=${ROOT}/filtered_read.fasta
+REFERENCE=${ROOT}/contigs.fasta
+mkdir -p ./data/reference/
+SELF_LASTTAB=${ROOT}/last_db/no_repeat_self.tab
+PREFIX=./data/mine_to_reference
+LASTTAB=${ROOT}/last_db/no_repeat_reads.tab
+
+cargo run --release --bin annotate_dotplot -- ${REFERENCE} ${SELF_LASTTAB} \
+      > ${PREFIX}_repeats.json
+cargo run --release --bin encode \
+      -- ${LASTTAB} ${REFERENCE} ${READ} ${PREFIX}_repeats.json \
+      ${PREFIX}_contig.json ${PREFIX}_reads.json 
+cargo run --release --bin convert_to_d3_data \
+      -- ${PREFIX}_contig.json ${PREFIX}_reads.json \
+      > ${PREFIX}_d3.json
+

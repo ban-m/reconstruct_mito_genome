@@ -4,7 +4,7 @@ extern crate rayon;
 use rayon::prelude::*;
 use std::ops::Shl;
 const K: usize = 6;
-const THR: f64 = 9.0;
+const THR: f64 = 7.0;
 fn main() -> std::io::Result<()> {
     let stdin = std::io::stdin();
     let reads = bio_utils::fasta::parse_into_vec_from(stdin.lock())?;

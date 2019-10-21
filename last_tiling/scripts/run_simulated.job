@@ -1,0 +1,50 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N Convert
+#$ -cwd
+#$ -pe smp 12
+#$ -e ./logfiles/simulation.log
+#$ -o ./logfiles/simulation.out
+#$ -V
+set -ue
+ROOT=/work/ban-m/arabidopsis_mitochondria/create_simulation_data/data/
+REFERENCE=${ROOT}/reference.fasta
+TYPE1_READ=${ROOT}/forward_repeat.fastq
+TYPE2_READ=${ROOT}/reverse_repeat.fastq
+
+### Alignment
+
+PREV_DIR=${PWD}
+mkdir -p ./data/simulations/lastdb/
+mkdir -p ./data/simulations/results/
+cd ./data/simulations/lastdb/
+lastbd -P12 -R00 reference ${REFERENCE}
+last-train -P 12 reference ${TYPE1_READ} > type1.matrix
+lastal -P 12 -Q3 -f TAB -p type1.matrix reference ${TYPE1_READ} > forward.tab
+last-train -P 12 reference ${TYPE2_READ} > type2.matrix
+lastal -P 12 -Q3 -f TAB -p type2.matrix reference ${TYPE2_READ} > reverse.tab
+last-train -P 12 reference ${REFERENCE} > self.matrix
+lastal -P 12 -Q0 -f TAB -p self.matrix reference ${REFERENCE} > self.tab
+cd ${PREV_DIR}
+
+### Convert dataset.
+PREFIX=./data/simulations/results/
+SELF_LASTTAB=${ROOT}/last_db/self.tab
+cargo run --release --bin annotate_dotplot -- ${REFERENCE} ${SELF_LASTTAB} \
+      > ${PREFIX}/reference_repeats.json
+
+LASTTAB=./data/simulations/lastdb/forward.tab
+cargo run --release --bin encode \
+      -- ${LASTTAB} ${REFERENCE} ${TYPE1_READ} ${PREFIX}/forward_repeats.json \
+      ${PREFIX}/forward_contig.json ${PREFIX}/forward_contig.json
+cargo run --release --bin convert_to_d3_data \
+      -- ${PREFIX}/forward_contig.json ${PREFIX}/forward_reads.json \
+      > ${PREFIX}/forward_d3.json
+
+LASTTAB=./data/simulations/lastdb/reverse.tab
+cargo run --release --bin encode \
+      -- ${LASTTAB} ${REFERENCE} ${TYPE2_READ} ${PREFIX}/reverse_repeats.json \
+      ${PREFIX}/reverse_contig.json ${PREFIX}/reverse_contig.json
+cargo run --release --bin convert_to_d3_data \
+      -- ${PREFIX}/reverse_contig.json ${PREFIX}/reverse_reads.json \
+      > ${PREFIX}/reverse_d3.json
