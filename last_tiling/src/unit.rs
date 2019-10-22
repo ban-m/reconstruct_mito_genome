@@ -51,6 +51,30 @@ impl EncodedRead {
     // }
     // pub fn fill_gap(&self)->Self{
     // }
+    /// Determine the direction of this read with respect to given contig.
+    /// Note that it can be happen that this read is forward wrt contig0,
+    /// while reverse wrt contig1.(contig representation is ambiguous).
+    /// If there is no unit with contig, return None.
+    pub fn is_forward_wrt(&self, contig: u16) -> Option<bool> {
+        let (tot, forward) = self
+            .seq
+            .iter()
+            .filter_map(|e| e.encode())
+            .filter(|encode| encode.contig == contig)
+            .map(|encode| encode.is_forward())
+            .fold((0, 0), |(tot, forward), b| {
+                if b {
+                    (tot + 1, forward + 1)
+                } else {
+                    (tot + 1, forward)
+                }
+            });
+        if tot == 0 {
+            None
+        } else {
+            Some(2 * forward > tot)
+        }
+    }
 }
 
 impl fmt::Display for EncodedRead {
@@ -80,6 +104,18 @@ impl ChunkedUnit {
         match self {
             ChunkedUnit::En(_) => true,
             ChunkedUnit::Gap(_) => false,
+        }
+    }
+    pub fn encode(&self) -> Option<&Encode> {
+        match self {
+            ChunkedUnit::En(res) => Some(res),
+            ChunkedUnit::Gap(_) => None,
+        }
+    }
+    pub fn gap(&self) -> Option<&GapUnit> {
+        match self {
+            ChunkedUnit::En(_) => None,
+            ChunkedUnit::Gap(gap) => Some(gap),
         }
     }
     pub fn len(&self) -> usize {
