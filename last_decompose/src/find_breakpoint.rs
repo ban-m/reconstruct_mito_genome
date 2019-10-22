@@ -3,7 +3,9 @@ use last_tiling::unit::*;
 use last_tiling::Contigs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+/// The threshould used to determine whether two regions would be regarded as pairs.
 const READ_NUM: usize = 4;
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CriticalRegion {
@@ -169,11 +171,17 @@ impl ReadClassify for ContigPair {
             c2_min <= c2_s && c2_s <= c2_max ||
             c2_min <= c2_e && c2_e <= c2_max
     }
+    // Assign each reads into its color. Note that the
+    // color should be at most four, depending of the spanning patterns.
+    // Returns the number of cluster, with a vector of (class,index,read) tuples.
     // TODO
     fn separate_reads_into_clusters<'a>(
         &self,
-        _reads: Vec<(usize, &'a EncodedRead)>,
+        reads: Vec<(usize, &'a EncodedRead)>,
     ) -> (usize, Vec<ReadWithClassAndIndex<'a>>) {
+        // Determine class.
+        assert!(reads.iter().all(|e|self.is_spanned_by(e)));
+        
         (0, vec![])
     }
     //TODO

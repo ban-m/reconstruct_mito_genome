@@ -7,16 +7,18 @@
 #$ -o ./logfiles/convert.out
 #$ -V
 set -ue
-ROOT=/grid/ban-m/arabidopsis_thaliana/sequel/assemble/mpi
-LASTTAB=${ROOT}/last_db/initial.tab
+ROOT=/grid/ban-m/arabidopsis_thaliana/sequel/assemble/mpi_w_reference
 READ=${ROOT}/filtered_read.fasta
-CONTIGS=${ROOT}/initial_asm/scaffolds.contigs.fasta
-SELF_LASTTAB=${ROOT}/last_db/self.tab
-PREFIX=./data/mpi_w_repeat
-cargo run --release --bin annotate_dotplot -- ${CONTIGS} ${SELF_LASTTAB} \
+REFERENCE=${ROOT}/contigs.fasta
+mkdir -p ./data/reference/
+SELF_LASTTAB=${ROOT}/last_db/no_repeat_self.tab
+PREFIX=./data/mpi_to_reference
+LASTTAB=${ROOT}/last_db/no_repeat_reads.tab
+
+cargo run --release --bin annotate_dotplot -- ${REFERENCE} ${SELF_LASTTAB} \
       > ${PREFIX}_repeats.json
 cargo run --release --bin encode \
-      -- ${LASTTAB} ${CONTIGS} ${READ} ${PREFIX}_repeats.json \
+      -- ${LASTTAB} ${REFERENCE} ${READ} ${PREFIX}_repeats.json \
       ${PREFIX}_contig.json ${PREFIX}_reads.json 
 cargo run --release --bin convert_to_d3_data \
       -- ${PREFIX}_contig.json ${PREFIX}_reads.json \

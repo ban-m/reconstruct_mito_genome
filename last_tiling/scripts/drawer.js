@@ -19,8 +19,8 @@ const handle_points_radius = 100;
 const read_radius = contig_radius-30;
 const gap_min_radius = read_radius;
 const gap_max_radius = contig_radius-3;
-const gap_min = 1000;
-const gap_max = 5000;
+const gap_min = 500;
+const gap_max = 2000;
 const gap_scale = d3.scaleLog()
       .domain([gap_min,gap_max])
       .range([gap_min_radius, gap_max_radius])
