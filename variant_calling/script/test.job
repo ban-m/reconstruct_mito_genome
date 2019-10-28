@@ -1,0 +1,12 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N workflow
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/log
+#$ -V
+#$ -m e
+/usr/bin/time -v cargo run --release --bin variant_calling -- \
+              ./data/last_db/alignments.maf \
+              0.012 \
+              > ./result/variant_called_sites.tsv 2> ./logfiles/log 

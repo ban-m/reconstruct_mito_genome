@@ -1,0 +1,55 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N workflow
+#$ -cwd
+#$ -pe smp 24
+#$ -o ./logfiles/workflow.out
+#$ -V
+#$ -m e
+
+## ---- Variables ----
+##
+set -ue
+CORES=24
+READ=$1
+OUTPATH=$2
+REFERENCE=$3
+
+## ---- Setup ----
+
+mkdir -p ${OUTPATH}
+samtools faidx ${REFERENCE} NC_037304.1 > ${OUTPATH}/mito.fa
+
+## ---- Initial filtering ----
+
+minimap2 -t 24 -x map-pb ${OUTPATH}/mito.fa ${READ} |\
+    cargo run --release --bin select_mito_reads -- ${READ} |\
+    cargo run --release --bin filter_low_quality |\
+    cargo run --release --bin clip_self_chimera > \
+          ${OUTPATH}/filtered_read.fasta
+
+READ=${OUTPATH}/filtered_read.fasta
+
+## --- Tiling ----
+
+cargo build --release 
+ROOT=$PWD
+mkdir -p ${OUTPATH}/last_db
+cd ${OUTPATH}/last_db
+
+lastdb -P 24 -R 00 reference ${OUTPATH}/mito.fa
+last-train -P 24 reference ${READ} > reference.matrix
+lastal -Q0 -f TAB -P 24 reference ${READ} -p reference.matrix > alignments.tab
+lastal -Q0 -f MAF -P 24 reference ${READ} -p reference.matrix > alignments.maf
+cd ${ROOT}
+
+## --- Analysis ----
+
+cargo run --release --bin calc_error_rate -- ${OUTPATH}/last_db/alignments.tab ${READ} ${OUTPATH}/mito.fa
+## 3.41	7.79	2.60
+## 0.034101185473598146,0.011367061824532716
+## 13.8 % errors.
+## Assume that the one-way error rate would be 1.2%.
+## SD's are usul 0.34 / sqrt(n)
+## Usually, n is around 169, thus, sqrt(n) = 13. Overall, sd is 0.026 or so.
+cargo run --release --bin variant_calling -- ${OUTPATH}/last_db/alignments.maf 0.012 > ${OUTPATH}/variant_called.tsv
