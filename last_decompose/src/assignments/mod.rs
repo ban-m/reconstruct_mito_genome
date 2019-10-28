@@ -154,6 +154,12 @@ impl Assignment {
     }
 }
 
+
+// Decomposing the (possibly long) repeat into two. Repeat resolution program.
+// Hopefully, it would not be called in the procedure, since if there's no
+// mutation inside this repeat, it is no use.
+// Also, it is currently able to resolve two repeat. If there are more complex situation,
+// It just fails.
 fn local_first_order_decomposing<'a>(
     reads: &'a [EncodedRead],
     cr: &ContigPair,
@@ -173,7 +179,7 @@ fn local_first_order_decomposing<'a>(
     // classed_reads[idx] would return the idx-th cluster
     let (_num_of_cluster, classed_reads): (_, Vec<Vec<_>>) =
         cr.clustering_reads_into_points(&overlapping_reads);
-    let pairs: Vec<[usize; 2]> = cr.get_competitive_pair();
+    let pairs: Vec<[usize; 2]> = cr.get_competitive_pair(&overlapping_reads);
     // Let competitive pair be [[i,j],[l,m]]. Thus, we should chose one out of two options:
     // i connets to l and j connects to m, OR, i connects to m, and j connects to l.
     // First option is like:

@@ -5,7 +5,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 /// The threshould used to determine whether two regions would be regarded as pairs.
 const READ_NUM: usize = 4;
-
+/// How many reads are needed to construct a separate class.
+/// Note that it should be more than 1, since there is a
+/// danger of chimeric reads.
+const CLASS_THR: usize = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CriticalRegion {
@@ -124,6 +127,23 @@ pub fn get_max_min_unit(r: &EncodedRead, contig: u16) -> (i32, i32) {
     (min, max)
 }
 
+// A helper method for ReadClassify for ContigPair.
+// This function takes the classed reads, assesses if
+// there is enough number of reads.
+// If it has, this function push these reads into result bucket.
+fn extend_and_increment<'a>(
+    result: &mut Vec<ReadWithClassAndIndex<'a>>,
+    class: usize,
+    reads: Vec<&(usize, &'a EncodedRead)>,
+) -> usize {
+    if reads.len() > CLASS_THR {
+        result.extend(reads.into_iter().map(|&(idx, r)| (class, idx, r)));
+        class + 1
+    } else {
+        class
+    }
+}
+
 impl ReadClassify for ContigPair {
     // The broad repeat is like the below.
     // -----A||||||B----
@@ -143,13 +163,10 @@ impl ReadClassify for ContigPair {
         let (c2_min, c2_max) = get_max_min_unit(r, c2);
         let (c1_s, c1_e) = self.contig1.range();
         let (c2_s, c2_e) = self.contig2.range();
-        let span1 = c1_min < c1_s && c1_e < c1_max;
-        let span2 = c1_min < c1_s && c2_e < c2_max;
-        let span3 = c1_min < c1_s && c2_min < c2_s;
-        let span4 = c2_min < c2_s && c2_e < c2_max;
-        let span5 = c2_min < c2_s && c1_e < c1_max;
-        let span6 = c2_e < c2_max && c1_e < c1_max;
-        span1 || span2 || span3 || span4 || span5 || span6
+        let span1 = (c1_min < c1_s || c2_min < c2_s) && (c1_e < c1_max || c2_e < c2_max);
+        let span2 = c1_min < c1_s && c2_min < c2_s;
+        let span3 = c2_e < c2_max && c1_e < c1_max;
+        span1 || span2 || span3
     }
     // Overlapping can be detected similary.
     // Note that overlapping here means that
@@ -159,38 +176,129 @@ impl ReadClassify for ContigPair {
     // check whther min < boundary < max holds for one of four
     // breakpoints.
     fn overlaps_with(&self, r: &EncodedRead) -> bool {
-        let (c1_min, c1_max) = get_max_min_unit(r,self.contig1.contig);
-        let (c2_min, c2_max) = get_max_min_unit(r,self.contig2.contig);
+        let (c1_min, c1_max) = get_max_min_unit(r, self.contig1.contig);
+        let (c2_min, c2_max) = get_max_min_unit(r, self.contig2.contig);
         let (c1_s, c1_e) = self.contig1.range();
         let (c2_s, c2_e) = self.contig2.range();
         // The code below is correst, as c*_min would be std::i32::MAX
         // if there is no contig * unit in the read `r`, and c*_max would be std::i32::MIN
         // if there is no contig * unit.
-        c1_min <= c1_s && c1_s <= c1_max ||
-            c1_min <= c1_e && c1_e <= c1_max ||
-            c2_min <= c2_s && c2_s <= c2_max ||
-            c2_min <= c2_e && c2_e <= c2_max
+        c1_min <= c1_s && c1_s <= c1_max
+            || c1_min <= c1_e && c1_e <= c1_max
+            || c2_min <= c2_s && c2_s <= c2_max
+            || c2_min <= c2_e && c2_e <= c2_max
     }
     // Assign each reads into its color. Note that the
     // color should be at most four, depending of the spanning patterns.
     // Returns the number of cluster, with a vector of (class,index,read) tuples.
-    // TODO
     fn separate_reads_into_clusters<'a>(
         &self,
         reads: Vec<(usize, &'a EncodedRead)>,
     ) -> (usize, Vec<ReadWithClassAndIndex<'a>>) {
         // Determine class.
-        assert!(reads.iter().all(|e|self.is_spanned_by(e)));
-        
-        (0, vec![])
+        assert!(reads.iter().all(|&(_idx, r)| self.is_spanned_by(r)));
+        let c1 = self.contig1.contig;
+        let c2 = self.contig2.contig;
+        let (c1_s, c1_e) = self.contig1.range();
+        let (c2_s, c2_e) = self.contig2.range();
+        // TODO: refactoring this function. Currently very agry.
+        let mut result = vec![];
+        let mut cluster_num = 0;
+        {
+            let c1s_to_c1e: Vec<_> = reads
+                .iter()
+                .filter(|&(_, r)| {
+                    let (c1_min, c1_max) = get_max_min_unit(r, c1);
+                    c1_min < c1_s && c1_e < c1_max
+                })
+                .collect();
+            cluster_num = extend_and_increment(&mut result, cluster_num, c1s_to_c1e);
+        }
+        {
+            let c2s_to_c2e: Vec<_> = reads
+                .iter()
+                .filter(|&(_, r)| {
+                    let (c2_min, c2_max) = get_max_min_unit(r, c2);
+                    c2_min < c2_s && c2_e < c2_max
+                })
+                .collect();
+            cluster_num = extend_and_increment(&mut result, cluster_num, c2s_to_c2e);
+        }
+        {
+            let c1s_to_c2e: Vec<_> = reads
+                .iter()
+                .filter(|&(_, r)| {
+                    let (c1_min, _) = get_max_min_unit(r, c1);
+                    let (_, c2_max) = get_max_min_unit(r, c2);
+                    c1_min < c1_s && c2_e < c2_max
+                })
+                .collect();
+            cluster_num = extend_and_increment(&mut result, cluster_num, c1s_to_c2e);
+        }
+        {
+            let c2s_to_c1e: Vec<_> = reads
+                .iter()
+                .filter(|&(_, r)| {
+                    let (_, c1_max) = get_max_min_unit(r, c1);
+                    let (c2_min, _) = get_max_min_unit(r, c2);
+                    c2_min < c2_e && c1_e < c1_max
+                })
+                .collect();
+            cluster_num = extend_and_increment(&mut result, cluster_num, c2s_to_c1e);
+        }
+        {
+            let c1s_to_c2s: Vec<_> = reads
+                .iter()
+                .filter(|&(_, r)| {
+                    let (c1_min, _) = get_max_min_unit(r, c1);
+                    let (c2_min, _) = get_max_min_unit(r, c2);
+                    c1_min < c1_s && c2_min < c2_s
+                })
+                .collect();
+            cluster_num = extend_and_increment(&mut result, cluster_num, c1s_to_c2s);
+        }
+        {
+            let c1e_to_c2e: Vec<_> = reads
+                .iter()
+                .filter(|&(_, r)| {
+                    let (_, c1_max) = get_max_min_unit(r, c1);
+                    let (_, c2_max) = get_max_min_unit(r, c2);
+                    c1_e < c1_max && c2_e < c2_max
+                })
+                .collect();
+            cluster_num = extend_and_increment(&mut result, cluster_num, c1e_to_c2e);
+        }
+        (cluster_num, result)
     }
-    //TODO
-    fn contains(&self, _r: &EncodedRead) -> bool {
-        true
+    // Return whether self contains the read.
+    // It is enough to check s < start && e < end holds
+    // for contig 1 or contig 2.
+    // Remember that, if there's no unit,
+    // get_max_min_unit(,) would return (MAX,MIN), where
+    // the condition above never holds.
+    fn contains(&self, r: &EncodedRead) -> bool {
+        let (c1_s, c1_e) = self.contig1.range();
+        let (c1_min, c1_max) = get_max_min_unit(r, self.contig1.contig);
+        let contained_in_c1 = c1_s < c1_min && c1_max < c1_e;
+        let (c2_s, c2_e) = self.contig1.range();
+        let (c2_min, c2_max) = get_max_min_unit(r, self.contig2.contig);
+        let contained_in_c2 = c2_s < c2_min && c2_max < c2_e;
+        contained_in_c1 || contained_in_c2
     }
-    // TODO
-    fn distance(&self, _r: &EncodedRead) -> usize {
-        0
+    // Calculate the distance between the read and self.
+    // It can be assumed that the read is not contained nor not overlapping with self.
+    // For the reasen, search for the location where this function is called.
+    fn distance(&self, r: &EncodedRead) -> usize {
+        let (c1_s, c1_e) = self.contig1.range();
+        let (c2_s, c2_e) = self.contig2.range();
+        let (c1_min, c1_max) = get_max_min_unit(r, self.contig1.contig);
+        let (c2_min, c2_max) = get_max_min_unit(r, self.contig2.contig);
+        [c1_s - c1_max, c1_e - c1_min, c2_s - c2_max, c2_e - c2_min]
+            .into_iter()
+            .copied()
+            .map(i32::abs)
+            .min()
+            .unwrap() as usize
     }
 }
 
@@ -198,16 +306,57 @@ impl ContigPair {
     pub fn new(contig1: Position, contig2: Position) -> Self {
         Self { contig1, contig2 }
     }
-    // TODO
-    pub fn get_competitive_pair(&self) -> Vec<[usize; 2]> {
-        vec![]
+    pub fn get_competitive_pair(&self, ovlp: &[(usize, &EncodedRead)]) -> Vec<[usize; 2]> {
+        // C1:-----1=======2------
+        // C2:-----3=======4------
+        // (A,C) vs (B,D) or (A,D) vs (B,C)
+        // It can be determined by counting concording reads(forward in both C1 and C2, or reverse in both C1 and C2)
+        // and non-concording reads(forward in C1, reverse in C2 and vice versa).
+        let (concord, disconcord) = ovlp
+            .iter()
+            .filter_map(|(_, r)| {
+                Some((
+                    r.is_forward_wrt(self.contig1.contig)?,
+                    r.is_forward_wrt(self.contig2.contig)?,
+                ))
+            })
+            .fold(
+                (0, 0),
+                |(c, d), (c1, c2)| if c1 == c2 { (c + 1, d) } else { (c, d + 1) },
+            );
+        if concord > disconcord {
+            vec![[1, 3], [2, 4]]
+        } else {
+            vec![[1, 4], [2, 3]]
+        }
     }
     // TODO
     pub fn clustering_reads_into_points<'a>(
         &self,
-        _reads: &[(usize, &'a EncodedRead)],
+        reads: &[(usize, &'a EncodedRead)],
     ) -> (usize, Vec<Vec<(usize, &'a EncodedRead)>>) {
-        (0, vec![])
+        // Distribute reads into four points listed below:
+        // C1:-----1=======2------
+        // C2:-----3=======4------
+        let num_of_cluster = 4;
+        let mut result = vec![vec![]; 4];
+        let (c1_s, c1_e) = self.contig1.range();
+        let (c2_s, c2_e) = self.contig2.range();
+        for &(idx, read) in reads {
+            // Determine point.
+            let (c1min, c1max) = get_max_min_unit(read, self.contig1.contig);
+            let (c2min, c2max) = get_max_min_unit(read, self.contig2.contig);
+            if c1min < c1_s && c1_s < c1max {
+                result[0].push((idx, read));
+            } else if c1min < c1_e && c1_e < c1max {
+                result[1].push((idx, read));
+            } else if c2min < c2_s && c2_s < c2max {
+                result[2].push((idx, read));
+            } else if c2min < c2_e && c2_e < c2max {
+                result[3].push((idx, read));
+            }
+        }
+        (num_of_cluster, result)
     }
 }
 
@@ -225,23 +374,50 @@ impl RepeatJunction {
 }
 
 impl ReadClassify for RepeatJunction {
-    // TODO
-    fn is_spanned_by(&self, _r: &EncodedRead) -> bool {
-        true
+    fn is_spanned_by(&self, r: &EncodedRead) -> bool {
+        let (min, max) = get_max_min_unit(r, self.pos.contig);
+        let (start, end) = self.pos.range();
+        // Sometimes the start position and end position is
+        // exactly the boundary, thus, it is indeed needed.
+        let some_unit = r
+            .seq()
+            .iter()
+            .filter_map(|e| e.encode())
+            .filter(|e| e.contig != self.pos.contig)
+            .count()
+            != 0;
+        min <= start && end <= max && some_unit
     }
-    // TODO
     fn overlaps_with(&self, _r: &EncodedRead) -> bool {
-        true
+        let some_unit = r
+            .seq()
+            .iter()
+            .filter_map(|e| e.encode())
+            .filter(|e| e.contig != self.pos.contig)
+            .count()
+            != 0;
+        let (min, max) = get_max_min_unit(r, self.pos.contig);
+        min != std::i32::MAX && max != std::i32::MIN && some_unit
     }
-    // TODO
     fn contains(&self, _r: &EncodedRead) -> bool {
-        true
+        let no_other_unit = r
+            .seq()
+            .iter()
+            .filter_map(|e| e.encode())
+            .filter(|e| e.contig != self.pos.contig)
+            .count()
+            == 0;
+        let (min,max) = get_max_min_unit(r,self.pos.contig);
+        let (start,end) = self.pos.range();
+        start  < min && max < end && no_other_unit
     }
-    // TODO
     fn separate_reads_into_clusters<'a>(
         &self,
         _reads: Vec<(usize, &'a EncodedRead)>,
     ) -> (usize, Vec<ReadWithClassAndIndex<'a>>) {
+        
+        let mut results:Vec<Vec<_>> = vec![vec![];6];
+        
         (0, vec![])
     }
     // TODO
