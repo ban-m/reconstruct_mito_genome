@@ -11,4 +11,6 @@
 **/logfiles
 **/pdf
 **/png
+**/pics
 .*
+!.gitignore

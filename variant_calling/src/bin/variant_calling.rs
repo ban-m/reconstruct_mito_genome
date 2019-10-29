@@ -6,6 +6,7 @@ extern crate log;
 use rayon::prelude::*;
 const SD: f64 = 8.;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 fn main() -> std::io::Result<()> {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let args: Vec<_> = std::env::args().collect();
@@ -14,9 +15,9 @@ fn main() -> std::io::Result<()> {
         .filter_map(|e| e.ok())
         .collect();
     let mismatch_prob: f64 = args[2].parse().unwrap();
-    debug!("Convert alignment into minimal mode");
     let alns: Vec<_> = maf.into_iter().map(Aln::new).collect();
     let mut pileups: Vec<_> = (0..1_000_000).map(PileUp::new).collect();
+    debug!("Converted {} alignments into minimal mode", alns.len());
     debug!("Register each alignment into pileups");
     for aln in &alns {
         for (idx, base) in aln.seq.iter().enumerate() {
@@ -42,63 +43,54 @@ fn main() -> std::io::Result<()> {
     use std::io::{BufWriter, Write};
     let stdout = std::io::stdout();
     let mut wtr = BufWriter::new(stdout.lock());
-    let result = {
-        debug!("Collecting spanning reads");
-        let counts: Vec<_> = alns
-            .par_iter()
-            .map(|aln| {
-                let mut result: HashMap<_, (i32, i32, i32, i32, i32)> = HashMap::new();
-                let start = aln.start;
-                let end = start + aln.seq.len();
-                let start = match variants.binary_search_by_key(&start, |&(ref e, _)| e.pos) {
-                    Ok(res) => res,
-                    Err(why) => why,
-                };
-                let end = match variants.binary_search_by_key(&end, |&(ref e, _)| e.pos) {
-                    Ok(res) => res,
-                    Err(why) => why,
-                };
-                (start..end).into_iter().for_each(|i1| {
-                    let &(ref v1, base1) = &variants[i1];
-                    (i1 + 1..end).for_each(|i2| {
-                        // Count the link strength between i-th and j-th variants.
-                        let &(ref v2, base2) = &variants[i2];
-                        if aln.does_share(v1, v2) {
-                            let is_minor1 = aln.is_minor(v1, base1);
-                            let is_minor2 = aln.is_minor(v2, base2);
-                            let entry = result.entry((v1.pos, v2.pos)).or_default();
-                            entry.0 += 1;
-                            entry.1 += is_minor1 as i32;
-                            entry.2 += 1;
-                            entry.3 += is_minor2 as i32;
-                            entry.4 += (is_minor1 && is_minor2) as i32;
-                        }
-                    })
-                });
-                result
-            })
-            .collect();
-        let mut result = HashMap::new();
-        for block in counts {
-            for (key, (x0, x1, x2, x3, x4)) in block {
-                let entry = result.entry(key).or_insert((0, 0, 0, 0, 0));
-                entry.0 += x0;
-                entry.1 += x1;
-                entry.2 += x2;
-                entry.3 += x3;
-                entry.4 += x4;
+    let unwrap = |xs| match xs {
+        Ok(res) => res,
+        Err(why) => why,
+    };
+    debug!("Collecting spanning reads");
+    let result: Arc<Mutex<Vec<HashMap<_, (u16, u16, u16, u16, u16)>>>> =
+        Arc::new(Mutex::new(vec![HashMap::new(); variants.len()]));
+    alns.par_iter().for_each(|aln| {
+        let start = aln.start;
+        let end = start + aln.seq.len();
+        let start = unwrap(variants.binary_search_by_key(&start, |&(ref e, _)| e.pos));
+        let end = unwrap(variants.binary_search_by_key(&end, |&(ref e, _)| e.pos));
+        let mut temp = vec![];
+        (start..end).into_iter().for_each(|i1| {
+            let &(ref v1, base1) = &variants[i1];
+            variants[i1+1..end].iter().for_each(|&(ref v2,base2)|{
+                if aln.does_share(v1, v2) {
+                    let is_minor1 = aln.is_minor(v1, base1);
+                    let is_minor2 = aln.is_minor(v2, base2);
+                    // I'm sure that v1.pos < v2.pos!
+                    temp.push((i1, v2.pos, is_minor1, is_minor2));
+                }
+            });
+        });
+        let mut inner = result.lock().unwrap();
+        for (i1, p2, is_minor1, is_minor2) in temp {
+            let entry = inner.get_mut(i1).unwrap().entry(p2).or_default();
+            entry.0 += 1;
+            entry.1 += is_minor1 as u16;
+            entry.2 += 1;
+            entry.3 += is_minor2 as u16;
+            entry.4 += (is_minor1 && is_minor2) as u16;
+        }
+    });
+    debug!("Dump");
+    writeln!(&mut wtr, "pos1\tpos2\ttot1\tmac1\ttot2\tmac2\tshare")?;
+    let result: Vec<_> = Arc::try_unwrap(result).unwrap().into_inner().unwrap();
+    for (i1, rest) in result.into_iter().enumerate() {
+        for (p2, (tot1, mac1, tot2, mac2, share)) in rest {
+            if share > 3 {
+                let p1 = variants[i1].0.pos;
+                writeln!(
+                    &mut wtr,
+                    "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                    p1, p2, tot1, mac1, tot2, mac2, share
+                )?;
             }
         }
-        result
-    };
-    debug!("Dump");
-    writeln!(&mut wtr, "pos1\tpos2\tmac1\ttot1\tmac2\ttot2\tshare")?;
-    for ((p1, p2), (mac1, tot1, mac2, tot2, share)) in result {
-        writeln!(
-            &mut wtr,
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            p1, p2, mac1, tot1, mac2, tot2, share
-        )?;
     }
     Ok(())
 }

@@ -8,6 +8,11 @@ g <-data %>%  ggplot() +
     geom_point(mapping = aes(x = X1, y = X2))
 ggsave(filename = "./pics/minor_allel_freq_point.png", g)
 
+filtered <- data %>%
+    filter((4956 < X1 & X1 < 37653) |
+           (109386 < X1 & X1 < 144786) |
+           (341256 < X1 & X1 < 367807) )
+(37653 - 4956 + 144786 - 109386 + 367807 - 341256)/367807
 print(mean(data$X2) + 3*sd(data$X2))
 big_maf <- data %>% filter(X2 > mean(data$X2) + 3*sd(data$X2))
 big_maf_count <- big_maf %>% count() %>% pull(n)

@@ -1,0 +1,28 @@
+.title{
+    font-family: sans-serif;
+    font-size: large;
+}
+
+.scale{
+    font-family: sans-serif;
+}
+
+.scale text{
+    font-size: medium;
+}
+
+.tick{
+    stroke-width:1;
+}
+
+.node{
+    stroke-width: 1px;
+    stroke: black;
+    opacity:0.5;
+}
+
+.link{
+    stroke: black;
+    stroke-width:1px;
+    opacity:0.001;
+}

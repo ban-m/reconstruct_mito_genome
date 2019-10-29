@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<html>
+  <head>
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <link rel="stylesheet" type="text/css" href="./style.css">
+  </head>
+  <body>
+    <div class = "title">
+      Varinat graph. Dataset:Sequel.
+    </div>
+    <div id = "plot"></div>
+    <div id = "info"></div>
+    <script src="./drawer.js"></script>
+    <script>
+      const dataset = "/result/variant_cooccurence.tsv";
+      plotData(dataset);
+    </script>
+  </body>
+</html>

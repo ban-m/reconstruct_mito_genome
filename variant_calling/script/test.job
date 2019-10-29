@@ -4,6 +4,7 @@
 #$ -cwd
 #$ -pe smp 24
 #$ -e ./logfiles/log
+#$ -o ./logfiles/out
 #$ -V
 #$ -m e
 /usr/bin/time -v cargo run --release --bin variant_calling -- \

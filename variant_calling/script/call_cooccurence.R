@@ -3,14 +3,35 @@ variant_data <- read_tsv("./result/variant_called_sites.tsv")
 
 variant_data_filtered <- variant_data %>%
     filter( share > 2)  %>%
-    mutate(mlpvalue = -1 * pbinom(q=share, size = mac2, prob = mac1/tot1, lower.tail=FALSE,log.p=TRUE)) 
+    mutate(mlpvalue = -phyper(q=share, m=mac1,n=tot1-mac1, k = mac2, lower.tail=FALSE, log.p=TRUE))  %>%
+    filter(!is.na(mlpvalue))
 
-g <- variant_data_filtered %>% 
+
+temp <- variant_data_filtered %>% filter(mlpvalue > 10) %>% select(pos1,pos2)
+unique_sites <- c(temp$pos1, temp$pos2) %>%
+    sort() %>% unique() %>% length()
+rm(temp)
+
+g <- variant_data_filtered %>% filter(mlpvalue < 30)  %>% 
     ggplot() +
-    geom_histogram(mapping = aes(x = pvalue))
-
+    geom_histogram(mapping = aes(x = mlpvalue), bins = 100)
 ggsave(filename="./pics/variant_call_pvalue.png",plot = g)
 
-g <- variant_data %>%
+
+g <- variant_data_filtered %>% filter(mlpvalue < 30) %>% 
+    filter(mlpvalue != Inf) %>% 
     ggplot() +
-    geom_histogram(mapping = aes( x = share), bins = 60)
+    geom_point(mapping = aes(x=pos1,y = pos2, size = mlpvalue / 10 + 2))
+ggsave(filename = "./pics/variant_call_pvalue_point.png", plot = g)
+
+g <- variant_data_filtered %>%
+    filter(mlpvalue == Inf) %>% 
+    ggplot() +
+    geom_point(mapping = aes(x=pos1,y = pos2))
+ggsave(filename = "./pics/variant_call_pvalue_point_inf.png", plot = g)
+
+variant_data_filtered %>%
+    select(pos1,pos2,mlpvalue) %>%
+    filter(mlpvalue > 9) %>%
+    mutate(mlpvalue = ifelse(mlpvalue == Inf, 10000, mlpvalue)) %>% 
+    write_tsv("./result/variant_cooccurence.tsv")
