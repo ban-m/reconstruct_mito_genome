@@ -2,6 +2,7 @@ const width = 1000;
 const height = 1000;
 const MAX_POWER=0.05;
 const MIN_POWER=0.02;
+const RADIUS = 200;
 const svg = d3.select("#plot")
       .append("svg")
       .attr("width",width)
@@ -53,9 +54,9 @@ const plotData = (dataset) =>
           console.log(values.slice(1,10));
           console.log(values.length);
           const scale = d3.interpolateCividis;
-          const nodes = remove_dedupe(values);
-          console.log(nodes.length);
-          console.log(nodes.slice(0,10));
+          const points = remove_dedupe(values);
+          console.log(points.length);
+          console.log(points.slice(0,10));
           const links = values.map(d => {
               return {
                   source: d.pos1,
@@ -63,7 +64,18 @@ const plotData = (dataset) =>
                   strength: d.mlpvalue
               };
           });
-          const max_pos = Math.max(...nodes.map(d => d.p));
+          const max_pos = Math.max(...points.map(d => d.p));
+          const radian_scale = d3.scaleLinear()
+                .domain([0, max_pos])
+                .range([0, 2*Math.PI]);
+          const nodes = points.map(d => {
+              const rad = radian_scale(d.p);
+              return {
+                  p:d.p,
+                  x: Math.cos(rad) * RADIUS,
+                  y: Math.sin(rad) * RADIUS,
+              };
+          });
           const node_layer = graph_layer
                 .append("g")
                 .attr("class","nodes")
@@ -89,7 +101,7 @@ const plotData = (dataset) =>
           const simulation = d3.forceSimulation()
                 .nodes(nodes)
                 .force("charge",d3.forceManyBody()
-                       .strength(() => -0.1))
+                       .strength(() => -0.03))
                 .force("link",
                        d3.forceLink()
                        .links(links)

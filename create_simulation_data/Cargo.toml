@@ -9,3 +9,7 @@ edition = "2018"
 [dependencies]
 bio_utils = {path = "../../bio_utils"}
 rand = "*"
+last_tiling = {path = "../last_tiling"}
+rayon = "*"
+log = "*"
+env_logger = "*"
