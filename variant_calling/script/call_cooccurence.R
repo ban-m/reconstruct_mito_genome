@@ -12,16 +12,25 @@ unique_sites <- c(temp$pos1, temp$pos2) %>%
     sort() %>% unique() %>% length()
 rm(temp)
 
-g <- variant_data_filtered %>% filter(mlpvalue < 30)  %>% 
+g <- variant_data_filtered %>% filter(mlpvalue < 30) %>% 
     ggplot() +
     geom_histogram(mapping = aes(x = mlpvalue), bins = 100)
 ggsave(filename="./pics/variant_call_pvalue.png",plot = g)
 
 
-g <- variant_data_filtered %>% filter(mlpvalue < 30) %>% 
-    filter(mlpvalue != Inf) %>% 
+g <- variant_data_filtered %>%
+    filter(10 < mlpvalue & mlpvalue < 30) %>%
+    mutate(dist = abs(pos1-pos2)) %>%
+    select(dist) %>%
     ggplot() +
-    geom_point(mapping = aes(x=pos1,y = pos2, size = mlpvalue / 10 + 2))
+    geom_histogram(mapping = aes(x = dist))
+ggsave(filename="./pics/variant_call_dist.png",plot=g)
+
+g <- variant_data_filtered %>% filter(10 < mlpvalue & mlpvalue < 30) %>%
+    sample_frac(0.01) %>% 
+    mutate(size = mlpvalue / 10) %>% 
+    ggplot() +
+    geom_point(mapping = aes(x=pos1,y = pos2, size = size))
 ggsave(filename = "./pics/variant_call_pvalue_point.png", plot = g)
 
 g <- variant_data_filtered %>%
