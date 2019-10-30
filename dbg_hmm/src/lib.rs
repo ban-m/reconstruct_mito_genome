@@ -1,4 +1,3 @@
-#![feature(test)]
 //! A tiny implementation for de Bruijn graph with Hidden Markov model.
 //! Currently, this implementation is minimal. In other words, it exposes only one struct with just two methods:
 //! [DeBruijnGraphHiddenMarkovModel] -- Yes, it is too long -- ,[constructor](DeBruijnGraphHiddenMarkovModel::new),
@@ -7,7 +6,6 @@
 //! As a shorthand for the vary long name, I also supply [DBGHMM] as a alias for [DeBruijnGraphHiddenMarkovModel].
 extern crate edlib_sys;
 extern crate rand;
-extern crate test;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
@@ -440,23 +438,6 @@ mod tests {
         let likelihood2 = model2.forward(&template, &DEFAULT_CONFIG);
         assert!(likelihood1 > likelihood2, "{},{}", likelihood1, likelihood2);
     }
-    use test::Bencher;
-    #[bench]
-    fn determine(b: &mut Bencher) {
-        let bases = b"ACTG";
-        let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
-        let template: Vec<_> = (0..30)
-            .filter_map(|_| bases.choose(&mut rng))
-            .copied()
-            .collect();
-        let model1: Vec<Vec<_>> = (0..20)
-            .map(|_| introduce_randomness(&template, &mut rng))
-            .collect();
-        let k = 7;
-        let model1 = DBGHMM::new(&model1, k);
-        b.iter(|| test::black_box(model1.forward(&template, &DEFAULT_CONFIG)));
-    }
-
     enum Op {
         Match,
         MisMatch,
