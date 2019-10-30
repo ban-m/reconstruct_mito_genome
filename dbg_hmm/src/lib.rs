@@ -388,12 +388,19 @@ mod tests {
         mode.forward(b"CACACAGCAGTCAGTGCA", &DEFAULT_CONFIG);
     }
     use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng}; // 0.2%, 0.65%, 0.65%.
-    const SUB: f64 = 0.002;
-    const DEL: f64 = 0.0065;
-    const IN: f64 = 0.0065;
+    struct Profile {
+        sub: f64,
+        del: f64,
+        ins: f64,
+    }
+    const PROFILE: Profile = Profile {
+        sub: 0.002,
+        del: 0.0065,
+        ins: 0.0065,
+    };
     #[test]
     fn forward_check() {
-        env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+        //env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
         let bases = b"ACTG";
         let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
         let template: Vec<_> = (0..30)
@@ -401,12 +408,9 @@ mod tests {
             .copied()
             .collect();
         let model1: Vec<Vec<_>> = (0..20)
-            .map(|_| introduce_randomness(&template, &mut rng))
+            .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
             .collect();
         let k = 7;
-        // for line in &model1 {
-        //     debug!("{}", String::from_utf8_lossy(line));
-        // }
         let model1 = DBGHMM::new(&model1, k);
         let likelihood1 = model1.forward(&template, &DEFAULT_CONFIG);
         assert!(!likelihood1.is_nan())
@@ -421,7 +425,7 @@ mod tests {
             .copied()
             .collect();
         let model1: Vec<Vec<_>> = (0..50)
-            .map(|_| introduce_randomness(&template, &mut rng))
+            .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
             .collect();
         let model2: Vec<Vec<_>> = (0..50)
             .map(|_| {
@@ -438,6 +442,41 @@ mod tests {
         let likelihood2 = model2.forward(&template, &DEFAULT_CONFIG);
         assert!(likelihood1 > likelihood2, "{},{}", likelihood1, likelihood2);
     }
+    #[test]
+    fn hard_test() {
+        let bases = b"ACTG";
+        let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+        let template1: Vec<_> = (0..150)
+            .filter_map(|_| bases.choose(&mut rng))
+            .copied()
+            .collect();
+        let p = Profile {
+            sub: 0.005,
+            ins: 0.005,
+            del: 0.005,
+        };
+        let template2 = introduce_randomness(&template1, &mut rng, &p);
+        let model1: Vec<Vec<_>> = (0..50)
+            .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
+            .collect();
+        let model2: Vec<Vec<_>> = (0..50)
+            .map(|_| introduce_randomness(&template2, &mut rng, &PROFILE))
+            .collect();
+        let k = 7;
+        let model1 = DBGHMM::new(&model1, k);
+        let model2 = DBGHMM::new(&model2, k);
+        {
+            let likelihood1 = model1.forward(&template1, &DEFAULT_CONFIG);
+            let likelihood2 = model2.forward(&template1, &DEFAULT_CONFIG);
+            assert!(likelihood1 > likelihood2, "{},{}", likelihood1, likelihood2);
+        }
+        {
+            let likelihood1 = model1.forward(&template2, &DEFAULT_CONFIG);
+            let likelihood2 = model2.forward(&template2, &DEFAULT_CONFIG);
+            assert!(likelihood1 < likelihood2, "{},{}", likelihood1, likelihood2);
+        }
+    }
+
     enum Op {
         Match,
         MisMatch,
@@ -445,21 +484,21 @@ mod tests {
         In,
     }
     impl Op {
-        fn weight(&self) -> f64 {
+        fn weight(&self, p: &Profile) -> f64 {
             match self {
-                Op::Match => 1. - SUB - DEL - IN,
-                Op::MisMatch => SUB,
-                Op::Del => DEL,
-                Op::In => IN,
+                Op::Match => 1. - p.sub - p.del - p.ins,
+                Op::MisMatch => p.sub,
+                Op::Del => p.del,
+                Op::In => p.ins,
             }
         }
     }
     const OPERATIONS: [Op; 4] = [Op::Match, Op::MisMatch, Op::Del, Op::In];
-    fn introduce_randomness<T: rand::Rng>(seq: &[u8], rng: &mut T) -> Vec<u8> {
+    fn introduce_randomness<T: rand::Rng>(seq: &[u8], rng: &mut T, p: &Profile) -> Vec<u8> {
         let mut res = vec![];
         let mut remainings: Vec<_> = seq.iter().copied().rev().collect();
         while !remainings.is_empty() {
-            match OPERATIONS.choose_weighted(rng, Op::weight).unwrap() {
+            match OPERATIONS.choose_weighted(rng, |e| e.weight(p)).unwrap() {
                 &Op::Match => res.push(remainings.pop().unwrap()),
                 &Op::MisMatch => res.push(choose_base(rng, remainings.pop().unwrap())),
                 &Op::In => res.push(random_base(rng)),
@@ -471,7 +510,7 @@ mod tests {
         res
     }
     fn choose_base<T: rand::Rng>(rng: &mut T, base: u8) -> u8 {
-        let bases: Vec<u8> = b"ATCG".iter().filter(|&&e| e == base).copied().collect();
+        let bases: Vec<u8> = b"ATCG".iter().filter(|&&e| e != base).copied().collect();
         *bases.choose_weighted(rng, |_| 1. / 3.).unwrap()
     }
     fn random_base<T: rand::Rng>(rng: &mut T) -> u8 {

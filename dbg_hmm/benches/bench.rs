@@ -57,7 +57,7 @@ fn introduce_randomness<T: rand::Rng>(seq: &[u8], rng: &mut T) -> Vec<u8> {
     res
 }
 fn choose_base<T: rand::Rng>(rng: &mut T, base: u8) -> u8 {
-    let bases: Vec<u8> = b"ATCG".iter().filter(|&&e| e == base).copied().collect();
+    let bases: Vec<u8> = b"ATCG".iter().filter(|&&e| e != base).copied().collect();
     *bases.choose_weighted(rng, |_| 1. / 3.).unwrap()
 }
 fn random_base<T: rand::Rng>(rng: &mut T) -> u8 {
