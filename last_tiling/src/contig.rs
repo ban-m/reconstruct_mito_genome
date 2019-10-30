@@ -53,7 +53,7 @@ impl Contigs {
             .filter_map(|(idx, name)| if name == key { Some(idx as u16) } else { None })
             .nth(0)
     }
-    pub fn get_name_by_id(&self, id:u16)->&str{
+    pub fn get_name_by_id(&self, id: u16) -> &str {
         &self.names[id as usize]
     }
     pub fn get_by_id(&self, id: u16) -> Option<&[u8]> {
@@ -73,6 +73,13 @@ impl Contigs {
             .get(id as usize)
             .and_then(|e| self.get(e))
             .map(|seq| (seq.len() / super::UNIT_SIZE - 1) as u16)
+    }
+    pub fn get_last_units(&self) -> Vec<u16> {
+        self.names
+            .iter()
+            .filter_map(|e| self.get(e))
+            .map(|seq| (seq.len() / super::UNIT_SIZE - 1) as u16)
+            .collect()
     }
 }
 

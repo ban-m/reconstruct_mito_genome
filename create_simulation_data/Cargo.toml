@@ -13,3 +13,4 @@ last_tiling = {path = "../last_tiling"}
 rayon = "*"
 log = "*"
 env_logger = "*"
+dbg_hmm = {path = "../dbg_hmm"}

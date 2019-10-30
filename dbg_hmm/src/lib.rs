@@ -33,6 +33,38 @@ pub struct DeBruijnGraphHiddenMarkovModel {
     k: usize,
 }
 
+pub struct Factory {
+    inner: std::collections::HashMap<Vec<u8>, usize>,
+}
+impl Factory {
+    pub fn generate(&mut self, dataset: &[Vec<u8>], k: usize) -> DBGHMM {
+        self.inner.clear();
+        let indexer = &mut self.inner;
+        let mut nodes = vec![];
+        for seq in dataset {
+            for x in seq.windows(k + 1) {
+                // There is an edge from x[..k] labeled with x[k]
+                if !indexer.contains_key(&x[..k]) {
+                    indexer.insert(x[..k].to_vec(), nodes.len());
+                    nodes.push(Kmer::new(&x[..k]));
+                }
+                if !indexer.contains_key(&x[1..]) {
+                    indexer.insert(x[1..].to_vec(), nodes.len());
+                    nodes.push(Kmer::new(&x[1..]));
+                }
+                let from = indexer[&x[..k]];
+                let to = indexer[&x[1..]];
+                nodes[from].push_edge_with(x[k], to);
+            }
+        }
+        DBGHMM { nodes, k }
+    }
+    pub fn new() -> Self {
+        let inner = std::collections::HashMap::new();
+        Self { inner }
+    }
+}
+
 impl DeBruijnGraphHiddenMarkovModel {
     pub fn new(dataset: &[Vec<u8>], k: usize) -> Self {
         let mut nodes = vec![];
@@ -55,10 +87,32 @@ impl DeBruijnGraphHiddenMarkovModel {
         }
         Self { nodes, k }
     }
+    pub fn new_from_ref(dataset: &[&[u8]], k: usize) -> Self {
+        let mut nodes = vec![];
+        let mut indexer: BTreeMap<Vec<u8>, usize> = BTreeMap::new();
+        for seq in dataset {
+            for x in seq.windows(k + 1) {
+                // There is an edge from x[..k] labeled with x[k]
+                if !indexer.contains_key(&x[..k]) {
+                    indexer.insert(x[..k].to_vec(), nodes.len());
+                    nodes.push(Kmer::new(&x[..k]));
+                }
+                if !indexer.contains_key(&x[1..]) {
+                    indexer.insert(x[1..].to_vec(), nodes.len());
+                    nodes.push(Kmer::new(&x[1..]));
+                }
+                let from = indexer[&x[..k]];
+                let to = indexer[&x[1..]];
+                nodes[from].push_edge_with(x[k], to);
+            }
+        }
+        Self { nodes, k }
+    }
+
     // This returns log p(obs|model) = \sum - log c_t.
     pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
         assert!(obs.len() > self.k);
-        //        debug!("Nodes:{:?}", self.nodes);
+        //debug!("Nodes:{:?}", self.nodes);
         let mut cs = vec![];
         // let's initialize the first array.
         let (c1, mut prev) = self.initialize(&obs[..self.k], config);
@@ -175,6 +229,7 @@ impl Node {
     fn new(mat: f64, del: f64, ins: f64) -> Self {
         Self { mat, del, ins }
     }
+    #[inline]
     fn clear(&mut self) {
         self.mat = 0.;
         self.del = 0.;
@@ -276,8 +331,9 @@ impl Kmer {
     fn new(x: &[u8]) -> Self {
         let kmer = x.to_vec();
         let last = *kmer.last().unwrap();
-        let weight = [0; 4];
-        let tot = 0;
+        // Prior
+        let weight = [1; 4];
+        let tot = 4;
         let edges = [None; 4];
         Self {
             kmer,
@@ -318,8 +374,8 @@ impl Kmer {
     // return P(idx|self)
     fn to(&self, idx: usize) -> f64 {
         // Diriclet prior.
-        let count = 1 + self.weight[idx];
-        let tot = 4 + self.tot;
+        let count = self.weight[idx];
+        let tot = self.tot;
         count as f64 / tot as f64
     }
     fn prob(&self, base: u8, config: &Config) -> f64 {
@@ -331,14 +387,14 @@ impl Kmer {
     }
     fn insertion(&self, base: u8) -> f64 {
         // Diriclet prior.
-        let tot = self.tot + 4;
+        let tot = self.tot;
         let count = match base {
             b'A' => self.weight[0],
             b'C' => self.weight[1],
             b'G' => self.weight[2],
             b'T' => self.weight[3],
             _ => 0,
-        } + 1;
+        };
         count as f64 / tot as f64
     }
 }

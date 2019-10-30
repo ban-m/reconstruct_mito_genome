@@ -5,9 +5,9 @@ use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng}; // 0.2%, 0.65%, 0.65%.
 const SUB: f64 = 0.002;
 const DEL: f64 = 0.0065;
 const IN: f64 = 0.0065;
-use test::Bencher;
 use dbg_hmm::DEFAULT_CONFIG;
 use dbg_hmm::*;
+use test::Bencher;
 #[bench]
 fn determine(b: &mut Bencher) {
     let bases = b"ACTG";
@@ -22,6 +22,37 @@ fn determine(b: &mut Bencher) {
     let k = 7;
     let model1 = DBGHMM::new(&model1, k);
     b.iter(|| test::black_box(model1.forward(&template, &DEFAULT_CONFIG)));
+}
+
+#[bench]
+fn new(b: &mut Bencher) {
+    let bases = b"ACTG";
+    let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+    let template: Vec<_> = (0..30)
+        .filter_map(|_| bases.choose(&mut rng))
+        .copied()
+        .collect();
+    let model1: Vec<Vec<_>> = (0..20)
+        .map(|_| introduce_randomness(&template, &mut rng))
+        .collect();
+    let k = 7;
+    b.iter(|| test::black_box(DBGHMM::new(&model1, k)));
+}
+
+#[bench]
+fn new2(b: &mut Bencher) {
+    let bases = b"ACTG";
+    let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+    let template: Vec<_> = (0..30)
+        .filter_map(|_| bases.choose(&mut rng))
+        .copied()
+        .collect();
+    let model1: Vec<Vec<_>> = (0..20)
+        .map(|_| introduce_randomness(&template, &mut rng))
+        .collect();
+    let k = 7;
+    let mut f = Factory::new();
+    b.iter(|| test::black_box(f.generate(&model1, k)));
 }
 
 enum Op {
