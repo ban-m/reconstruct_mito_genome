@@ -388,7 +388,7 @@ impl ReadClassify for RepeatJunction {
             != 0;
         min <= start && end <= max && some_unit
     }
-    fn overlaps_with(&self, _r: &EncodedRead) -> bool {
+    fn overlaps_with(&self, r: &EncodedRead) -> bool {
         let some_unit = r
             .seq()
             .iter()
@@ -399,7 +399,7 @@ impl ReadClassify for RepeatJunction {
         let (min, max) = get_max_min_unit(r, self.pos.contig);
         min != std::i32::MAX && max != std::i32::MIN && some_unit
     }
-    fn contains(&self, _r: &EncodedRead) -> bool {
+    fn contains(&self, r: &EncodedRead) -> bool {
         let no_other_unit = r
             .seq()
             .iter()
@@ -415,9 +415,6 @@ impl ReadClassify for RepeatJunction {
         &self,
         _reads: Vec<(usize, &'a EncodedRead)>,
     ) -> (usize, Vec<ReadWithClassAndIndex<'a>>) {
-        
-        let mut results:Vec<Vec<_>> = vec![vec![];6];
-        
         (0, vec![])
     }
     // TODO

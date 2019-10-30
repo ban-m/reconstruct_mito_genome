@@ -1,0 +1,30 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N test
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/test
+#$ -o ./logfiles/test
+#$ -V
+#$ -m e
+
+# last-train -P24 \
+#        /grid/ban-m/arabidopsis_thaliana/sequel/assemble/pacbio_w_reference/last_db/reference \
+#        /grid/ban-m/arabidopsis_thaliana/sequel/assemble/pacbio_w_reference/filtered_read.fasta \
+#        > ./data/score.matrix
+# lastal -Q0 -R00 -P24 -f tab  -p ./data/score.matrix \
+#        /grid/ban-m/arabidopsis_thaliana/sequel/assemble/pacbio_w_reference/last_db/reference \
+#        /grid/ban-m/arabidopsis_thaliana/sequel/assemble/pacbio_w_reference/filtered_read.fasta \
+#        > ./data/mapping.tab
+# lastal -Q0 -R00 -P24 -f maf -p ./data/score.matrix \
+#        /grid/ban-m/arabidopsis_thaliana/sequel/assemble/pacbio_w_reference/last_db/reference \
+#        /grid/ban-m/arabidopsis_thaliana/sequel/assemble/pacbio_w_reference/filtered_read.fasta \
+#        > ./data/mapping.maf
+
+
+cargo run --release --bin test -- \
+      ./data/mapping.maf \
+      ./data/mapping.tab \
+      /grid/ban-m/arabidopsis_thaliana/sequel/assemble/pacbio_w_reference/filtered_read.fasta \
+      /grid/ban-m/arabidopsis_thaliana/sequel/assemble/pacbio_w_reference/mito.fa \
+      > ./result/error_profile.out 2> ./result/error_profile.log
