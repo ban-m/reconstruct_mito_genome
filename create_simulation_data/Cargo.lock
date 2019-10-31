@@ -297,6 +297,7 @@ version = "0.1.0"
 dependencies = [
  "bio_utils 0.1.0",
  "dbg_hmm 0.1.0",
+ "edlib_sys 0.1.0",
  "env_logger 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "last_tiling 0.1.0",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -372,7 +373,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "dbg_hmm"
 version = "0.1.0"
 dependencies = [
- "edlib-sys 0.1.0",
+ "edlib_sys 0.1.0",
  "env_logger 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -384,7 +385,7 @@ version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "edlib-sys"
+name = "edlib_sys"
 version = "0.1.0"
 dependencies = [
  "bindgen 0.50.1 (registry+https://github.com/rust-lang/crates.io-index)",

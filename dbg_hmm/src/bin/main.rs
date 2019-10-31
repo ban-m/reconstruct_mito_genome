@@ -1,15 +1,14 @@
 extern crate dbg_hmm;
 extern crate edlib_sys;
 extern crate rand;
+use dbg_hmm::gen_sample::*;
 use dbg_hmm::*;
+use rand::{rngs::StdRng, SeedableRng};
 fn main() {
-    let bases = b"ACTG";
     let len = 150;
+    let num_seq = 50;
     let mut rng: StdRng = SeedableRng::seed_from_u64(12121899892);
-    let template1: Vec<_> = (0..len)
-        .filter_map(|_| bases.choose(&mut rng))
-        .copied()
-        .collect();
+    let template1: Vec<_> = generate_seq(&mut rng, len);
     let p = Profile {
         sub: 0.005,
         ins: 0.005,
@@ -32,18 +31,18 @@ fn main() {
         "Sub:{}\tIns:{}\tDel:{}",
         PROFILE.sub, PROFILE.ins, PROFILE.del
     );
-    let data1: Vec<Vec<_>> = (0..15)
+    let data1: Vec<Vec<_>> = (0..num_seq)
         .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
         .collect();
-    let data2: Vec<Vec<_>> = (0..15)
+    let data2: Vec<Vec<_>> = (0..num_seq)
         .map(|_| introduce_randomness(&template2, &mut rng, &PROFILE))
         .collect();
-    for line in &data1 {
-        println!("Model1\t{}", String::from_utf8_lossy(line));
-    }
-    for line in &data2 {
-        println!("Model2\t{}", String::from_utf8_lossy(line));
-    }
+    // for line in &data1 {
+    //     println!("Model1\t{}", String::from_utf8_lossy(line));
+    // }
+    // for line in &data2 {
+    //     println!("Model2\t{}", String::from_utf8_lossy(line));
+    // }
     let k = 7;
     println!("K={}", k);
     let model1 = DBGHMM::new(&data1, k);
@@ -156,56 +155,4 @@ fn cross_validation(data1: &[Vec<u8>], data2: &[Vec<u8>]) -> Vec<(usize, f64, f6
     }
     res.sort_by_key(|e| e.0);
     res
-}
-
-use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng}; // 0.2%, 0.65%, 0.65%.
-struct Profile {
-    sub: f64,
-    del: f64,
-    ins: f64,
-}
-const PROFILE: Profile = Profile {
-    sub: 0.03,
-    del: 0.05,
-    ins: 0.06,
-};
-
-enum Op {
-    Match,
-    MisMatch,
-    Del,
-    In,
-}
-impl Op {
-    fn weight(&self, p: &Profile) -> f64 {
-        match self {
-            Op::Match => 1. - p.sub - p.del - p.ins,
-            Op::MisMatch => p.sub,
-            Op::Del => p.del,
-            Op::In => p.ins,
-        }
-    }
-}
-const OPERATIONS: [Op; 4] = [Op::Match, Op::MisMatch, Op::Del, Op::In];
-fn introduce_randomness<T: rand::Rng>(seq: &[u8], rng: &mut T, p: &Profile) -> Vec<u8> {
-    let mut res = vec![];
-    let mut remainings: Vec<_> = seq.iter().copied().rev().collect();
-    while !remainings.is_empty() {
-        match OPERATIONS.choose_weighted(rng, |e| e.weight(p)).unwrap() {
-            &Op::Match => res.push(remainings.pop().unwrap()),
-            &Op::MisMatch => res.push(choose_base(rng, remainings.pop().unwrap())),
-            &Op::In => res.push(random_base(rng)),
-            &Op::Del => {
-                remainings.pop().unwrap();
-            }
-        }
-    }
-    res
-}
-fn choose_base<T: rand::Rng>(rng: &mut T, base: u8) -> u8 {
-    let bases: Vec<u8> = b"ATCG".iter().filter(|&&e| e != base).copied().collect();
-    *bases.choose_weighted(rng, |_| 1. / 3.).unwrap()
-}
-fn random_base<T: rand::Rng>(rng: &mut T) -> u8 {
-    *b"ATGC".choose_weighted(rng, |_| 1. / 4.).unwrap()
 }

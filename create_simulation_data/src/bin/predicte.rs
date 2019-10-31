@@ -9,14 +9,13 @@ extern crate env_logger;
 use dbg_hmm::*;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use rayon::prelude::*;
+// use rayon::prelude::*;
 use std::io::{BufWriter, Write};
 use bio_utils::fasta::Record;
 use last_tiling::Contigs;
 use last_tiling::LastTAB;
 use std::collections::HashMap;
-const K: usize = 7;
-
+const K: usize = 6;
 fn main() -> std::io::Result<()> {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let args: Vec<_> = std::env::args().collect();

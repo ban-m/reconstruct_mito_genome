@@ -9,9 +9,25 @@ extern crate rand;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
-use std::collections::BTreeMap;
+pub mod gen_sample;
+use std::collections::HashMap;
 // This setting is determined by experimentally.
 pub const DEFAULT_CONFIG: Config = Config {
+    mismatch: 0.03,
+    base_freq: [0.25, 0.25, 0.25, 0.25],
+    p_match: 0.89,
+    p_ins: 0.06,
+    p_del: 0.05,
+    p_extend_ins: 0.06,
+    p_extend_del: 0.05,
+    p_del_to_ins: 0.06,
+    del_score: -1,
+    match_score: 2,
+    ins_score: -1,
+    mism_score: -1,
+};
+
+pub const PACBIO_CONFIG: Config = Config {
     mismatch: 0.0341,
     base_freq: [0.28, 0.22, 0.22, 0.28],
     p_match: 0.9124,
@@ -38,26 +54,40 @@ pub struct Factory {
 }
 impl Factory {
     pub fn generate(&mut self, dataset: &[Vec<u8>], k: usize) -> DBGHMM {
-        self.inner.clear();
         let indexer = &mut self.inner;
         let mut nodes = vec![];
         for seq in dataset {
             for x in seq.windows(k + 1) {
-                // There is an edge from x[..k] labeled with x[k]
-                if !indexer.contains_key(&x[..k]) {
-                    indexer.insert(x[..k].to_vec(), nodes.len());
-                    nodes.push(Kmer::new(&x[..k]));
-                }
-                if !indexer.contains_key(&x[1..]) {
-                    indexer.insert(x[1..].to_vec(), nodes.len());
-                    nodes.push(Kmer::new(&x[1..]));
-                }
-                let from = indexer[&x[..k]];
-                let to = indexer[&x[1..]];
+                let from = Self::push(indexer, &mut nodes, &x[..k]);
+                let to = Self::push(indexer, &mut nodes, &x[1..]);
                 nodes[from].push_edge_with(x[k], to);
             }
         }
+        // let nodes: Vec<_> = nodes.into_iter().map(Kmer::polish).collect();
+        self.inner.clear();
         DBGHMM { nodes, k }
+    }
+    pub fn generate_from_ref(&mut self, dataset: &[&[u8]], k: usize) -> DBGHMM {
+        let indexer = &mut self.inner;
+        let mut nodes = vec![];
+        for seq in dataset {
+            for x in seq.windows(k + 1) {
+                let from = Self::push(indexer, &mut nodes, &x[..k]);
+                let to = Self::push(indexer, &mut nodes, &x[1..]);
+                nodes[from].push_edge_with(x[k], to);
+            }
+        }
+        self.inner.clear();
+        DBGHMM { nodes, k }
+    }
+    fn push(hm: &mut HashMap<Vec<u8>, usize>, nodes: &mut Vec<Kmer>, kmer: &[u8]) -> usize {
+        if !hm.contains_key(kmer) {
+            hm.insert(kmer.to_vec(), nodes.len());
+            nodes.push(Kmer::new(kmer));
+            nodes.len() - 1
+        } else {
+            hm[kmer]
+        }
     }
     pub fn new() -> Self {
         let inner = std::collections::HashMap::new();
@@ -67,48 +97,45 @@ impl Factory {
 
 impl DeBruijnGraphHiddenMarkovModel {
     pub fn new(dataset: &[Vec<u8>], k: usize) -> Self {
-        let mut nodes = vec![];
-        let mut indexer: BTreeMap<Vec<u8>, usize> = BTreeMap::new();
-        for seq in dataset {
-            for x in seq.windows(k + 1) {
-                // There is an edge from x[..k] labeled with x[k]
-                if !indexer.contains_key(&x[..k]) {
-                    indexer.insert(x[..k].to_vec(), nodes.len());
-                    nodes.push(Kmer::new(&x[..k]));
-                }
-                if !indexer.contains_key(&x[1..]) {
-                    indexer.insert(x[1..].to_vec(), nodes.len());
-                    nodes.push(Kmer::new(&x[1..]));
-                }
-                let from = indexer[&x[..k]];
-                let to = indexer[&x[1..]];
-                nodes[from].push_edge_with(x[k], to);
-            }
-        }
-        Self { nodes, k }
+        let mut f = Factory::new();
+        f.generate(dataset, k)
     }
     pub fn new_from_ref(dataset: &[&[u8]], k: usize) -> Self {
-        let mut nodes = vec![];
-        let mut indexer: BTreeMap<Vec<u8>, usize> = BTreeMap::new();
-        for seq in dataset {
-            for x in seq.windows(k + 1) {
-                // There is an edge from x[..k] labeled with x[k]
-                if !indexer.contains_key(&x[..k]) {
-                    indexer.insert(x[..k].to_vec(), nodes.len());
-                    nodes.push(Kmer::new(&x[..k]));
-                }
-                if !indexer.contains_key(&x[1..]) {
-                    indexer.insert(x[1..].to_vec(), nodes.len());
-                    nodes.push(Kmer::new(&x[1..]));
-                }
-                let from = indexer[&x[..k]];
-                let to = indexer[&x[1..]];
-                nodes[from].push_edge_with(x[k], to);
-            }
-        }
-        Self { nodes, k }
+        let mut f = Factory::new();
+        f.generate_from_ref(dataset, k)
     }
-
+    fn update(&self, updates: &mut [Node], prev: &[Node], base: u8, config: &Config) {
+        for (idx, (from, &Node { mat, del, ins })) in self.nodes.iter().zip(prev.iter()).enumerate()
+        {
+            assert!(idx < updates.len());
+            assert!(idx < self.nodes.len());
+            // Update `Mat` states.
+            let prob = mat * config.p_match
+                + del * (1. - config.p_extend_del - config.p_del_to_ins)
+                + ins * (1. - config.p_extend_ins);
+            for (i, to) in from.edges.iter().enumerate() {
+                let to = match to {
+                    Some(to) => *to,
+                    None => continue,
+                };
+                // (from->to,base i edge)
+                updates[to].mat += prob * from.to(i) * self.nodes[to].prob(base, config);
+            }
+            // Update `Del` states.
+            updates[idx].del =
+                (mat * config.p_del + del * config.p_extend_del) * self.nodes[idx].insertion(base);
+            // Update `Ins` states
+            updates[idx].ins =
+                (mat * config.p_ins + ins * config.p_extend_ins + del * config.p_del_to_ins)
+                    * match base {
+                        b'A' => config.base_freq[0],
+                        b'C' => config.base_freq[1],
+                        b'G' => config.base_freq[2],
+                        b'T' => config.base_freq[3],
+                        _ => 0.,
+                    };
+        }
+    }
     // This returns log p(obs|model) = \sum - log c_t.
     pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
         assert!(obs.len() > self.k);
@@ -118,39 +145,19 @@ impl DeBruijnGraphHiddenMarkovModel {
         let (c1, mut prev) = self.initialize(&obs[..self.k], config);
         cs.push(c1);
         let mut updated = vec![Node::new(0., 0., 0.); self.nodes.len()];
+        let mut idx = self.k;
         for &base in &obs[self.k..] {
+            let csum = prev
+                .iter()
+                .map(|e| e.mat + e.del + e.ins)
+                .fold(0., |x, y| x + y);
+            assert!((csum - 1.0).abs() < 0.01);
+            debug!("{} nodes, weight sum:{}", self.nodes.len(), csum);
+            idx += 1;
+            debug!("{}-th base {}", idx, base as char);
             updated.iter_mut().for_each(Node::clear);
             // Calculate double_dots.
-            for (idx, from) in self.nodes.iter().enumerate() {
-                let &Node { mat, del, ins } = &prev[idx];
-                // Update `Mat` states.
-                let prob = mat * config.p_match
-                    + del * (1. - config.p_extend_del)
-                    + ins * (1. - config.p_extend_ins);
-                for (to, i) in from
-                    .edges
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(idx, e)| e.map(|to| (to, idx)))
-                {
-                    // (from->to,base i edge)
-                    updated[to].mat += prob * from.to(i) * self.nodes[to].prob(base, config);
-                }
-                // Update `Del` states.
-                updated[idx].del = (mat * config.p_del + del * config.p_extend_del)
-                    * match base {
-                        b'A' => config.base_freq[0],
-                        b'C' => config.base_freq[1],
-                        b'G' => config.base_freq[2],
-                        b'T' => config.base_freq[3],
-                        _ => 0.,
-                    };
-                // Update `Ins` states
-                updated[idx].ins =
-                    (mat * config.p_ins + ins * config.p_extend_ins + del * config.p_del_to_ins)
-                        * self.nodes[idx].insertion(base);
-                debug!("{}\t{:?}", idx, &updated[idx]);
-            }
+            self.update(&mut updated, &prev, base, config);
             // Calculate c.
             let c = updated
                 .iter()
@@ -164,12 +171,6 @@ impl DeBruijnGraphHiddenMarkovModel {
                 p.ins = u.ins * c;
             }
             cs.push(c);
-            debug!(
-                "Iteration finished: sum of hat: {:.4}",
-                prev.iter()
-                    .map(|e| e.mat + e.del + e.ins)
-                    .fold(0., |x, y| x + y)
-            );
         }
         -cs.into_iter().map(|e| e.ln()).fold(0., |x, y| x + y)
     }
@@ -178,12 +179,15 @@ impl DeBruijnGraphHiddenMarkovModel {
         let initial_prob: Vec<_> = self
             .nodes
             .iter()
-            .map(|e| e.calc_score(tip, config))
-            .map(|e| (e as f64).exp())
+            .map(|e| (e.calc_score(tip, config) as f64).exp())
             .collect();
         let s = initial_prob.iter().fold(0., |x, y| x + y);
         let initial_prob: Vec<_> = initial_prob.into_iter().map(|e| e / s).collect();
-        for (idx, x) in initial_prob.iter().enumerate() {
+        for (idx, x) in initial_prob
+            .iter()
+            .enumerate()
+            .filter(|&(_, &x)| x > 0.0001)
+        {
             debug!(
                 "{}\t{:.4}",
                 String::from_utf8_lossy(&self.nodes[idx].kmer),
@@ -202,7 +206,12 @@ impl DeBruijnGraphHiddenMarkovModel {
             .into_iter()
             .map(|init| Node::new(init * tot, 0., 0.))
             .collect();
-        for (idx, x) in initial_value.iter().enumerate() {
+        debug!("initial F");
+        for (idx, x) in initial_value
+            .iter()
+            .enumerate()
+            .filter(|(_, x)| !x.is_zero())
+        {
             debug!(
                 "{}\t{:?}",
                 String::from_utf8_lossy(&self.nodes[idx].kmer),
@@ -228,6 +237,9 @@ impl std::fmt::Debug for Node {
 impl Node {
     fn new(mat: f64, del: f64, ins: f64) -> Self {
         Self { mat, del, ins }
+    }
+    fn is_zero(&self) -> bool {
+        self.mat < 0.0001 && self.del < 0.0001 && self.ins < 0.0001
     }
     #[inline]
     fn clear(&mut self) {
@@ -334,10 +346,36 @@ impl Kmer {
         // Prior
         let weight = [1; 4];
         let tot = 4;
+        // let weight = [0; 4];
+        // let tot = 0;
         let edges = [None; 4];
         Self {
             kmer,
             last,
+            weight,
+            tot,
+            edges,
+        }
+    }
+    #[allow(dead_code)]
+    fn polish(self) -> Self {
+        let mut edges = [None; 4];
+        let mut weight = self.weight;
+        let mut tot = self.tot;
+        for i in 0..4 {
+            edges[i] = match self.edges[i] {
+                Some(res) if weight[i] > 1 => Some(res),
+                Some(_) => {
+                    tot -= weight[i];
+                    weight[i] = 0;
+                    None
+                }
+                None => None,
+            };
+        }
+        Self {
+            kmer: self.kmer,
+            last: self.last,
             weight,
             tot,
             edges,
@@ -359,6 +397,12 @@ impl Kmer {
         self.tot += 1;
         self.weight[i] += 1;
     }
+    // return how many occurence there is.
+    #[allow(dead_code)]
+    fn count(&self) -> u16 {
+        self.tot
+    }
+    // return Score(self.kmer,tip)
     fn calc_score(&self, tip: &[u8], config: &Config) -> i32 {
         edlib_sys::global(&self.kmer, tip)
             .into_iter()
@@ -373,11 +417,13 @@ impl Kmer {
     }
     // return P(idx|self)
     fn to(&self, idx: usize) -> f64 {
+        assert!(self.weight[idx] != 0);
         // Diriclet prior.
         let count = self.weight[idx];
         let tot = self.tot;
         count as f64 / tot as f64
     }
+    #[inline]
     fn prob(&self, base: u8, config: &Config) -> f64 {
         if self.last == base {
             1. - config.mismatch
@@ -385,9 +431,13 @@ impl Kmer {
             config.mismatch / 3.
         }
     }
+    // return P_I(base|self)
     fn insertion(&self, base: u8) -> f64 {
         // Diriclet prior.
         let tot = self.tot;
+        if tot == 0 {
+            return 0.25;
+        }
         let count = match base {
             b'A' => self.weight[0],
             b'C' => self.weight[1],
