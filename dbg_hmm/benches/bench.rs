@@ -12,14 +12,16 @@ use test::Bencher;
 fn determine(b: &mut Bencher) {
     let bases = b"ACTG";
     let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
-    let template: Vec<_> = (0..30)
+    let len = 150;
+    let num = 30;
+    let template: Vec<_> = (0..len)
         .filter_map(|_| bases.choose(&mut rng))
         .copied()
         .collect();
-    let model1: Vec<Vec<_>> = (0..20)
+    let model1: Vec<Vec<_>> = (0..num)
         .map(|_| introduce_randomness(&template, &mut rng))
         .collect();
-    let k = 7;
+    let k = 6;
     let model1 = DBGHMM::new(&model1, k);
     b.iter(|| test::black_box(model1.forward(&template, &DEFAULT_CONFIG)));
 }
