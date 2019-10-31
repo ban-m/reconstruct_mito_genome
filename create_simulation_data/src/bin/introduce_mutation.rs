@@ -16,7 +16,7 @@ fn main() -> std::io::Result<()> {
     let wtr = File::create("./data/mito_mutant.fasta")?;
     let mut wtr = fasta::Writer::new(BufWriter::new(wtr));
     let header = "depth=1.0 circular=true".to_string();
-    wtr.write_record(&fasta::Record::with_data("original", &Some(header), &seq))?;
+    wtr.write_record(&fasta::Record::with_data(input.id(), &Some(header), &seq))?;
     // seed.
     let seq = introduce_randomness(&seq, 43423);
     let header = "depth=0.1 circular=true".to_string();

@@ -10,12 +10,13 @@ use dbg_hmm::*;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 // use rayon::prelude::*;
-use std::io::{BufWriter, Write};
 use bio_utils::fasta::Record;
 use last_tiling::Contigs;
 use last_tiling::LastTAB;
 use std::collections::HashMap;
+use std::io::{BufWriter, Write};
 const K: usize = 6;
+const ORIGINAL: &'static str = "NC_037304.1";
 fn main() -> std::io::Result<()> {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let args: Vec<_> = std::env::args().collect();
@@ -25,6 +26,19 @@ fn main() -> std::io::Result<()> {
     let reference = last_tiling::Contigs::from_file(&args[2])?;
     let alignments: Vec<_> = last_tiling::parse_tab_file(&args[3])?;
     let cores: usize = args[4].parse().unwrap();
+    {
+        debug!(
+            "Could be encoded:{}",
+            last_tiling::encoding(&reads, &reference, &alignments).len()
+        );
+    }
+    let reads: Vec<_> = reads
+        .into_iter()
+        .filter(|e| {
+            let desc = e.desc().unwrap();
+            !desc.starts_with("junk") && !desc.starts_with("random")
+        })
+        .collect();
     rayon::ThreadPoolBuilder::new()
         .num_threads(cores)
         .build_global()
@@ -33,11 +47,12 @@ fn main() -> std::io::Result<()> {
     let len = reference.get_by_id(0).unwrap().len();
     let (training, testset): (Vec<_>, Vec<_>) = reads.into_iter().partition(|r| {
         let desc: Vec<_> = r.desc().unwrap().split(',').collect();
-        let forward: bool = desc[1].starts_with('-');
+        let forward: bool = desc[1].starts_with('+');
+        let region = desc[2].split_whitespace().nth(0).unwrap();
         let start: usize = if forward {
-            desc[2].split('-').nth(0).unwrap().parse().unwrap()
+            region.split('-').nth(0).unwrap().parse().unwrap()
         } else {
-            len - desc[2].split('-').nth(1).unwrap().parse::<usize>().unwrap()
+            len - region.split('-').nth(1).unwrap().parse::<usize>().unwrap()
         };
         if start < len / 2 {
             rng.gen_bool(0.5)
@@ -63,6 +78,7 @@ fn main() -> std::io::Result<()> {
     }
     Ok(())
 }
+
 fn predict(
     training: Vec<Record>,
     tests: Vec<Record>,
@@ -72,7 +88,7 @@ fn predict(
     let answer: HashMap<_, _> = tests
         .iter()
         .filter_map(|e| {
-            let is_original = e.desc()?.split(',').nth(0)? == "original";
+            let is_original = e.desc()?.split(',').nth(0)? == ORIGINAL;
             Some((e.id().to_string(), is_original))
         })
         .collect();
@@ -95,8 +111,9 @@ fn predict(
         read.seq()
             .iter()
             .filter_map(|e| e.encode())
-            .map(|e| (e.contig, e.unit))
-            .fold((100, 2000), |c, t| if c < t { c } else { t })
+            .map(|e| e.unit)
+            .min()
+            .unwrap_or(0)
     });
     let mut predicts = vec![];
     let mut chunks = construct_predictor(training, &alignments, contig)?;
@@ -110,124 +127,107 @@ fn predict(
         for unit in read.seq().iter().filter_map(|e| e.encode()) {
             assert_eq!(0, unit.contig);
             let u = unit.unit as usize;
-            if unit.is_forward {
-                chunks[u].push((predict, unit.bases.as_bytes().to_vec()));
+            let seq = if unit.is_forward {
+                unit.bases.as_bytes().to_vec()
             } else {
-                chunks[u].push((predict, last_tiling::revcmp(unit.bases.as_bytes())));
+                last_tiling::revcmp(unit.bases.as_bytes())
+            };
+            if predict == 0 {
+                chunks[u].0.push(seq);
+            } else {
+                chunks[u].1.push(seq);
             }
         }
     }
     Some(predicts)
 }
 
+type Seq = Vec<u8>;
 // UnitID -> Sequences -> (color, seq)
 fn construct_predictor(
     training: Vec<Record>,
     alignments: &[LastTAB],
     contig: &Contigs,
-) -> Option<Vec<Vec<(u8, Vec<u8>)>>> {
+) -> Option<Vec<(Vec<Seq>, Vec<Seq>)>> {
     let (original, mutant): (Vec<_>, Vec<_>) = training
         .into_iter()
-        .partition(|read| read.desc().unwrap().split(',').nth(0).unwrap() == "original");
+        .partition(|read| read.desc().unwrap().split(',').nth(0).unwrap() == ORIGINAL);
     let original = last_tiling::encoding(&original, contig, &alignments);
     let mutant = last_tiling::encoding(&mutant, contig, &alignments);
-    let mut chunks = vec![vec![]; contig.get_last_unit(0)? as usize + 1];
+    let mut chunks = vec![(vec![], vec![]); contig.get_last_unit(0)? as usize + 1];
     use last_tiling::revcmp;
-    for (class, read) in original
-        .into_iter()
-        .map(|e| (0, e))
-        .chain(mutant.into_iter().map(|e| (1, e)))
-    {
+    for read in original {
         for unit in read.seq().iter().filter_map(|e| e.encode()) {
             assert_eq!(0, unit.contig);
             let u = unit.unit as usize;
-            if unit.is_forward {
-                chunks[u].push((class, unit.bases.as_bytes().to_vec()));
+            let seq = if unit.is_forward {
+                unit.bases.as_bytes().to_vec()
             } else {
-                chunks[u].push((class, revcmp(unit.bases.as_bytes())));
-            }
+                revcmp(unit.bases.as_bytes())
+            };
+            chunks[u].0.push(seq);
+        }
+    }
+    for read in mutant {
+        for unit in read.seq().iter().filter_map(|e| e.encode()) {
+            assert_eq!(0, unit.contig);
+            let u = unit.unit as usize;
+            let seq = if unit.is_forward {
+                unit.bases.as_bytes().to_vec()
+            } else {
+                revcmp(unit.bases.as_bytes())
+            };
+            chunks[u].1.push(seq);
         }
     }
     Some(chunks)
 }
 
-fn make_prediction(chunks: &[Vec<(u8, Vec<u8>)>], read: &last_tiling::EncodedRead) -> u8 {
-    let predicts: Vec<_> = read
+fn as_weight(x1: f64, x2: f64) -> (f64, f64) {
+    let max = x1.max(x2);
+    let log_denominator = max + ((x1 - max).exp() + (x2 - max).exp()).ln();
+    ((x1 - log_denominator).exp(), (x2 - log_denominator).exp())
+}
+
+fn make_prediction(chunks: &[(Vec<Seq>, Vec<Seq>)], read: &last_tiling::EncodedRead) -> u8 {
+    let predicts: Vec<(f64, f64)> = read
         .seq()
         .iter()
         .filter_map(|e| e.encode())
         .map(|e| {
             let u = e.unit as usize;
-            let units = &chunks[u];
-            if e.is_forward {
-                unit_prediction(units, last_tiling::revcmp(e.bases.as_bytes()))
+            let (ref original, ref mutant) = &chunks[u];
+            let query = if e.is_forward {
+                e.bases.as_bytes().to_vec()
             } else {
-                unit_prediction(units, e.bases.as_bytes().to_vec())
-            }
+                last_tiling::revcmp(e.bases.as_bytes())
+            };
+            let o = unit_prediction(original, &query);
+            let m = unit_prediction(mutant, &query);
+            as_weight(o, m)
         })
         .collect();
     // Sum ln2 - H(p)
-    let sum_of_entropy = predicts
+    let entropy:Vec<_> = predicts
         .iter()
-        .map(|ps| (2f64).ln() - ps.iter().map(|e| -e * e.ln()).fold(0., |x, y| x + y))
-        .fold(0., |x, y| x + y);
-    let sum = predicts
-        .iter()
-        .map(|ps| {
-            let weight: f64 = (2f64).ln() - ps.iter().map(|e| -e * e.ln()).fold(0., |x, y| x + y);
-            ps.iter().map(|e| e * weight).collect::<Vec<_>>()
-        })
-        .fold(vec![0., 0.], |acc, ps| {
-            acc.into_iter()
-                .zip(ps.into_iter())
-                .map(|(x, y)| x + y)
-                .collect::<Vec<_>>()
-        });
-    let (arg, _max) = sum
-        .into_iter()
-        .map(|e| e / sum_of_entropy)
-        .enumerate()
-        .fold(
-            (0, -1.),
-            |(arg, max), (idx, prob)| if max < prob { (idx, prob) } else { (arg, max) },
-        );
-    arg as u8
-}
-
-fn unit_prediction(units: &[(u8, Vec<u8>)], query: Vec<u8>) -> Vec<f64> {
-    let mut colors: Vec<_> = units.iter().map(|e| e.0).collect();
-    colors.sort();
-    colors.dedup();
-    let probs: Vec<_> = colors
-        .iter()
-        .map(|color| {
-            let train: Vec<&[u8]> = units
-                .iter()
-                .filter_map(|(i, x)| if i == color { Some(x.as_slice()) } else { None })
-                .collect();
-            let hmm = DBGHMM::new_from_ref(&train, K);
-            hmm.forward(&query, &DEFAULT_CONFIG)
-        })
+        .map(|(o, m)| (2f64).ln() + o * o.ln() + m * m.ln())
         .collect();
-    normalize(probs)
+    let sum = entropy.iter().sum::<f64>();
+    let (p1, p2) = predicts
+        .iter()
+        .zip(entropy.iter())
+        .map(|((o, m), w)| (o * w, m * w))
+        .fold((0., 0.), |(x, y), (a, b)| (x + a, y + b));
+    let (p1, p2) = (p1 / sum, p2 / sum);
+    assert!((p1 + p2 - 1.).abs() < 0.0001);
+    if p1 < p2 {
+        1
+    } else {
+        0
+    }
 }
 
-fn normalize(probs: Vec<f64>) -> Vec<f64> {
-    // Log sum product
-    let max = probs
-        .iter()
-        .fold(std::f64::MIN, |x, &y| if x < y { y } else { x });
-    let log_denominator = probs
-        .iter()
-        .map(|&e| e - max)
-        .map(|x| x.exp())
-        .fold(0., |x, y| x + y)
-        .ln()
-        + max;
-    probs
-        .into_iter()
-        .map(|x| x - log_denominator)
-        .map(|x| x.exp())
-        .collect()
+fn unit_prediction(units: &[Seq], query: &[u8]) -> f64 {
+    let hmm = DBGHMM::new(&units, K);
+    hmm.forward(&query, &DEFAULT_CONFIG)
 }
-
