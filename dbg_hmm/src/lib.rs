@@ -65,7 +65,16 @@ impl Factory {
                 nodes[from].push_edge_with(x[k], to);
             }
         }
+        // let prev: usize = nodes
+        //     .iter()
+        //     .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
+        //     .sum();
         // let nodes: Vec<_> = nodes.into_iter().map(Kmer::polish).collect();
+        // let after: usize = nodes
+        //     .iter()
+        //     .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
+        //     .sum();
+        // println!("{}->{}", prev, after);
         self.inner.clear();
         DBGHMM { nodes, k }
     }
@@ -438,7 +447,6 @@ impl Kmer {
         count as f64 / tot as f64
     }
 }
-
 
 #[cfg(test)]
 mod tests {

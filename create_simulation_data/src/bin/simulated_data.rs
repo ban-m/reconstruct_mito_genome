@@ -93,36 +93,36 @@ fn main() {
         test_num,
         correct as f64 / test_num as f64
     );
-    println!("Naive alignments");
-    println!("answer\tpredict\tNearestFrom1\tNearestfrom2");
-    let correct = tests
-        .iter()
-        .filter(|&(ans, ref test)| {
-            let l1: u32 = test
-                .iter()
-                .zip(dataset1.iter())
-                .filter_map(|(test, d1)| {
-                    d1.iter().map(|seq| edlib_sys::global_dist(seq, test)).min()
-                })
-                .sum();
-            let l2: u32 = test
-                .iter()
-                .zip(dataset2.iter())
-                .filter_map(|(test, d2)| {
-                    d2.iter().map(|seq| edlib_sys::global_dist(seq, test)).min()
-                })
-                .sum();
-            let p = if l2 < l1 { 2 } else { 1 };
-            println!("{}\t{}\t{}\t{}", ans, p, l1, l2);
-            *ans == p
-        })
-        .count();
-    println!(
-        "{}\t{}\t{}",
-        correct,
-        test_num,
-        correct as f64 / test_num as f64
-    );
+    // println!("Naive alignments");
+    // println!("answer\tpredict\tNearestFrom1\tNearestfrom2");
+    // let correct = tests
+    //     .iter()
+    //     .filter(|&(ans, ref test)| {
+    //         let l1: u32 = test
+    //             .iter()
+    //             .zip(dataset1.iter())
+    //             .filter_map(|(test, d1)| {
+    //                 d1.iter().map(|seq| edlib_sys::global_dist(seq, test)).min()
+    //             })
+    //             .sum();
+    //         let l2: u32 = test
+    //             .iter()
+    //             .zip(dataset2.iter())
+    //             .filter_map(|(test, d2)| {
+    //                 d2.iter().map(|seq| edlib_sys::global_dist(seq, test)).min()
+    //             })
+    //             .sum();
+    //         let p = if l2 < l1 { 2 } else { 1 };
+    //         println!("{}\t{}\t{}\t{}", ans, p, l1, l2);
+    //         *ans == p
+    //     })
+    //     .count();
+    // println!(
+    //     "{}\t{}\t{}",
+    //     correct,
+    //     test_num,
+    //     correct as f64 / test_num as f64
+    // );
 }
 
 fn generate_dataset<T: Rng>(

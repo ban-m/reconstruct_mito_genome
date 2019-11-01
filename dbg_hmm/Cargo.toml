@@ -11,3 +11,4 @@ edlib_sys = {path = "../../edlib-sys"}
 rand = "*"
 log = "*"
 env_logger = "*"
+packed_simd = "*"
