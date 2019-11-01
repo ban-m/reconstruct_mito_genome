@@ -8,6 +8,27 @@ const IN: f64 = 0.0065;
 use dbg_hmm::DEFAULT_CONFIG;
 use dbg_hmm::*;
 use test::Bencher;
+
+#[bench]
+fn overall(b: &mut Bencher) {
+    let bases = b"ACTG";
+    let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+    let len = 150;
+    let num = 30;
+    let template: Vec<_> = (0..len)
+        .filter_map(|_| bases.choose(&mut rng))
+        .copied()
+        .collect();
+    let model1: Vec<Vec<_>> = (0..num)
+        .map(|_| introduce_randomness(&template, &mut rng))
+        .collect();
+    let k = 6;
+    b.iter(|| {
+        let model1 = DBGHMM::new(&model1, k);
+        test::black_box(model1.forward(&template, &DEFAULT_CONFIG))
+    });
+}
+
 #[bench]
 fn determine(b: &mut Bencher) {
     let bases = b"ACTG";

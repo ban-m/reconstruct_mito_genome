@@ -1,3 +1,4 @@
+#![feature(test)]
 //! A tiny implementation for de Bruijn graph with Hidden Markov model.
 //! Currently, this implementation is minimal. In other words, it exposes only one struct with just two methods:
 //! [DeBruijnGraphHiddenMarkovModel] -- Yes, it is too long -- ,[constructor](DeBruijnGraphHiddenMarkovModel::new),
@@ -6,6 +7,7 @@
 //! As a shorthand for the vary long name, I also supply [DBGHMM] as a alias for [DeBruijnGraphHiddenMarkovModel].
 extern crate edlib_sys;
 extern crate rand;
+extern crate test;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
@@ -147,22 +149,19 @@ impl DeBruijnGraphHiddenMarkovModel {
         let mut updated = vec![Node::new(0., 0., 0.); self.nodes.len()];
         let mut idx = self.k;
         for &base in &obs[self.k..] {
-            let csum = prev
-                .iter()
-                .map(|e| e.mat + e.del + e.ins)
-                .fold(0., |x, y| x + y);
-            assert!((csum - 1.0).abs() < 0.01);
-            debug!("{} nodes, weight sum:{}", self.nodes.len(), csum);
+            // let csum = prev
+            //     .iter()
+            //     .map(|e| e.mat + e.del + e.ins)
+            //     .fold(0., |x, y| x + y);
+            // assert!((csum - 1.0).abs() < 0.01);
+            // debug!("{} nodes, weight sum:{}", self.nodes.len(), csum);
             idx += 1;
             debug!("{}-th base {}", idx, base as char);
             updated.iter_mut().for_each(Node::clear);
             // Calculate double_dots.
             self.update(&mut updated, &prev, base, config);
             // Calculate c.
-            let c = updated
-                .iter()
-                .map(|e| e.mat + e.del + e.ins)
-                .fold(0., |x, y| x + y);
+            let c = updated.iter().map(|e| e.mat + e.del + e.ins).sum::<f64>();
             let c = 1. / c;
             // Convert to hats.
             for (p, u) in prev.iter_mut().zip(updated.iter()) {
@@ -172,52 +171,41 @@ impl DeBruijnGraphHiddenMarkovModel {
             }
             cs.push(c);
         }
-        -cs.into_iter().map(|e| e.ln()).fold(0., |x, y| x + y)
+        -cs.into_iter().map(|e| e.ln()).sum::<f64>()
     }
     fn initialize(&self, tip: &[u8], config: &Config) -> (f64, Vec<Node>) {
-        debug!("Query:{}", String::from_utf8_lossy(tip));
+        //debug!("Query:{}", String::from_utf8_lossy(tip));
         let initial_prob: Vec<_> = self
             .nodes
             .iter()
             .map(|e| (e.calc_score(tip, config) as f64).exp())
             .collect();
-        let s = initial_prob.iter().fold(0., |x, y| x + y);
-        let initial_prob: Vec<_> = initial_prob.into_iter().map(|e| e / s).collect();
-        for (idx, x) in initial_prob
-            .iter()
-            .enumerate()
-            .filter(|&(_, &x)| x > 0.0001)
-        {
-            debug!(
-                "{}\t{:.4}",
-                String::from_utf8_lossy(&self.nodes[idx].kmer),
-                x
-            );
-        }
-        let last = *tip.last().unwrap();
+        let s = initial_prob.iter().sum::<f64>();
+        let initial_prob = initial_prob.into_iter().map(|e| e / s);
+        let last = tip[tip.len() - 1];
         let double_dots: Vec<_> = self
             .nodes
             .iter()
-            .zip(initial_prob.into_iter())
+            .zip(initial_prob)
             .map(|(node, init)| node.prob(last, config) * init)
             .collect();
-        let tot: f64 = 1. / double_dots.iter().fold(0., |x, y| x + y);
+        let tot: f64 = 1. / double_dots.iter().sum::<f64>();
         let initial_value: Vec<_> = double_dots
             .into_iter()
             .map(|init| Node::new(init * tot, 0., 0.))
             .collect();
-        debug!("initial F");
-        for (idx, x) in initial_value
-            .iter()
-            .enumerate()
-            .filter(|(_, x)| !x.is_zero())
-        {
-            debug!(
-                "{}\t{:?}",
-                String::from_utf8_lossy(&self.nodes[idx].kmer),
-                x
-            );
-        }
+        // debug!("initial F");
+        // for (idx, x) in initial_value
+        //     .iter()
+        //     .enumerate()
+        //     .filter(|(_, x)| !x.is_zero())
+        // {
+        //     debug!(
+        //         "{}\t{:?}",
+        //         String::from_utf8_lossy(&self.nodes[idx].kmer),
+        //         x
+        //     );
+        // }
         (tot, initial_value)
     }
 }
@@ -238,6 +226,7 @@ impl Node {
     fn new(mat: f64, del: f64, ins: f64) -> Self {
         Self { mat, del, ins }
     }
+    #[allow(dead_code)]
     fn is_zero(&self) -> bool {
         self.mat < 0.0001 && self.del < 0.0001 && self.ins < 0.0001
     }
@@ -403,17 +392,18 @@ impl Kmer {
         self.tot
     }
     // return Score(self.kmer,tip)
-    fn calc_score(&self, tip: &[u8], config: &Config) -> i32 {
-        edlib_sys::global(&self.kmer, tip)
-            .into_iter()
-            .map(|e| match e {
-                0 => config.match_score,
-                1 => config.ins_score,
-                2 => config.del_score,
-                3 => config.mism_score,
-                _ => 0,
-            })
-            .sum()
+    fn calc_score(&self, tip: &[u8], _config: &Config) -> i32 {
+        tip.len() as i32 - edlib_sys::global_dist(&self.kmer, tip) as i32
+        // edlib_sys::global(&self.kmer, tip)
+        //     .into_iter()
+        //     .map(|e| match e {
+        //         0 => config.match_score,
+        //         1 => config.ins_score,
+        //         2 => config.del_score,
+        //         3 => config.mism_score,
+        //         _ => 0,
+        //     })
+        //     .sum()
     }
     // return P(idx|self)
     fn to(&self, idx: usize) -> f64 {
@@ -448,6 +438,7 @@ impl Kmer {
         count as f64 / tot as f64
     }
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -582,7 +573,82 @@ mod tests {
             assert!(likelihood1 < likelihood2, "{},{}", likelihood1, likelihood2);
         }
     }
-
+    use test::Bencher;
+    #[bench]
+    fn new(b: &mut Bencher) {
+        let bases = b"ACTG";
+        let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+        let len = 150;
+        let num = 30;
+        let template: Vec<_> = (0..len)
+            .filter_map(|_| bases.choose(&mut rng))
+            .copied()
+            .collect();
+        let model1: Vec<Vec<_>> = (0..num)
+            .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
+            .collect();
+        let k = 7;
+        b.iter(|| test::black_box(DBGHMM::new(&model1, k)));
+    }
+    #[bench]
+    fn determine(b: &mut Bencher) {
+        let bases = b"ACTG";
+        let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+        let len = 150;
+        let num = 30;
+        let template: Vec<_> = (0..len)
+            .filter_map(|_| bases.choose(&mut rng))
+            .copied()
+            .collect();
+        let model1: Vec<Vec<_>> = (0..num)
+            .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
+            .collect();
+        let k = 6;
+        let model1 = DBGHMM::new(&model1, k);
+        b.iter(|| test::black_box(model1.forward(&template, &DEFAULT_CONFIG)));
+    }
+    #[bench]
+    fn initialize_dbg(b: &mut Bencher) {
+        let bases = b"ACTG";
+        let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+        let len = 150;
+        let num = 30;
+        let template: Vec<_> = (0..len)
+            .filter_map(|_| bases.choose(&mut rng))
+            .copied()
+            .collect();
+        let model1: Vec<Vec<_>> = (0..num)
+            .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
+            .collect();
+        let k = 6;
+        let model1 = DBGHMM::new(&model1, k);
+        b.iter(|| test::black_box(model1.initialize(&template[..k], &DEFAULT_CONFIG)));
+    }
+    #[bench]
+    fn score(b: &mut Bencher) {
+        let bases = b"ACTG";
+        let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+        let len = 150;
+        let num = 30;
+        let template: Vec<_> = (0..len)
+            .filter_map(|_| bases.choose(&mut rng))
+            .copied()
+            .collect();
+        let model1: Vec<Vec<_>> = (0..num)
+            .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
+            .collect();
+        let k = 6;
+        let model1 = DBGHMM::new(&model1, k);
+        b.iter(|| {
+            test::black_box(
+                model1
+                    .nodes
+                    .iter()
+                    .map(|e| (e.calc_score(&template[..k], &DEFAULT_CONFIG) as f64).exp())
+                    .count(),
+            )
+        });
+    }
     enum Op {
         Match,
         MisMatch,

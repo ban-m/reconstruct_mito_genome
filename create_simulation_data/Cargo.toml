@@ -15,3 +15,4 @@ log = "*"
 env_logger = "*"
 dbg_hmm = {path = "../dbg_hmm"}
 edlib_sys = {path = "../../edlib-sys"}
+rand_xoshiro = "*"

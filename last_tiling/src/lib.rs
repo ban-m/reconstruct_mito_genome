@@ -24,7 +24,7 @@ use repeat::RepeatPairs;
 use std::collections::HashMap;
 use std::path::Path;
 use unit::*;
-pub const UNIT_SIZE: usize = 200;
+pub const UNIT_SIZE: usize = 150;
 
 /// Parse given aln files into repeats. It needs contig information such as index of a contig.
 pub fn into_repeats(alns: &[LastTAB], contig: &Contigs) -> Vec<RepeatPairs> {
