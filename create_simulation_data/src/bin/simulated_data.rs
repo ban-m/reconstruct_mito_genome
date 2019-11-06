@@ -44,7 +44,7 @@ fn main() {
     println!("SegmentID\tDivergence");
     for (idx, (t1, t2)) in templates1.iter().zip(templates2.iter()).enumerate() {
         println!("{}\t{}", idx, edlib_sys::global_dist(t1, t2));
-        eprintln!("{}\t{}", idx, edlib_sys::global_dist(t1, t2));
+        // eprintln!("{}\t{}", idx, edlib_sys::global_dist(t1, t2));
     }
     let gen_sample::Profile { sub, ins, del } = gen_sample::PROFILE;
     println!("SeqErrors\tSub:{}\tIns:{}\tDel:{}", sub, ins, del);
@@ -132,12 +132,18 @@ fn generate_dataset<T: Rng>(
     rng: &mut T,
     k: usize,
 ) -> (Vec<Vec<Vec<u8>>>, Vec<DBGHMM>) {
+    let p = gen_sample::Profile {
+        sub: 0.000,
+        ins: 0.010,
+        del: 0.000,
+    };
     let dataset: Vec<_> = templates
         .iter()
         .map(|e| {
             let num = rng.gen_range(min_num, max_num);
             (0..num)
-                .map(|_| gen_sample::introduce_randomness(e, rng, &gen_sample::PROFILE))
+            //.map(|_| gen_sample::introduce_randomness(e, rng, &gen_sample::PROFILE))
+                .map(|_| gen_sample::introduce_randomness(e, rng, &p))
                 .collect::<Vec<_>>()
         })
         .collect();
@@ -166,19 +172,19 @@ fn merge_predict(l1: &[f64], l2: &[f64]) -> (f64, f64) {
         .map(|(x1, x2)| 2f64.ln() + x1 * x1.ln() + x2 * x2.ln())
         .collect();
     let tot = weights.iter().fold(0., |x, y| x + y);
-    eprintln!("Dump weights");
-    for (idx, ((&l1, &l2), w)) in l1.iter().zip(l2.iter()).zip(weights.iter()).enumerate() {
-        let (w1, w2) = as_weight(l1, l2);
-        eprintln!("{}\t{:.4}\t{:.4}\t{:.4}", idx, w1, w2, w / tot);
-    }
+    // eprintln!("Dump weights");
+    // for (idx, ((&l1, &l2), w)) in l1.iter().zip(l2.iter()).zip(weights.iter()).enumerate() {
+    //     let (w1, w2) = as_weight(l1, l2);
+    //     eprintln!("{}\t{:.4}\t{:.4}\t{:.4}", idx, w1, w2, w / tot);
+    // }
     let (p1, p2) = ratio
         .into_iter()
         .zip(weights.into_iter())
         .map(|((f1, f2), w)| (f1 * w, f2 * w))
         .fold((0., 0.), |(x, y), (a, b)| (x + a, y + b));
     assert!((p1 / tot + p2 / tot - 1.).abs() < 0.0001);
-    eprintln!("Summping to:{}\t{}",p1 / tot, p2 / tot);
-    eprintln!();
+    // eprintln!("Summping to:{}\t{}",p1 / tot, p2 / tot);
+    // eprintln!();
     (p1 / tot, p2 / tot)
 }
 

@@ -11,6 +11,8 @@ extern crate test;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
+// Whether or not to use 'pseudo count' in the out-dgree.
+const PSEUDO_COUNT: bool = true;
 pub mod gen_sample;
 use std::collections::HashMap;
 // This setting is determined by experimentally.
@@ -342,10 +344,11 @@ impl Kmer {
         let kmer = x.to_vec();
         let last = *kmer.last().unwrap();
         // Prior
-        let weight = [1; 4];
-        let tot = 4;
-        // let weight = [0; 4];
-        // let tot = 0;
+        let (weight, tot) = if PSEUDO_COUNT {
+            ([1; 4], 4)
+        } else {
+            ([0; 4], 0)
+        };
         let edges = [None; 4];
         Self {
             kmer,
@@ -461,7 +464,11 @@ mod tests {
         kmer.push_edge_with(b'C', 34);
         kmer.push_edge_with(b'G', 32);
         kmer.push_edge_with(b'A', 12);
-        assert_eq!(kmer.weight, [2, 1, 1, 0]);
+        if PSEUDO_COUNT {
+            assert_eq!(kmer.weight, [3, 2, 2, 1]);
+        } else {
+            assert_eq!(kmer.weight, [2, 1, 1, 0]);
+        }
         assert_eq!(kmer.edges, [Some(12), Some(34), Some(32), None]);
     }
     #[test]
