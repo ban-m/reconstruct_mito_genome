@@ -51,6 +51,7 @@ pub type DBGHMM = DeBruijnGraphHiddenMarkovModel;
 pub struct DeBruijnGraphHiddenMarkovModel {
     nodes: Vec<Kmer>,
     k: usize,
+    order: Vec<usize>,
 }
 
 pub struct Factory {
@@ -67,6 +68,8 @@ impl Factory {
                 nodes[from].push_edge_with(x[k], to);
             }
         }
+        nodes.iter_mut().for_each(Kmer::finalize);
+        let order = Self::topological_sort(&nodes);
         // let prev: usize = nodes
         //     .iter()
         //     .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
@@ -78,7 +81,7 @@ impl Factory {
         //     .sum();
         // println!("{}->{}", prev, after);
         self.inner.clear();
-        DBGHMM { nodes, k }
+        DBGHMM { nodes, k, order }
     }
     pub fn generate_from_ref(&mut self, dataset: &[&[u8]], k: usize) -> DBGHMM {
         let indexer = &mut self.inner;
@@ -90,8 +93,10 @@ impl Factory {
                 nodes[from].push_edge_with(x[k], to);
             }
         }
+        nodes.iter_mut().for_each(Kmer::finalize);
+        let order = Self::topological_sort(&nodes);
         self.inner.clear();
-        DBGHMM { nodes, k }
+        DBGHMM { nodes, k, order }
     }
     fn push(hm: &mut HashMap<Vec<u8>, usize>, nodes: &mut Vec<Kmer>, kmer: &[u8]) -> usize {
         if !hm.contains_key(kmer) {
@@ -100,6 +105,67 @@ impl Factory {
             nodes.len() - 1
         } else {
             hm[kmer]
+        }
+    }
+    // Return topological sorted order. If there's a cycle,
+    // it neglect the back-edge, and proceed with raise error messages to stderr(DEBUG MODE).
+    fn topological_sort(nodes: &[Kmer]) -> Vec<usize> {
+        let mut edges: Vec<Vec<_>> = vec![vec![]; nodes.len()];
+        for (idx, node) in nodes.iter().enumerate() {
+            for to in node.edges.iter().filter_map(|e| e.as_ref()) {
+                edges[idx].push(*to);
+            }
+        }
+        match Self::topological_sort_inner(&edges, nodes.len()) {
+            Ok(res) => res,
+            Err(res) => {
+                debug!("The graph is cyclic.");
+                debug!("{:?}", nodes);
+                res
+            }
+        }
+    }
+    // Topological sorting.
+    fn topological_sort_inner(
+        edges: &[Vec<usize>],
+        nodes: usize,
+    ) -> Result<Vec<usize>, Vec<usize>> {
+        // 0 -> never arrived
+        // 1 -> active(arrived, being traversed currently)
+        // 2 -> inactive(arrived, have been traversed)
+        let mut status = vec![0; nodes];
+        let mut order = vec![];
+        let mut is_dag = true;
+        for i in 0..nodes {
+            if status[i] != 0 {
+                continue;
+            }
+            let mut stack = vec![i];
+            'dfs: while !stack.is_empty() {
+                let node = *stack.last().unwrap();
+                if status[node] == 0 {
+                    // preorder
+                    status[node] = 1;
+                }
+                for &to in &edges[node] {
+                    if status[to] == 0 {
+                        stack.push(to);
+                        continue 'dfs;
+                    } else if status[to] == 1 {
+                        is_dag = false;
+                    }
+                }
+                // No-op
+                let last = stack.pop().unwrap();
+                order.push(last);
+                status[last] = 2;
+            }
+        }
+        order.reverse();
+        if is_dag {
+            Ok(order)
+        } else {
+            Err(order)
         }
     }
     pub fn new() -> Self {
@@ -117,74 +183,48 @@ impl DeBruijnGraphHiddenMarkovModel {
         let mut f = Factory::new();
         f.generate_from_ref(dataset, k)
     }
-    fn update(&self, updates: &mut [Node], prev: &[Node], base: u8, config: &Config) {
+    // Calc hat. Return (c,d)
+    fn update(&self, updates: &mut [Node], prev: &[Node], base: u8, config: &Config) -> (f64, f64) {
+        let st = std::time::Instant::now();
         for (idx, (from, &Node { mat, del, ins })) in self.nodes.iter().zip(prev.iter()).enumerate()
         {
-            assert!(idx < updates.len());
-            assert!(idx < self.nodes.len());
-            // Update `Mat` states.
             let prob = mat * config.p_match
                 + del * (1. - config.p_extend_del - config.p_del_to_ins)
                 + ins * (1. - config.p_extend_ins);
-            for (i, to) in from.edges.iter().enumerate() {
-                let to = match to {
-                    Some(to) => *to,
-                    None => continue,
-                };
-                // (from->to,base i edge)
-                updates[to].mat += prob * from.to(i) * self.nodes[to].prob(base, config);
+            if prob < 0.00000001 {
+                continue;
             }
-            // Update `Del` states.
-            updates[idx].del =
-                (mat * config.p_del + del * config.p_extend_del) * self.nodes[idx].insertion(base);
-            // Update `Ins` states
+            // Update `Mat` states. updates -> double dots
+            for (i, edge) in from.edges.iter().enumerate() {
+                if let Some(to) = edge {
+                    // (from->to,base i edge)
+                    updates[*to].mat += prob * from.to(i) * self.nodes[*to].prob(base, config);
+                }
+            }
+            // Update `Ins` states. updates -> double dots
             updates[idx].ins =
                 (mat * config.p_ins + ins * config.p_extend_ins + del * config.p_del_to_ins)
-                    * match base {
-                        b'A' => config.base_freq[0],
-                        b'C' => config.base_freq[1],
-                        b'G' => config.base_freq[2],
-                        b'T' => config.base_freq[3],
-                        _ => 0.,
-                    };
+                    * self.nodes[idx].insertion(base);
         }
-    }
-    // This returns log p(obs|model) = \sum - log c_t.
-    pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
-        assert!(obs.len() > self.k);
-        //debug!("Nodes:{:?}", self.nodes);
-        let mut cs = vec![];
-        // let's initialize the first array.
-        let (c1, mut prev) = self.initialize(&obs[..self.k], config);
-        cs.push(c1);
-        let mut updated = vec![Node::new(0., 0., 0.); self.nodes.len()];
-        let mut idx = self.k;
-        for &base in &obs[self.k..] {
-            // let csum = prev
-            //     .iter()
-            //     .map(|e| e.mat + e.del + e.ins)
-            //     .fold(0., |x, y| x + y);
-            // assert!((csum - 1.0).abs() < 0.01);
-            // debug!("{} nodes, weight sum:{}", self.nodes.len(), csum);
-            idx += 1;
-            debug!("{}-th base {}", idx, base as char);
-            updated.iter_mut().for_each(Node::clear);
-            // Calculate double_dots.
-            self.update(&mut updated, &prev, base, config);
-            // Calculate c.
-            let c = updated.iter().map(|e| e.mat + e.del + e.ins).sum::<f64>();
-            let c = 1. / c;
-            // Convert to hats.
-            for (p, u) in prev.iter_mut().zip(updated.iter()) {
-                p.mat = u.mat * c;
-                p.del = u.del * c;
-                p.ins = u.ins * c;
+        // Calculate D.
+        let d = 1. / updates.iter().map(|e| e.mat + e.ins).sum::<f64>();
+        // Updates -> tilde
+        updates.iter_mut().for_each(|e| *e = *e * d);
+        // Update `Del` states.
+        assert!(updates.iter().all(|e| e.del == 0.));
+        for &from in &self.order {
+            for &to in self.nodes[from].edges.iter().filter_map(|e| e.as_ref()) {
+                updates[to].del +=
+                    updates[from].del * config.p_extend_del + updates[from].mat * config.p_del;
             }
-            cs.push(c);
         }
-        -cs.into_iter().map(|e| e.ln()).sum::<f64>()
+        // calculate c.
+        let c = 1. / updates.iter().map(|e| e.mat + e.ins + e.del).sum::<f64>();
+        updates.iter_mut().for_each(|e| *e = *e * c);
+        //eprintln!("{:?}", std::time::Instant::now() - st);
+        (c, d)
     }
-    fn initialize(&self, tip: &[u8], config: &Config) -> (f64, Vec<Node>) {
+    fn initialize(&self, tip: &[u8], config: &Config) -> (f64, f64, Vec<Node>) {
         //debug!("Query:{}", String::from_utf8_lossy(tip));
         let initial_prob: Vec<_> = self
             .nodes
@@ -200,27 +240,47 @@ impl DeBruijnGraphHiddenMarkovModel {
             .zip(initial_prob)
             .map(|(node, init)| node.prob(last, config) * init)
             .collect();
-        let tot: f64 = 1. / double_dots.iter().sum::<f64>();
-        let initial_value: Vec<_> = double_dots
-            .into_iter()
-            .map(|init| Node::new(init * tot, 0., 0.))
-            .collect();
-        // debug!("initial F");
-        // for (idx, x) in initial_value
-        //     .iter()
-        //     .enumerate()
-        //     .filter(|(_, x)| !x.is_zero())
-        // {
-        //     debug!(
-        //         "{}\t{:?}",
-        //         String::from_utf8_lossy(&self.nodes[idx].kmer),
-        //         x
-        //     );
-        // }
-        (tot, initial_value)
+        let d = 1. / double_dots.iter().map(|e| e).sum::<f64>();
+        let tilde = double_dots.into_iter().map(|e| e * d);
+        // let c = 1. / tilde.iter().sum::<f64>(); Actually, the below is true.
+        let c = 1.;
+        let hat: Vec<_> = tilde.map(|init| Node::new(init, 0., 0.)).collect();
+        (c, d, hat)
+    }
+    // This returns log p(obs|model) = \sum - log c_t.
+    pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
+        assert!(obs.len() > self.k);
+        //debug!("Nodes:{:?}", self.nodes);
+        let mut cs = Vec::with_capacity(obs.len() + 1);
+        let mut ds = Vec::with_capacity(obs.len() + 1);
+        // let's initialize the first array.
+        let (c, d, mut prev) = self.initialize(&obs[..self.k], config);
+        cs.push(c);
+        ds.push(d);
+        let mut updated = vec![Node::new(0., 0., 0.); self.nodes.len()];
+        let mut idx = self.k;
+        for &base in &obs[self.k..] {
+            // let csum = prev
+            //     .iter()
+            //     .map(|e| e.mat + e.del + e.ins)
+            //     .fold(0., |x, y| x + y);
+            // assert!((csum - 1.0).abs() < 0.01);
+            // debug!("{} nodes, weight sum:{}", self.nodes.len(), csum);
+            idx += 1;
+            debug!("{}-th base {}", idx, base as char);
+            updated.iter_mut().for_each(Node::clear);
+            // Calculate hat.
+            // Calculate c. Calculate d.
+            let (c, d) = self.update(&mut updated, &prev, base, config);
+            cs.push(c);
+            ds.push(d);
+            // Flip previous and updated.
+            std::mem::swap(&mut prev, &mut updated);
+        }
+        -cs.into_iter().map(|e| e.ln()).sum::<f64>() - ds.into_iter().map(|e| e.ln()).sum::<f64>()
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 struct Node {
     mat: f64,
     del: f64,
@@ -230,6 +290,18 @@ struct Node {
 impl std::fmt::Debug for Node {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{:.4}\t{:.4}\t{:.4}", self.mat, self.del, self.ins)
+    }
+}
+
+impl std::ops::Mul<f64> for Node {
+    type Output = Self;
+    fn mul(self, rhs: f64) -> Self {
+        let Node { mat, del, ins } = self;
+        Node {
+            mat: mat * rhs,
+            del: del * rhs,
+            ins: ins * rhs,
+        }
     }
 }
 
@@ -316,6 +388,7 @@ struct Kmer {
     last: u8,
     weight: [u16; 4],
     tot: u16,
+    probs: [f64; 4],
     // The location to the edges with the label of A,C,G,and T.
     // If there is no edges, None
     edges: [Option<usize>; 4],
@@ -350,12 +423,14 @@ impl Kmer {
             ([0; 4], 0)
         };
         let edges = [None; 4];
+        let probs = [0.25; 4];
         Self {
             kmer,
             last,
             weight,
             tot,
             edges,
+            probs,
         }
     }
     #[allow(dead_code)]
@@ -374,12 +449,22 @@ impl Kmer {
                 None => None,
             };
         }
+        let mut probs = self.probs;
+        for i in 0..4 {
+            probs[i] = weight[i] as f64 / tot as f64;
+        }
         Self {
             kmer: self.kmer,
             last: self.last,
             weight,
+            probs,
             tot,
             edges,
+        }
+    }
+    fn finalize(&mut self) {
+        for i in 0..4 {
+            self.probs[i] = self.weight[i] as f64 / self.tot as f64;
         }
     }
     fn push_edge_with(&mut self, base: u8, to: usize) {
@@ -406,24 +491,10 @@ impl Kmer {
     // return Score(self.kmer,tip)
     fn calc_score(&self, tip: &[u8], _config: &Config) -> i32 {
         tip.len() as i32 - edlib_sys::global_dist(&self.kmer, tip) as i32
-        // edlib_sys::global(&self.kmer, tip)
-        //     .into_iter()
-        //     .map(|e| match e {
-        //         0 => config.match_score,
-        //         1 => config.ins_score,
-        //         2 => config.del_score,
-        //         3 => config.mism_score,
-        //         _ => 0,
-        //     })
-        //     .sum()
     }
     // return P(idx|self)
     fn to(&self, idx: usize) -> f64 {
-        assert!(self.weight[idx] != 0);
-        // Diriclet prior.
-        let count = self.weight[idx];
-        let tot = self.tot;
-        count as f64 / tot as f64
+        self.probs[idx]
     }
     #[inline]
     fn prob(&self, base: u8, config: &Config) -> f64 {
@@ -435,19 +506,13 @@ impl Kmer {
     }
     // return P_I(base|self)
     fn insertion(&self, base: u8) -> f64 {
-        // Diriclet prior.
-        let tot = self.tot;
-        if tot == 0 {
-            return 0.25;
+        match base {
+            b'A' => self.probs[0],
+            b'C' => self.probs[1],
+            b'G' => self.probs[2],
+            b'T' => self.probs[3],
+            _ => 0.,
         }
-        let count = match base {
-            b'A' => self.weight[0],
-            b'C' => self.weight[1],
-            b'G' => self.weight[2],
-            b'T' => self.weight[3],
-            _ => 0,
-        };
-        count as f64 / tot as f64
     }
 }
 
@@ -456,6 +521,50 @@ mod tests {
     use super::*;
     #[test]
     fn works() {}
+    #[test]
+    fn topological_sorting() {
+        let edges = vec![
+            vec![1],
+            vec![2],
+            vec![3],
+            vec![4],
+            vec![],
+            vec![6],
+            vec![2],
+            vec![8],
+            vec![9],
+            vec![3],
+        ];
+        let order = Factory::topological_sort_inner(&edges, edges.len()).unwrap();
+        assert_eq!(order, vec![7, 8, 9, 5, 6, 0, 1, 2, 3, 4]);
+        let edges = vec![
+            vec![1],
+            vec![2],
+            vec![3],
+            vec![4, 8],
+            vec![],
+            vec![6],
+            vec![2],
+            vec![8],
+            vec![9],
+            vec![3],
+        ];
+        let order = Factory::topological_sort_inner(&edges, edges.len()).unwrap_err();
+        assert_eq!(order, vec![7, 5, 6, 0, 1, 2, 3, 8, 9, 4]);
+        let edges = vec![
+            vec![1],
+            vec![2, 7],
+            vec![3],
+            vec![4],
+            vec![5],
+            vec![6],
+            vec![],
+            vec![8],
+            vec![5],
+        ];
+        let order = Factory::topological_sort_inner(&edges, edges.len()).unwrap();
+        assert_eq!(order, vec![0, 1, 7, 8, 2, 3, 4, 5, 6]);
+    }
     #[test]
     fn kmer() {
         let mut kmer = Kmer::new(b"ACTCGTA");
@@ -488,6 +597,7 @@ mod tests {
         ];
         let _ = DBGHMM::new(&test, 12);
     }
+
     #[test]
     fn forward() {
         let test = [
@@ -639,6 +749,24 @@ mod tests {
         let model1 = DBGHMM::new(&model1, k);
         b.iter(|| test::black_box(model1.initialize(&template[..k], &DEFAULT_CONFIG)));
     }
+    #[bench]
+    fn forward_bench(b: &mut Bencher) {
+        let bases = b"ACTG";
+        let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+        let len = 150;
+        let num = 25;
+        let template: Vec<_> = (0..len)
+            .filter_map(|_| bases.choose(&mut rng))
+            .copied()
+            .collect();
+        let model1: Vec<Vec<_>> = (0..num)
+            .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
+            .collect();
+        let k = 6;
+        let model1 = DBGHMM::new(&model1, k);
+        b.iter(|| test::black_box(model1.initialize(&template[..k], &DEFAULT_CONFIG)));
+    }
+
     #[bench]
     fn score(b: &mut Bencher) {
         let bases = b"ACTG";

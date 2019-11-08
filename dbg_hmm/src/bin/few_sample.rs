@@ -5,11 +5,12 @@ extern crate log;
 extern crate rand;
 use dbg_hmm::*;
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use std::time;
 fn main() {
     //env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let len = 150;
     let num_seq = 25;
-    let test_num = 1000;
+    let test_num = 100;
     let k = 6;
     let mut rng: StdRng = SeedableRng::seed_from_u64(12121899892);
     let template1 = dbg_hmm::gen_sample::generate_seq(&mut rng, len);
@@ -30,38 +31,34 @@ fn main() {
             .filter(|&e| e != 0)
             .count()
     );
+    let p = &dbg_hmm::gen_sample::Profile {
+        sub: 0.03,
+        del: 0.04,
+        ins: 0.06,
+    };
+    // let p = &gen_sample::PROFILE;
     println!("Sequencing errors");
-    println!(
-        "Sub:{}\tIns:{}\tDel:{}",
-        gen_sample::PROFILE.sub,
-        gen_sample::PROFILE.ins,
-        gen_sample::PROFILE.del
-    );
+    println!("Sub:{}\tIns:{}\tDel:{}", p.sub, p.ins, p.del);
     let data1: Vec<Vec<_>> = (0..num_seq)
-        .map(|_| gen_sample::introduce_randomness(&template1, &mut rng, &gen_sample::PROFILE))
+        .map(|_| gen_sample::introduce_randomness(&template1, &mut rng, p))
         .collect();
     let data2: Vec<Vec<_>> = (0..num_seq)
-        .map(|_| gen_sample::introduce_randomness(&template2, &mut rng, &gen_sample::PROFILE))
+        .map(|_| gen_sample::introduce_randomness(&template2, &mut rng, p))
         .collect();
-   println!("K={}", k);
+    println!("K={}", k);
     let model1 = DBGHMM::new(&data1, k);
     let model2 = DBGHMM::new(&data2, k);
     let tests: Vec<_> = (0..test_num)
         .map(|_| {
             if rng.gen_bool(0.5) {
-                (
-                    1,
-                    gen_sample::introduce_randomness(&template1, &mut rng, &gen_sample::PROFILE),
-                )
+                (1, gen_sample::introduce_randomness(&template1, &mut rng, p))
             } else {
-                (
-                    2,
-                    gen_sample::introduce_randomness(&template2, &mut rng, &gen_sample::PROFILE),
-                )
+                (2, gen_sample::introduce_randomness(&template2, &mut rng, p))
             }
         })
         .collect();
     println!("Answer\tModel1\tModel2");
+    let start = time::Instant::now();
     let correct = tests
         .iter()
         .filter(|&(ans, ref test)| {
@@ -70,11 +67,14 @@ fn main() {
             (l2 < l1 && *ans == 1) || (l1 < l2 && *ans == 2)
         })
         .count();
+    let time = time::Instant::now() - start;
     println!(
-        "{} out of {} ({} %)",
+        "{} out of {} ({:.3} %). {:?}({:.3}millis/sample)",
         correct,
         test_num,
-        correct as f64 / test_num as f64
+        correct as f64 / test_num as f64,
+        time,
+        time.as_millis() as f64 / test_num as f64,
     );
     let correct = tests
         .iter()
