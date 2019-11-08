@@ -68,8 +68,10 @@ impl Factory {
                 nodes[from].push_edge_with(x[k], to);
             }
         }
-        nodes.iter_mut().for_each(Kmer::finalize);
+        // Node Index -> Topological order.
         let order = Self::topological_sort(&nodes);
+        let mut nodes = Self::renaming_nodes(nodes);
+        nodes.iter_mut().for_each(Kmer::finalize);
         // let prev: usize = nodes
         //     .iter()
         //     .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
@@ -93,6 +95,7 @@ impl Factory {
                 nodes[from].push_edge_with(x[k], to);
             }
         }
+        let mut nodes = Self::renaming_nodes(nodes);
         nodes.iter_mut().for_each(Kmer::finalize);
         let order = Self::topological_sort(&nodes);
         self.inner.clear();
@@ -168,6 +171,23 @@ impl Factory {
             Err(order)
         }
     }
+    fn renaming_nodes(mut nodes: Vec<Kmer>) -> Vec<Kmer> {
+        let order = Self::topological_sort(&nodes);
+        let rev_index = {
+            let mut ri = vec![0; nodes.len()];
+            for (order, v) in order.into_iter().enumerate() {
+                ri[v] = order;
+            }
+            ri
+        };
+        let mut result = vec![None; nodes.len()];
+        nodes.iter_mut().for_each(|e| e.rename_by(&rev_index));
+        for (idx, n) in nodes.into_iter().enumerate() {
+            result[rev_index[idx]] = Some(n);
+        }
+        assert!(result.iter().all(|e| e.is_some()));
+        result.into_iter().filter_map(|e| e).collect()
+    }
     pub fn new() -> Self {
         let inner = std::collections::HashMap::new();
         Self { inner }
@@ -185,38 +205,50 @@ impl DeBruijnGraphHiddenMarkovModel {
     }
     // Calc hat. Return (c,d)
     fn update(&self, updates: &mut [Node], prev: &[Node], base: u8, config: &Config) -> (f64, f64) {
-        let st = std::time::Instant::now();
+        // let st = std::time::Instant::now();
         for (idx, (from, node)) in self.nodes.iter().zip(prev.iter()).enumerate() {
             if node.is_zero() {
                 continue;
             }
             let prob = node.match_succeed(config);
             // Update `Mat` states. updates -> double dots
-            for (i, edge) in from.edges.iter().enumerate() {
-                if let Some(to) = edge {
-                    // (from->to,base i edge)
-                    updates[*to].add_mat(prob * from.to(i) * self.nodes[*to].prob(base, config));
-                }
+            for (i, to) in from
+                .edges
+                .iter()
+                .enumerate()
+                .filter_map(|(i, e)| e.map(|n| (i, n)))
+            {
+                // (from->to,base i edge)
+                updates[to].add_mat(prob * from.to(i) * self.nodes[to].prob(base, config));
             }
             // Update `Ins` states. updates -> double dots
             updates[idx].add_ins(node.insertion(&config) * self.nodes[idx].insertion(base));
         }
+
         // Calculate D.
         let d = 1. / updates.iter().map(|e| e.mat + e.ins).sum::<f64>();
         // Updates -> tilde
         updates.iter_mut().for_each(|e| *e = *e * d);
         // Update `Del` states.
+        // Up to thi line, almost free.
         assert!(updates.iter().all(|e| e.del == 0.));
-        for &from in &self.order {
-            for &to in self.nodes[from].edges.iter().filter_map(|e| e.as_ref()) {
-                let push = updates[from].push(&config);
-                updates[to].add_del(push);
+        let non_zero_nodes: Vec<_> = self
+            .nodes
+            .iter()
+            .zip(updates.iter())
+            .filter(|(_, from)| !from.is_zero())
+            .map(|(n, from)| (n, from.push(&config)))
+            .collect();
+        for (node, pushing_weight) in non_zero_nodes {
+            for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
+                updates[to].add_del(pushing_weight);
             }
         }
         // calculate c.
         let c = 1. / updates.iter().map(Node::fold).sum::<f64>();
         updates.iter_mut().for_each(|e| *e = *e * c);
-        //eprintln!("{:?}", std::time::Instant::now() - st);
+        // let st2 = std::time::Instant::now();
+        // eprintln!("{:?}\t{:?}", st2 - st , st3 - st2);
         (c, d)
     }
     fn initialize(&self, tip: &[u8], config: &Config) -> (f64, f64, Vec<Node>) {
@@ -253,16 +285,11 @@ impl DeBruijnGraphHiddenMarkovModel {
         cs.push(c);
         ds.push(d);
         let mut updated = vec![Node::new(0., 0., 0.); self.nodes.len()];
-        let mut idx = self.k;
+        // let mut idx = self.k;
         for &base in &obs[self.k..] {
-            // let csum = prev
-            //     .iter()
-            //     .map(|e| e.mat + e.del + e.ins)
-            //     .fold(0., |x, y| x + y);
-            // assert!((csum - 1.0).abs() < 0.01);
             // debug!("{} nodes, weight sum:{}", self.nodes.len(), csum);
-            idx += 1;
-            debug!("{}-th base {}", idx, base as char);
+            // idx += 1;
+            // debug!("{}-th base {}", idx, base as char);
             updated.iter_mut().for_each(Node::clear);
             // Calculate hat.
             // Calculate c. Calculate d.
@@ -485,6 +512,14 @@ impl Kmer {
             self.probs[i] = self.weight[i] as f64 / self.tot as f64;
         }
     }
+    // renaming all the edges by `map`
+    fn rename_by(&mut self, map: &[usize]) {
+        for edge in self.edges.iter_mut() {
+            if let Some(res) = edge.as_mut() {
+                *res = map[*res];
+            }
+        }
+    }
     fn push_edge_with(&mut self, base: u8, to: usize) {
         let i = match base {
             b'A' => 0,
@@ -512,7 +547,7 @@ impl Kmer {
     }
     // return P(idx|self)
     fn to(&self, idx: usize) -> f64 {
-        self.probs[idx]
+        unsafe { *self.probs.get_unchecked(idx) }
     }
     #[inline]
     fn prob(&self, base: u8, config: &Config) -> f64 {
