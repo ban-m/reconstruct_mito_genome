@@ -186,25 +186,20 @@ impl DeBruijnGraphHiddenMarkovModel {
     // Calc hat. Return (c,d)
     fn update(&self, updates: &mut [Node], prev: &[Node], base: u8, config: &Config) -> (f64, f64) {
         let st = std::time::Instant::now();
-        for (idx, (from, &Node { mat, del, ins })) in self.nodes.iter().zip(prev.iter()).enumerate()
-        {
-            let prob = mat * config.p_match
-                + del * (1. - config.p_extend_del - config.p_del_to_ins)
-                + ins * (1. - config.p_extend_ins);
-            if prob < 0.00000001 {
+        for (idx, (from, node)) in self.nodes.iter().zip(prev.iter()).enumerate() {
+            if node.is_zero() {
                 continue;
             }
+            let prob = node.match_succeed(config);
             // Update `Mat` states. updates -> double dots
             for (i, edge) in from.edges.iter().enumerate() {
                 if let Some(to) = edge {
                     // (from->to,base i edge)
-                    updates[*to].mat += prob * from.to(i) * self.nodes[*to].prob(base, config);
+                    updates[*to].add_mat(prob * from.to(i) * self.nodes[*to].prob(base, config));
                 }
             }
             // Update `Ins` states. updates -> double dots
-            updates[idx].ins =
-                (mat * config.p_ins + ins * config.p_extend_ins + del * config.p_del_to_ins)
-                    * self.nodes[idx].insertion(base);
+            updates[idx].add_ins(node.insertion(&config) * self.nodes[idx].insertion(base));
         }
         // Calculate D.
         let d = 1. / updates.iter().map(|e| e.mat + e.ins).sum::<f64>();
@@ -214,12 +209,12 @@ impl DeBruijnGraphHiddenMarkovModel {
         assert!(updates.iter().all(|e| e.del == 0.));
         for &from in &self.order {
             for &to in self.nodes[from].edges.iter().filter_map(|e| e.as_ref()) {
-                updates[to].del +=
-                    updates[from].del * config.p_extend_del + updates[from].mat * config.p_del;
+                let push = updates[from].push(&config);
+                updates[to].add_del(push);
             }
         }
         // calculate c.
-        let c = 1. / updates.iter().map(|e| e.mat + e.ins + e.del).sum::<f64>();
+        let c = 1. / updates.iter().map(Node::fold).sum::<f64>();
         updates.iter_mut().for_each(|e| *e = *e * c);
         //eprintln!("{:?}", std::time::Instant::now() - st);
         (c, d)
@@ -309,15 +304,38 @@ impl Node {
     fn new(mat: f64, del: f64, ins: f64) -> Self {
         Self { mat, del, ins }
     }
-    #[allow(dead_code)]
     fn is_zero(&self) -> bool {
-        self.mat < 0.0001 && self.del < 0.0001 && self.ins < 0.0001
+        self.mat < 0.00001 && self.del < 0.00001 && self.ins < 0.00001
     }
     #[inline]
     fn clear(&mut self) {
         self.mat = 0.;
         self.del = 0.;
         self.ins = 0.;
+    }
+    #[inline]
+    fn match_succeed(&self, config: &Config) -> f64 {
+        self.mat * config.p_match
+            + self.del * (1. - config.p_extend_del - config.p_del_to_ins)
+            + self.ins * (1. - config.p_extend_ins)
+    }
+    fn insertion(&self, config: &Config) -> f64 {
+        (self.mat * config.p_ins + self.ins * config.p_extend_ins + self.del * config.p_del_to_ins)
+    }
+    fn push(&self, config: &Config) -> f64 {
+        self.del * config.p_extend_del + self.mat * config.p_del
+    }
+    fn add_ins(&mut self, x: f64) {
+        self.ins += x;
+    }
+    fn add_del(&mut self, x: f64) {
+        self.del += x;
+    }
+    fn add_mat(&mut self, x: f64) {
+        self.mat += x;
+    }
+    fn fold(&self) -> f64 {
+        self.mat + self.del + self.ins
     }
 }
 

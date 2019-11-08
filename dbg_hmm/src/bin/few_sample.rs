@@ -10,7 +10,7 @@ fn main() {
     //env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let len = 150;
     let num_seq = 25;
-    let test_num = 100;
+    let test_num = 500;
     let k = 6;
     let mut rng: StdRng = SeedableRng::seed_from_u64(12121899892);
     let template1 = dbg_hmm::gen_sample::generate_seq(&mut rng, len);
@@ -31,12 +31,12 @@ fn main() {
             .filter(|&e| e != 0)
             .count()
     );
-    let p = &dbg_hmm::gen_sample::Profile {
-        sub: 0.03,
-        del: 0.04,
-        ins: 0.06,
-    };
-    // let p = &gen_sample::PROFILE;
+    // let p = &dbg_hmm::gen_sample::Profile {
+    //     sub: 0.03,
+    //     del: 0.05,
+    //     ins: 0.06,
+    // };
+    let p = &gen_sample::PROFILE;
     println!("Sequencing errors");
     println!("Sub:{}\tIns:{}\tDel:{}", p.sub, p.ins, p.del);
     let data1: Vec<Vec<_>> = (0..num_seq)
