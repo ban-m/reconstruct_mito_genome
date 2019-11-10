@@ -1,14 +1,11 @@
 extern crate dbg_hmm;
 extern crate edlib_sys;
-extern crate env_logger;
-extern crate log;
 extern crate rand;
 extern crate rand_xoshiro;
 use dbg_hmm::*;
 use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoroshiro128StarStar;
 fn main() {
-    //env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let min_len = 50;
     let max_len = 300;
     let by = 5;

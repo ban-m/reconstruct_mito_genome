@@ -1,7 +1,5 @@
 extern crate dbg_hmm;
 extern crate edlib_sys;
-extern crate env_logger;
-extern crate log;
 extern crate rand;
 extern crate rand_xoshiro;
 use dbg_hmm::*;
@@ -9,7 +7,6 @@ use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoroshiro128StarStar;
 use std::time;
 fn main() {
-    //env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let len = 100;
     let num_seq = 10;
     let test_num = 1000;

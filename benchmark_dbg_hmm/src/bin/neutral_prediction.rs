@@ -1,7 +1,5 @@
 extern crate dbg_hmm;
 extern crate edlib_sys;
-extern crate env_logger;
-extern crate log;
 extern crate rand;
 extern crate rand_xoshiro;
 use dbg_hmm::*;
@@ -30,16 +28,32 @@ fn main() {
     let tests: Vec<_> = (0..test_num)
         .map(|_| gen_sample::introduce_randomness(&template1, &mut rng, p))
         .collect();
-    println!("Model2\tModel3\tEntropy\tType");
+    let tests2: Vec<_> = (0..test_num)
+        .map(|_| {
+            if rng.gen_bool(0.5) {
+                gen_sample::introduce_randomness(&template2, &mut rng, p)
+            } else {
+                gen_sample::introduce_randomness(&template3, &mut rng, p)
+            }
+        })
+        .collect();
+    println!("Entropy\tType\tSkew");
     for (w2, w3) in tests.iter().map(|test| {
         let l2 = model2.forward(&test, &DEFAULT_CONFIG);
         let l3 = model3.forward(&test, &DEFAULT_CONFIG);
         as_weight(l2, l3)
     }) {
         let e = entropy(w2, w3);
-        println!("{:.4}\t{:.4}\t{:.4}\tHMM", w2, w3, e);
+        println!("{:.4}\tHMM\tNeutral", e);
     }
-    println!();
+    for (w2, w3) in tests2.iter().map(|test| {
+        let l2 = model2.forward(&test, &DEFAULT_CONFIG);
+        let l3 = model3.forward(&test, &DEFAULT_CONFIG);
+        as_weight(l2, l3)
+    }) {
+        let e = entropy(w2, w3);
+        println!("{:.4}\tHMM\tSkew", e);
+    }
     for (w1, w2) in tests.iter().map(|test| {
         let from2 = data2
             .iter()
@@ -55,7 +69,24 @@ fn main() {
         (from2.exp() / sum, from3.exp() / sum)
     }) {
         let e = entropy(w1, w2);
-        println!("{:.4}\t{:.4}\t{:.4}\tAln", w1, w2, e);
+        println!("{:.4}\tAln\tNeutral", e);
+    }
+    for (w1, w2) in tests2.iter().map(|test| {
+        let from2 = data2
+            .iter()
+            .map(|seq| edlib_sys::global_dist(seq, test))
+            .min()
+            .unwrap() as f64;
+        let from3 = data3
+            .iter()
+            .map(|seq| edlib_sys::global_dist(seq, test))
+            .min()
+            .unwrap() as f64;
+        let sum = from2.exp() + from3.exp();
+        (from2.exp() / sum, from3.exp() / sum)
+    }) {
+        let e = entropy(w1, w2);
+        println!("{:.4}\tAln\tSkew", e);
     }
 }
 
