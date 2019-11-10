@@ -419,9 +419,9 @@ impl Config {
 struct Kmer {
     kmer: Vec<u8>,
     last: u8,
-    weight: [u16; 4],
+    weight: [f64; 4],
+    transition: [f64; 4],
     tot: u16,
-    probs: [f64; 4],
     // The location to the edges with the label of A,C,G,and T.
     // If there is no edges, None
     edges: [Option<usize>; 4],
@@ -451,10 +451,11 @@ impl Kmer {
         let last = *kmer.last().unwrap();
         // Prior
         let (weight, tot) = if PSEUDO_COUNT {
-            ([1; 4], 4)
+            ([1.; 4], 4)
         } else {
-            ([0; 4], 0)
+            ([0.; 4], 0)
         };
+        let transition = [0f64; 4];
         let edges = [None; 4];
         let probs = [0.25; 4];
         Self {
@@ -463,41 +464,19 @@ impl Kmer {
             weight,
             tot,
             edges,
-            probs,
-        }
-    }
-    #[allow(dead_code)]
-    fn polish(self) -> Self {
-        let mut edges = [None; 4];
-        let mut weight = self.weight;
-        let mut tot = self.tot;
-        for i in 0..4 {
-            edges[i] = match self.edges[i] {
-                Some(res) if weight[i] > 1 => Some(res),
-                Some(_) => {
-                    tot -= weight[i];
-                    weight[i] = 0;
-                    None
-                }
-                None => None,
-            };
-        }
-        let mut probs = self.probs;
-        for i in 0..4 {
-            probs[i] = weight[i] as f64 / tot as f64;
-        }
-        Self {
-            kmer: self.kmer,
-            last: self.last,
-            weight,
-            probs,
-            tot,
-            edges,
+            transition,
         }
     }
     fn finalize(&mut self) {
+        let tot_for_weight = self.tot as f64;
+        let tot_for_trans = if PSEUDO_COUNT{
+            (self.tot - 4) as f64
+        }else{
+            self.tot as f64
+        };
         for i in 0..4 {
-            self.probs[i] = self.weight[i] as f64 / self.tot as f64;
+            self.weight[i] /= tot_for_weight;
+            self.transition[i] /= tot_for_trans;
         }
     }
     // renaming all the edges by `map`
@@ -522,7 +501,8 @@ impl Kmer {
             _ => unreachable!(),
         };
         self.tot += 1;
-        self.weight[i] += 1;
+        self.weight[i] += 1.;
+        self.transition[i] += 1.;
     }
     // return how many occurence there is.
     #[allow(dead_code)]
@@ -535,7 +515,7 @@ impl Kmer {
     }
     // return P(idx|self)
     fn to(&self, idx: usize) -> f64 {
-        unsafe { *self.probs.get_unchecked(idx) }
+        self.transition[idx]
     }
     #[inline]
     fn prob(&self, base: u8, config: &Config) -> f64 {
@@ -616,9 +596,9 @@ mod tests {
         kmer.push_edge_with(b'G', 32);
         kmer.push_edge_with(b'A', 12);
         if PSEUDO_COUNT {
-            assert_eq!(kmer.weight, [3, 2, 2, 1]);
+            assert_eq!(kmer.weight, [1. + 1. + 1., 1. + 1., 1. + 1., 1.]);
         } else {
-            assert_eq!(kmer.weight, [2, 1, 1, 0]);
+            assert_eq!(kmer.weight, [1. + 1., 1., 1., 0.]);
         }
         assert_eq!(kmer.edges, [Some(12), Some(34), Some(32), None]);
     }
