@@ -1,0 +1,7 @@
+#!/bin/bash
+qsub -e ./logfiles/run_with_reference.log\
+     ./scripts/reference_guided_workflow.job \
+     /work/ban-m/arabidopsis_mitochondria/create_simulation_data/data/forward_repeat.fa\
+     /grid/ban-m/arabidopsis_thaliana/sequel/assemble/forward_repeat \
+     /grid/ban-m/arabidopsis_thaliana/genome/GCF_000001735.4_TAIR10.1_genomic.fna
+     

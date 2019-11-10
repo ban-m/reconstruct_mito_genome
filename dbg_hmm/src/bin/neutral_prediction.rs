@@ -1,0 +1,70 @@
+extern crate dbg_hmm;
+extern crate edlib_sys;
+extern crate env_logger;
+extern crate log;
+extern crate rand;
+extern crate rand_xoshiro;
+use dbg_hmm::*;
+use rand::{Rng, SeedableRng};
+use rand_xoshiro::Xoroshiro128StarStar;
+fn main() {
+    let len = 100;
+    let num_seq = 20;
+    let test_num = 1000;
+    let k = 6;
+    let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12218993);
+    let template1 = dbg_hmm::gen_sample::generate_seq(&mut rng, len);
+    let template2 = gen_sample::introduce_errors(&template1, &mut rng, 1, 1, 1);
+    let template3 = gen_sample::introduce_errors(&template1, &mut rng, 1, 1, 1);
+    assert_eq!(edlib_sys::global_dist(&template1, &template2), 3);
+    assert_eq!(edlib_sys::global_dist(&template1, &template3), 3);
+    let p = &gen_sample::PROFILE;
+    let data2: Vec<Vec<_>> = (0..num_seq)
+        .map(|_| gen_sample::introduce_randomness(&template2, &mut rng, p))
+        .collect();
+    let data3: Vec<Vec<_>> = (0..num_seq)
+        .map(|_| gen_sample::introduce_randomness(&template3, &mut rng, p))
+        .collect();
+    let model2 = DBGHMM::new(&data2, k);
+    let model3 = DBGHMM::new(&data3, k);
+    let tests: Vec<_> = (0..test_num)
+        .map(|_| gen_sample::introduce_randomness(&template1, &mut rng, p))
+        .collect();
+    println!("Model2\tModel3\tEntropy\tType");
+    for (w2, w3) in tests.iter().map(|test| {
+        let l2 = model2.forward(&test, &DEFAULT_CONFIG);
+        let l3 = model3.forward(&test, &DEFAULT_CONFIG);
+        as_weight(l2, l3)
+    }) {
+        let e = entropy(w2, w3);
+        println!("{:.4}\t{:.4}\t{:.4}\tHMM", w2, w3, e);
+    }
+    println!();
+    for (w1, w2) in tests.iter().map(|test| {
+        let from2 = data2
+            .iter()
+            .map(|seq| edlib_sys::global_dist(seq, test))
+            .min()
+            .unwrap() as f64;
+        let from3 = data3
+            .iter()
+            .map(|seq| edlib_sys::global_dist(seq, test))
+            .min()
+            .unwrap() as f64;
+        let sum = from2.exp() + from3.exp();
+        (from2.exp() / sum, from3.exp() / sum)
+    }) {
+        let e = entropy(w1, w2);
+        println!("{:.4}\t{:.4}\t{:.4}\tAln", w1, w2, e);
+    }
+}
+
+fn entropy(x: f64, y: f64) -> f64 {
+    -x * x.ln() - y * y.ln()
+}
+
+fn as_weight(x1: f64, x2: f64) -> (f64, f64) {
+    let max = x1.max(x2);
+    let log_denominator = max + ((x1 - max).exp() + (x2 - max).exp()).ln();
+    ((x1 - log_denominator).exp(), (x2 - log_denominator).exp())
+}

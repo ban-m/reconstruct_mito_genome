@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<html>
+  <head>
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <link rel="stylesheet" type="text/css" href="./style.css">
+  </head>
+  <body>
+    <div class = "title">
+      Circos plot of Plant mitochondria.
+    </div>
+    <div id = "plot"></div>
+    <div id = "info"></div>
+    <script src="./drawer.js"></script>
+    <script>
+      <!-- const dataset = "/data/mine_w_repeat_d3.json"; -->
+      <!-- const repeats = "/data/mine_w_repeat_repeats.json"; -->
+      <!-- const dataset = "/data/mine_no_repeat_d3.json"; -->
+      <!-- const repeats = "/data/mine_no_repeat_repeats.json"; -->
+      <!-- const dataset = "/data/mine_wo_repeat_d3.json"; -->
+      <!-- const repeats = "/data/mine_wo_repeat_repeats.json"; -->
+      <!-- const dataset = "/data/mpi_wo_repeat_d3.json"; -->
+      <!-- const repeats = "/data/mpi_wo_repeat_repeats.json"; -->
+      <!-- const dataset = "/data/mpi_w_repeat_d3.json"; -->
+      <!-- const repeats = "/data/mpi_w_repeat_repeats.json"; -->
+      const dataset = "/data/mine_to_reference_d3.json";
+      const repeats = "/data/mine_to_reference_repeats.json";
+      <!-- const dataset = "/data/mpi_to_reference_d3.json"; -->
+      <!-- const repeats = "/data/mpi_to_reference_repeats.json"; -->
+      const unit_length = 150;
+      plotData(dataset,repeats,unit_length);
+    </script>
+  </body>
+</html>

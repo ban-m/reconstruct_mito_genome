@@ -7,6 +7,7 @@
 //! As a shorthand for the vary long name, I also supply [DBGHMM] as a alias for [DeBruijnGraphHiddenMarkovModel].
 extern crate edlib_sys;
 extern crate rand;
+extern crate rand_xoshiro;
 extern crate test;
 #[macro_use]
 extern crate log;
@@ -51,7 +52,6 @@ pub type DBGHMM = DeBruijnGraphHiddenMarkovModel;
 pub struct DeBruijnGraphHiddenMarkovModel {
     nodes: Vec<Kmer>,
     k: usize,
-    order: Vec<usize>,
 }
 
 pub struct Factory {
@@ -69,21 +69,10 @@ impl Factory {
             }
         }
         // Node Index -> Topological order.
-        let order = Self::topological_sort(&nodes);
         let mut nodes = Self::renaming_nodes(nodes);
         nodes.iter_mut().for_each(Kmer::finalize);
-        // let prev: usize = nodes
-        //     .iter()
-        //     .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
-        //     .sum();
-        // let nodes: Vec<_> = nodes.into_iter().map(Kmer::polish).collect();
-        // let after: usize = nodes
-        //     .iter()
-        //     .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
-        //     .sum();
-        // println!("{}->{}", prev, after);
         self.inner.clear();
-        DBGHMM { nodes, k, order }
+        DBGHMM { nodes, k }
     }
     pub fn generate_from_ref(&mut self, dataset: &[&[u8]], k: usize) -> DBGHMM {
         let indexer = &mut self.inner;
@@ -97,9 +86,8 @@ impl Factory {
         }
         let mut nodes = Self::renaming_nodes(nodes);
         nodes.iter_mut().for_each(Kmer::finalize);
-        let order = Self::topological_sort(&nodes);
         self.inner.clear();
-        DBGHMM { nodes, k, order }
+        DBGHMM { nodes, k }
     }
     fn push(hm: &mut HashMap<Vec<u8>, usize>, nodes: &mut Vec<Kmer>, kmer: &[u8]) -> usize {
         if !hm.contains_key(kmer) {
@@ -572,6 +560,7 @@ impl Kmer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand_xoshiro::Xoroshiro128StarStar;
     #[test]
     fn works() {}
     #[test]
@@ -662,22 +651,22 @@ mod tests {
         let mode = DBGHMM::new(&test, 12);
         mode.forward(b"CACACAGCAGTCAGTGCA", &DEFAULT_CONFIG);
     }
-    use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng}; // 0.2%, 0.65%, 0.65%.
+    use rand::{seq::SliceRandom, SeedableRng}; // 0.2%, 0.65%, 0.65%.
     struct Profile {
         sub: f64,
         del: f64,
         ins: f64,
     }
     const PROFILE: Profile = Profile {
-        sub: 0.002,
-        del: 0.0065,
-        ins: 0.0065,
+        sub: 0.02,
+        del: 0.065,
+        ins: 0.065,
     };
     #[test]
     fn forward_check() {
         //env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
         let bases = b"ACTG";
-        let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
         let template: Vec<_> = (0..30)
             .filter_map(|_| bases.choose(&mut rng))
             .copied()
@@ -694,7 +683,7 @@ mod tests {
     #[test]
     fn random_check() {
         let bases = b"ACTG";
-        let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
         let template: Vec<_> = (0..150)
             .filter_map(|_| bases.choose(&mut rng))
             .copied()
@@ -720,7 +709,7 @@ mod tests {
     #[test]
     fn hard_test() {
         let bases = b"ACTG";
-        let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
         let template1: Vec<_> = (0..150)
             .filter_map(|_| bases.choose(&mut rng))
             .copied()
@@ -751,11 +740,48 @@ mod tests {
             assert!(likelihood1 < likelihood2, "{},{}", likelihood1, likelihood2);
         }
     }
+    #[test]
+    fn low_coverage_test() {
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
+        let template1: Vec<_> = b"CAGTGTCAGTGCTAGCT".to_vec();
+        let template2: Vec<_> = b"CAGTGTCTGTGCTAGCT".to_vec();
+        let model1: Vec<Vec<_>> = (0..10)
+            .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
+            .collect();
+        let model2: Vec<Vec<_>> = (0..10)
+            .map(|_| introduce_randomness(&template2, &mut rng, &PROFILE))
+            .collect();
+        let k = 7;
+        for m in &model1 {
+            eprintln!("1:{}", String::from_utf8_lossy(m));
+        }
+        for m in &model2 {
+            eprintln!("2:{}", String::from_utf8_lossy(m));
+        }
+        let test1 = introduce_randomness(&template1, &mut rng, &PROFILE);
+        let test2 = introduce_randomness(&template2, &mut rng, &PROFILE);
+        eprintln!("1:{}", String::from_utf8_lossy(&test1));
+        eprintln!("2:{}", String::from_utf8_lossy(&test2));
+        let model1 = DBGHMM::new(&model1, k);
+        let model2 = DBGHMM::new(&model2, k);
+        {
+            let likelihood1 = model1.forward(&test1, &DEFAULT_CONFIG);
+            let likelihood2 = model2.forward(&test1, &DEFAULT_CONFIG);
+            assert!(likelihood1 > likelihood2, "{},{}", likelihood1, likelihood2);
+            eprintln!("{:.4}\t{:.4}", likelihood1, likelihood2);
+        }
+        {
+            let likelihood1 = model1.forward(&test2, &DEFAULT_CONFIG);
+            let likelihood2 = model2.forward(&test2, &DEFAULT_CONFIG);
+            assert!(likelihood1 < likelihood2, "{},{}", likelihood1, likelihood2);
+            eprintln!("{:.4}\t{:.4}", likelihood1, likelihood2);
+        }
+    }
     use test::Bencher;
     #[bench]
     fn new(b: &mut Bencher) {
         let bases = b"ACTG";
-        let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
         let len = 150;
         let num = 30;
         let template: Vec<_> = (0..len)
@@ -771,7 +797,7 @@ mod tests {
     #[bench]
     fn determine(b: &mut Bencher) {
         let bases = b"ACTG";
-        let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
         let len = 150;
         let num = 30;
         let template: Vec<_> = (0..len)
@@ -788,7 +814,7 @@ mod tests {
     #[bench]
     fn initialize_dbg(b: &mut Bencher) {
         let bases = b"ACTG";
-        let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
         let len = 150;
         let num = 30;
         let template: Vec<_> = (0..len)
@@ -805,7 +831,7 @@ mod tests {
     #[bench]
     fn forward_bench(b: &mut Bencher) {
         let bases = b"ACTG";
-        let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
         let len = 150;
         let num = 25;
         let template: Vec<_> = (0..len)
@@ -823,7 +849,7 @@ mod tests {
     #[bench]
     fn score(b: &mut Bencher) {
         let bases = b"ACTG";
-        let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
         let len = 150;
         let num = 30;
         let template: Vec<_> = (0..len)

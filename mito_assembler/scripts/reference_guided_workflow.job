@@ -16,8 +16,8 @@ OUTPATH=$2
 REFERENCE=$3
 CONTIGS=${OUTPATH}/contigs.fasta
 
-## ---- Setup ----
 
+## ---- Setup ----
 rm -rf ${OUTPATH}
 mkdir -p ${OUTPATH}
 samtools faidx ${REFERENCE} NC_037304.1 > ${OUTPATH}/mito.fa

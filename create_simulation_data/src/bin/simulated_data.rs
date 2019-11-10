@@ -9,15 +9,15 @@ fn main() {
     let seed = 100342374;
     let chain_len = 20;
     let k = 6;
-    let len = 150;
-    let max_num = 30;
-    let min_num = 25;
+    let len = 100;
+    let max_num = 11;
+    let min_num = 10;
     let test_num = 100;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let p = gen_sample::Profile {
-        sub: 0.002,
+        sub: 0.001,
         ins: 0.002,
-        del: 0.002,
+        del: 0.001,
     };
     let templates2: Vec<_> = (0..chain_len)
         .map(|_| gen_sample::generate_seq(&mut rng, len))
@@ -40,7 +40,7 @@ fn main() {
         "# of training data for template2 ~ Unif({},{})",
         min_num, max_num
     );
-    println!("Template1:Template2={}:{}",prob_1,1.-prob_1);
+    println!("Template1:Template2={}:{}", prob_1, 1. - prob_1);
     println!("SegmentID\tDivergence");
     for (idx, (t1, t2)) in templates1.iter().zip(templates2.iter()).enumerate() {
         println!("{}\t{}", idx, edlib_sys::global_dist(t1, t2));
@@ -50,18 +50,24 @@ fn main() {
     println!("SeqErrors\tSub:{}\tIns:{}\tDel:{}", sub, ins, del);
     let (dataset2, model2) = generate_dataset(&templates2, min_num, max_num, &mut rng, k);
     let (dataset1, model1) = generate_dataset(&templates1, min_num, max_num, &mut rng, k);
+    // let p = &gen_sample::Profile {
+    //     ins: 0.10,
+    //     del: 0.10,
+    //     sub: 0.10,
+    // };
+    let p = &gen_sample::PROFILE;
     let tests: Vec<(_, Vec<_>)> = (0..test_num)
         .map(|_| {
             if rng.gen_bool(prob_1) {
                 let d = templates1
                     .iter()
-                    .map(|e| gen_sample::introduce_randomness(e, &mut rng, &gen_sample::PROFILE))
+                    .map(|e| gen_sample::introduce_randomness(e, &mut rng, &p))
                     .collect();
                 (1, d)
             } else {
                 let d = templates2
                     .iter()
-                    .map(|e| gen_sample::introduce_randomness(e, &mut rng, &gen_sample::PROFILE))
+                    .map(|e| gen_sample::introduce_randomness(e, &mut rng, &p))
                     .collect();
                 (2, d)
             }
@@ -93,36 +99,36 @@ fn main() {
         test_num,
         correct as f64 / test_num as f64
     );
-    // println!("Naive alignments");
-    // println!("answer\tpredict\tNearestFrom1\tNearestfrom2");
-    // let correct = tests
-    //     .iter()
-    //     .filter(|&(ans, ref test)| {
-    //         let l1: u32 = test
-    //             .iter()
-    //             .zip(dataset1.iter())
-    //             .filter_map(|(test, d1)| {
-    //                 d1.iter().map(|seq| edlib_sys::global_dist(seq, test)).min()
-    //             })
-    //             .sum();
-    //         let l2: u32 = test
-    //             .iter()
-    //             .zip(dataset2.iter())
-    //             .filter_map(|(test, d2)| {
-    //                 d2.iter().map(|seq| edlib_sys::global_dist(seq, test)).min()
-    //             })
-    //             .sum();
-    //         let p = if l2 < l1 { 2 } else { 1 };
-    //         println!("{}\t{}\t{}\t{}", ans, p, l1, l2);
-    //         *ans == p
-    //     })
-    //     .count();
-    // println!(
-    //     "{}\t{}\t{}",
-    //     correct,
-    //     test_num,
-    //     correct as f64 / test_num as f64
-    // );
+    println!("Naive alignments");
+    println!("answer\tpredict\tNearestFrom1\tNearestfrom2");
+    let correct = tests
+        .iter()
+        .filter(|&(ans, ref test)| {
+            let l1: u32 = test
+                .iter()
+                .zip(dataset1.iter())
+                .filter_map(|(test, d1)| {
+                    d1.iter().map(|seq| edlib_sys::global_dist(seq, test)).min()
+                })
+                .sum();
+            let l2: u32 = test
+                .iter()
+                .zip(dataset2.iter())
+                .filter_map(|(test, d2)| {
+                    d2.iter().map(|seq| edlib_sys::global_dist(seq, test)).min()
+                })
+                .sum();
+            let p = if l2 < l1 { 2 } else { 1 };
+            println!("{}\t{}\t{}\t{}", ans, p, l1, l2);
+            *ans == p
+        })
+        .count();
+    println!(
+        "{}\t{}\t{}",
+        correct,
+        test_num,
+        correct as f64 / test_num as f64
+    );
 }
 
 fn generate_dataset<T: Rng>(
@@ -142,7 +148,7 @@ fn generate_dataset<T: Rng>(
         .map(|e| {
             let num = rng.gen_range(min_num, max_num);
             (0..num)
-            //.map(|_| gen_sample::introduce_randomness(e, rng, &gen_sample::PROFILE))
+                //.map(|_| gen_sample::introduce_randomness(e, rng, &gen_sample::PROFILE))
                 .map(|_| gen_sample::introduce_randomness(e, rng, &p))
                 .collect::<Vec<_>>()
         })
@@ -160,6 +166,14 @@ fn predict(models: &[DBGHMM], test: &[Vec<u8>]) -> Vec<f64> {
         .collect()
 }
 
+
+fn merge_predict_naive(l1:&[f64], l2:&[f64])->(f64,f64){
+    // l1 and l2 are the log prob.
+    let sum1 = l1.iter().sum();
+    let sum2 = l2.iter().sum();
+    as_weight(sum1,sum2)
+}
+#[allow(dead_code)]
 fn merge_predict(l1: &[f64], l2: &[f64]) -> (f64, f64) {
     //println!("merging prediction below:");
     let ratio: Vec<_> = l1

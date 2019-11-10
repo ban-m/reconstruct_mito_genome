@@ -10,6 +10,7 @@ pub const PROFILE: Profile = Profile {
     del: 0.05,
     ins: 0.06,
 };
+#[derive(Debug,Clone,Copy)]
 enum Op {
     Match,
     MisMatch,
@@ -42,6 +43,38 @@ pub fn introduce_randomness<T: rand::Rng>(seq: &[u8], rng: &mut T, p: &Profile) 
     }
     res
 }
+
+pub fn introduce_errors<T: rand::Rng>(
+    seq: &[u8],
+    rng: &mut T,
+    sub: usize,
+    del: usize,
+    ins: usize,
+) -> Vec<u8> {
+    // Alignment operations.
+    let mut operations = vec![
+        vec![Op::Match; seq.len() - sub - del],
+        vec![Op::MisMatch; sub],
+        vec![Op::Del; del],
+        vec![Op::In; ins],
+    ]
+    .concat();
+    operations.shuffle(rng);
+    let mut res = vec![];
+    let mut remainings: Vec<_> = seq.iter().copied().rev().collect();
+    for op in operations {
+        match op {
+            Op::Match => res.push(remainings.pop().unwrap()),
+            Op::MisMatch => res.push(choose_base(rng, remainings.pop().unwrap())),
+            Op::In => res.push(random_base(rng)),
+            Op::Del => {
+                remainings.pop().unwrap();
+            }
+        }
+    }
+    res
+}
+
 pub fn generate_seq<T: rand::Rng>(rng: &mut T, len: usize) -> Vec<u8> {
     let bases = b"ACTG";
     (0..len)
