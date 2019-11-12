@@ -1,0 +1,11 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N LA
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/length_and_accuracy.log
+#$ -o ./logfiles/length_and_accuracy.log
+#$ -V
+#$ -m e
+cargo run --release --bin length_and_accuracy -- default > ./result/length_and_accuracy_default.tsv
+cargo run --release --bin length_and_accuracy -- pacbio > ./result/length_and_accuracy_pacbio.tsv

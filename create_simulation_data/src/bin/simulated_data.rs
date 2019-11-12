@@ -19,10 +19,10 @@ fn main() {
         ins: 0.002,
         del: 0.001,
     };
-    let templates2: Vec<_> = (0..chain_len)
+    let templates1: Vec<_> = (0..chain_len)
         .map(|_| gen_sample::generate_seq(&mut rng, len))
         .collect();
-    let templates1: Vec<_> = templates2
+    let templates2: Vec<_> = templates1
         .iter()
         .map(|e| gen_sample::introduce_randomness(e, &mut rng, &p))
         .collect();
@@ -166,13 +166,14 @@ fn predict(models: &[DBGHMM], test: &[Vec<u8>]) -> Vec<f64> {
         .collect()
 }
 
-
+#[allow(dead_code)]
 fn merge_predict_naive(l1:&[f64], l2:&[f64])->(f64,f64){
     // l1 and l2 are the log prob.
     let sum1 = l1.iter().sum();
     let sum2 = l2.iter().sum();
     as_weight(sum1,sum2)
 }
+
 #[allow(dead_code)]
 fn merge_predict(l1: &[f64], l2: &[f64]) -> (f64, f64) {
     //println!("merging prediction below:");

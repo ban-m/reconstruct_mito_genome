@@ -457,7 +457,6 @@ impl Kmer {
         };
         let transition = [0f64; 4];
         let edges = [None; 4];
-        let probs = [0.25; 4];
         Self {
             kmer,
             last,
@@ -469,9 +468,9 @@ impl Kmer {
     }
     fn finalize(&mut self) {
         let tot_for_weight = self.tot as f64;
-        let tot_for_trans = if PSEUDO_COUNT{
+        let tot_for_trans = if PSEUDO_COUNT {
             (self.tot - 4) as f64
-        }else{
+        } else {
             self.tot as f64
         };
         for i in 0..4 {
@@ -528,10 +527,10 @@ impl Kmer {
     // return P_I(base|self)
     fn insertion(&self, base: u8) -> f64 {
         match base {
-            b'A' => self.probs[0],
-            b'C' => self.probs[1],
-            b'G' => self.probs[2],
-            b'T' => self.probs[3],
+            b'A' => self.weight[0],
+            b'C' => self.weight[1],
+            b'G' => self.weight[2],
+            b'T' => self.weight[3],
             _ => 0.,
         }
     }

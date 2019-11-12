@@ -1,59 +1,37 @@
 extern crate bio_utils;
 extern crate dbg_hmm;
 extern crate last_tiling;
-extern crate rand;
 extern crate rayon;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
-use dbg_hmm::*;
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
-use std::time;
 use bio_utils::fasta::Record;
+use dbg_hmm::*;
 use last_tiling::Contigs;
 use last_tiling::LastTAB;
 use std::collections::HashMap;
 use std::io::{BufWriter, Write};
+use std::time;
 const K: usize = 6;
-const ORIGINAL: &'static str = "NC_037304.1";
-fn main() -> std::io::Result<()> {
-    // env_logger::from_env(env_logger::Env::default().default_filter_or("predict=debug")).init();
-    let args: Vec<_> = std::env::args().collect();
-    let reads: Vec<_> = bio_utils::fasta::parse_into_vec(&args[1])?;
-    debug!("{} reads in total.", reads.len());
-    let mut rng: StdRng = SeedableRng::seed_from_u64(23124324);
-    let reference = last_tiling::Contigs::from_file(&args[2])?;
-    let alignments: Vec<_> = last_tiling::parse_tab_file(&args[3])?;
-    let cores: usize = args[4].parse().unwrap();
-    let reads: Vec<_> = reads
-        .into_iter()
-        .filter(|e| {
-            let desc = e.desc().unwrap();
-            !desc.starts_with("junk") && !desc.starts_with("random")
-        })
-        .collect();
+fn main() -> std::io::Result<()>{
     rayon::ThreadPoolBuilder::new()
-        .num_threads(cores)
+        .num_threads(24)
         .build_global()
         .unwrap();
+    env_logger::from_env(env_logger::Env::default().default_filter_or("predict_mockdata=debug"))
+        .init();
+    let args: Vec<_> = std::env::args().collect();
+    let reads: Vec<_> = bio_utils::fasta::parse_into_vec(&args[1])?
+        .into_iter()
+        .filter(|r| r.desc().unwrap().contains("sample"))
+        .collect();
+    debug!("{} reads in total.", reads.len());
+    let reference = last_tiling::Contigs::from_file(&args[2])?;
+    let alignments: Vec<_> = last_tiling::parse_tab_file(&args[3])?;
     debug!("{} alignments in total", alignments.len());
     let len = reference.get_by_id(0).unwrap().len();
-    let (training, testset): (Vec<_>, Vec<_>) = reads.into_iter().partition(|r| {
-        let desc: Vec<_> = r.desc().unwrap().split(',').collect();
-        let forward: bool = desc[1].starts_with('+');
-        let region = desc[2].split_whitespace().nth(0).unwrap();
-        let start: usize = if forward {
-            region.split('-').nth(0).unwrap().parse().unwrap()
-        } else {
-            len - region.split('-').nth(1).unwrap().parse::<usize>().unwrap()
-        };
-        if start < len / 2 {
-            rng.gen_bool(0.5)
-        } else {
-            false
-        }
-    });
+    let (training, testset): (Vec<_>, Vec<_>) =
+        reads.into_iter().partition(|r| before_half(r, len));
     debug!(
         "{} training reads and {} test reads dataset.",
         training.len(),
@@ -74,6 +52,18 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 
+fn before_half(r: &Record, len: usize) -> bool {
+    let desc: &str = r.desc().unwrap();
+    let desc: Vec<_> = desc.split_whitespace().nth(0).unwrap().split(',').collect();
+    let forward: bool = desc[1].starts_with('+');
+    let start: usize = if forward {
+        desc[2].split('-').nth(0).unwrap().parse().unwrap()
+    } else {
+        len - desc[2].split('-').nth(1).unwrap().parse::<usize>().unwrap()
+    };
+    start < len / 2
+}
+
 fn predict(
     training: Vec<Record>,
     tests: Vec<Record>,
@@ -83,7 +73,7 @@ fn predict(
     let answer: HashMap<_, _> = tests
         .iter()
         .filter_map(|e| {
-            let is_original = e.desc()?.split(',').nth(0)? == ORIGINAL;
+            let is_original = e.desc()?.contains("sample1");
             Some((e.id().to_string(), is_original))
         })
         .collect();
@@ -175,7 +165,13 @@ fn construct_predictor(
     let is_original: HashMap<_, _> = training
         .iter()
         .map(|read| {
-            let is_original = read.desc().unwrap().split(',').nth(0).unwrap() == ORIGINAL;
+            let is_original = read
+                .desc()
+                .unwrap()
+                .split(',')
+                .nth(0)
+                .unwrap()
+                .contains("sample1");
             (read.id().to_string(), is_original)
         })
         .collect();

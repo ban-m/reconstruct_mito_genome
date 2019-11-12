@@ -1,0 +1,11 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N LA
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/neutral_checker.log
+#$ -o ./logfiles/neutral_checker.out
+#$ -V
+#$ -m e
+cargo run --release --bin neutral_prediction > ./result/neutral_prediction.tsv
+
