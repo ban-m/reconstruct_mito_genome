@@ -18,7 +18,7 @@ fn main() {
     let num_seq = (5..15).collect::<Vec<usize>>();
     let test_num = 1000;
     let k = 6;
-    let sample_num: Vec<u64> = (0..800).collect();
+    let sample_num: Vec<u64> = (0..100).collect();
     let p = &gen_sample::Profile {
         sub: 0.003,
         ins: 0.004,

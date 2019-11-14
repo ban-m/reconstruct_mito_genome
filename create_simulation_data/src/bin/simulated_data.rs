@@ -2,23 +2,64 @@ extern crate dbg_hmm;
 extern crate edlib_sys;
 extern crate rand;
 extern crate rand_xoshiro;
+extern crate rayon;
 use dbg_hmm::*;
-use rand::{Rng, SeedableRng};
+use rand::{seq::SliceRandom, Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
+use rayon::prelude::*;
 fn main() {
-    let seed = 100342374;
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(24)
+        .build_global()
+        .unwrap();
     let chain_len = 20;
     let k = 6;
     let len = 100;
-    let max_num = 11;
-    let min_num = 10;
+    let min_coverage = 10;
+    let max_coverage = 31;
     let test_num = 100;
-    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
-    let p = gen_sample::Profile {
-        sub: 0.001,
+    let sample_num: Vec<(u64, usize)> = (0..500)
+        .flat_map(|e| {
+            (min_coverage..max_coverage)
+                .map(|c| (e, c))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let p = &gen_sample::Profile {
+        sub: 0.002,
         ins: 0.002,
-        del: 0.001,
+        del: 0.002,
     };
+    let result: Vec<_> = sample_num
+        .into_par_iter()
+        .map(|(seed, coverage)| {
+            let (hmm, aln, dist) = benchmark(seed, p, coverage, test_num, chain_len, k, len);
+            (hmm, aln, dist, coverage)
+        })
+        .collect();
+    println!("HMM\tAln\tDist\tCoverage\tLength");
+    for (hmm, aln, dist, coverage) in result {
+        println!(
+            "{}\t{}\t{}\t{}\t{}",
+            hmm,
+            aln,
+            dist,
+            coverage,
+            len * chain_len
+        );
+    }
+}
+fn benchmark(
+    seed: u64,
+    p: &gen_sample::Profile,
+    coverage: usize,
+    test_num: usize,
+    chain_len: usize,
+    k: usize,
+    len: usize,
+) -> (f64, f64, u32) {
+    let seed = 100342374 + seed;
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let templates1: Vec<_> = (0..chain_len)
         .map(|_| gen_sample::generate_seq(&mut rng, len))
         .collect();
@@ -27,34 +68,13 @@ fn main() {
         .map(|e| gen_sample::introduce_randomness(e, &mut rng, &p))
         .collect();
     let prob_1 = 0.5;
-    println!("Chain Length:{}", chain_len);
-    println!("Unit Length:{}", len);
-    println!("Number of test cases:{}", test_num);
-    println!("k:{}", k);
-    println!("Divergence\tSub:{}\tIns:{}\tDel:{}", p.sub, p.ins, p.del);
-    println!(
-        "# of training data for template1 ~ Unif({},{})",
-        min_num, max_num
-    );
-    println!(
-        "# of training data for template2 ~ Unif({},{})",
-        min_num, max_num
-    );
-    println!("Template1:Template2={}:{}", prob_1, 1. - prob_1);
-    println!("SegmentID\tDivergence");
-    for (idx, (t1, t2)) in templates1.iter().zip(templates2.iter()).enumerate() {
-        println!("{}\t{}", idx, edlib_sys::global_dist(t1, t2));
-        // eprintln!("{}\t{}", idx, edlib_sys::global_dist(t1, t2));
-    }
-    let gen_sample::Profile { sub, ins, del } = gen_sample::PROFILE;
-    println!("SeqErrors\tSub:{}\tIns:{}\tDel:{}", sub, ins, del);
-    let (dataset2, model2) = generate_dataset(&templates2, min_num, max_num, &mut rng, k);
-    let (dataset1, model1) = generate_dataset(&templates1, min_num, max_num, &mut rng, k);
-    // let p = &gen_sample::Profile {
-    //     ins: 0.10,
-    //     del: 0.10,
-    //     sub: 0.10,
-    // };
+    let dist = templates1
+        .iter()
+        .zip(templates2.iter())
+        .map(|(t1, t2)| edlib_sys::global_dist(t1, t2))
+        .sum::<u32>();
+    let (dataset2, model2) = generate_dataset(&templates2, coverage, &mut rng, k);
+    let (dataset1, model1) = generate_dataset(&templates1, coverage, &mut rng, k);
     let p = &gen_sample::PROFILE;
     let tests: Vec<(_, Vec<_>)> = (0..test_num)
         .map(|_| {
@@ -73,8 +93,6 @@ fn main() {
             }
         })
         .collect();
-    let start = std::time::Instant::now();
-    println!("answer\tpredict\tw1\tw2");
     let correct = tests
         .iter()
         .filter(|&(ans, ref test)| {
@@ -82,79 +100,62 @@ fn main() {
             let l2 = predict(&model2, test);
             let (l1, l2) = merge_predict(&l1, &l2);
             let p = if l2 < l1 { 1 } else { 2 };
-            println!("{}\t{}\t{:.4}\t{:.4}", ans, p, l1, l2);
             *ans == p
         })
         .count();
-    let ela = std::time::Instant::now() - start;
-    println!(
-        "Elapsed Time:{:?}/{}\t{:.2}millis/case",
-        ela,
-        tests.len(),
-        ela.as_millis() as f64 / tests.len() as f64
-    );
-    println!(
-        "{}\t{}\t{}",
-        correct,
-        test_num,
-        correct as f64 / test_num as f64
-    );
-    println!("Naive alignments");
-    println!("answer\tpredict\tNearestFrom1\tNearestfrom2");
+    let hmm = correct as f64 / test_num as f64;
     let correct = tests
         .iter()
         .filter(|&(ans, ref test)| {
-            let l1: u32 = test
+            let test = test.concat();
+            let l1: u32 = dataset1
                 .iter()
-                .zip(dataset1.iter())
-                .filter_map(|(test, d1)| {
-                    d1.iter().map(|seq| edlib_sys::global_dist(seq, test)).min()
-                })
-                .sum();
-            let l2: u32 = test
+                .map(|seq| edlib_sys::global_dist(seq, &test))
+                .min()
+                .unwrap();
+            let l2: u32 = dataset2
                 .iter()
-                .zip(dataset2.iter())
-                .filter_map(|(test, d2)| {
-                    d2.iter().map(|seq| edlib_sys::global_dist(seq, test)).min()
-                })
-                .sum();
-            let p = if l2 < l1 { 2 } else { 1 };
-            println!("{}\t{}\t{}\t{}", ans, p, l1, l2);
-            *ans == p
+                .map(|seq| edlib_sys::global_dist(seq, &test))
+                .min()
+                .unwrap();
+            if l2 < l1 {
+                *ans == 2
+            } else if l1 < l2 {
+                *ans == 1
+            } else {
+                ans == [1, 2].choose(&mut rng).unwrap()
+            }
         })
         .count();
-    println!(
-        "{}\t{}\t{}",
-        correct,
-        test_num,
-        correct as f64 / test_num as f64
-    );
+    let aln = correct as f64 / test_num as f64;
+    (hmm, aln, dist)
 }
 
 fn generate_dataset<T: Rng>(
     templates: &[Vec<u8>],
-    min_num: usize,
-    max_num: usize,
+    coverage: usize,
     rng: &mut T,
     k: usize,
-) -> (Vec<Vec<Vec<u8>>>, Vec<DBGHMM>) {
-    let p = gen_sample::Profile {
-        sub: 0.000,
-        ins: 0.010,
-        del: 0.000,
-    };
+) -> (Vec<Vec<u8>>, Vec<DBGHMM>) {
     let dataset: Vec<_> = templates
         .iter()
         .map(|e| {
-            let num = rng.gen_range(min_num, max_num);
-            (0..num)
-                //.map(|_| gen_sample::introduce_randomness(e, rng, &gen_sample::PROFILE))
-                .map(|_| gen_sample::introduce_randomness(e, rng, &p))
+            (0..coverage)
+                .map(|_| gen_sample::introduce_randomness(e, rng, &gen_sample::PROFILE))
                 .collect::<Vec<_>>()
         })
         .collect();
     let mut f = Factory::new();
     let models: Vec<_> = dataset.iter().map(|e| f.generate(e, k)).collect();
+    let dataset: Vec<_> = (0..coverage)
+        .map(|i| {
+            dataset
+                .iter()
+                .flat_map(|e| &e[i])
+                .copied()
+                .collect::<Vec<_>>()
+        })
+        .collect();
     (dataset, models)
 }
 
@@ -162,16 +163,17 @@ fn predict(models: &[DBGHMM], test: &[Vec<u8>]) -> Vec<f64> {
     models
         .iter()
         .zip(test.iter())
+        // .map(|(e, f)| e.forward(f, &PACBIO_CONFIG))
         .map(|(e, f)| e.forward(f, &DEFAULT_CONFIG))
         .collect()
 }
 
 #[allow(dead_code)]
-fn merge_predict_naive(l1:&[f64], l2:&[f64])->(f64,f64){
+fn merge_predict_naive(l1: &[f64], l2: &[f64]) -> (f64, f64) {
     // l1 and l2 are the log prob.
     let sum1 = l1.iter().sum();
     let sum2 = l2.iter().sum();
-    as_weight(sum1,sum2)
+    as_weight(sum1, sum2)
 }
 
 #[allow(dead_code)]

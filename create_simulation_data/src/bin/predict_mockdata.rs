@@ -5,19 +5,19 @@ extern crate rayon;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
+extern crate rand;
+extern crate rand_xoshiro;
 use bio_utils::fasta::Record;
 use dbg_hmm::*;
 use last_tiling::Contigs;
 use last_tiling::LastTAB;
+use rand::{Rng, SeedableRng};
+use rand_xoshiro::Xoroshiro128StarStar;
 use std::collections::HashMap;
 use std::io::{BufWriter, Write};
 use std::time;
 const K: usize = 6;
-fn main() -> std::io::Result<()>{
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(24)
-        .build_global()
-        .unwrap();
+fn main() -> std::io::Result<()> {
     env_logger::from_env(env_logger::Env::default().default_filter_or("predict_mockdata=debug"))
         .init();
     let args: Vec<_> = std::env::args().collect();
@@ -30,8 +30,9 @@ fn main() -> std::io::Result<()>{
     let alignments: Vec<_> = last_tiling::parse_tab_file(&args[3])?;
     debug!("{} alignments in total", alignments.len());
     let len = reference.get_by_id(0).unwrap().len();
-    let (training, testset): (Vec<_>, Vec<_>) =
-        reads.into_iter().partition(|r| before_half(r, len));
+    let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1893749823);
+    let (training, testset): (Vec<_>, Vec<_>) = reads.into_iter().partition(|_| rng.gen_bool(0.5));
+    //reads.into_iter().partition(|r| before_half(r, len));
     debug!(
         "{} training reads and {} test reads dataset.",
         training.len(),
@@ -41,12 +42,12 @@ fn main() -> std::io::Result<()>{
     debug!("Dump results");
     let stdout = std::io::stdout();
     let mut wtr = BufWriter::new(stdout.lock());
-    writeln!(&mut wtr, "ReadID\tAnswer\tPredict\tDistance\tLength")?;
-    for (readid, answer, predict, distance, length) in result {
+    writeln!(&mut wtr, "ReadID\tAnswer\tPredict\tLength\tDistance")?;
+    for (readid, answer, predict, length, dist) in result {
         writeln!(
             &mut wtr,
             "{}\t{}\t{}\t{}\t{}",
-            readid, answer, predict, distance, length
+            readid, answer, predict, dist, length
         )?;
     }
     Ok(())
@@ -55,11 +56,15 @@ fn main() -> std::io::Result<()>{
 fn before_half(r: &Record, len: usize) -> bool {
     let desc: &str = r.desc().unwrap();
     let desc: Vec<_> = desc.split_whitespace().nth(0).unwrap().split(',').collect();
+    if desc.len() < 2 {
+        debug!("{:?}", r.desc());
+    }
     let forward: bool = desc[1].starts_with('+');
     let start: usize = if forward {
         desc[2].split('-').nth(0).unwrap().parse().unwrap()
     } else {
-        len - desc[2].split('-').nth(1).unwrap().parse::<usize>().unwrap()
+        let l = desc[2].split('-').nth(1).unwrap().parse::<usize>().unwrap();
+        len - len.min(l)
     };
     start < len / 2
 }
@@ -89,30 +94,27 @@ fn predict(
                 .split(',')
                 .collect();
             let forward: bool = desc[1].starts_with('+');
-            // debug!("{:?}",desc[2].split('-').nth(1));
             let dist = if forward {
                 desc[2].split('-').nth(0)?.parse().ok()?
             } else {
-                len - desc[2].split('-').nth(1)?.parse::<usize>().ok()?
+                let l = desc[2].split('-').nth(1)?.parse::<usize>().ok()?;
+                len - l.min(len)
             };
             Some((e.id().to_string(), dist))
         })
         .collect();
-    assert!(
-        answer.len() == dist.len(),
-        "{}\t{}",
-        answer.len(),
-        dist.len()
-    );
     debug!("Answer and Distance hashmaps are built");
     let mut tests = last_tiling::encoding(&tests, contig, &alignments);
     tests.sort_by_key(|read| {
-        read.seq()
+        let (min, max) = read
+            .seq()
             .iter()
             .filter_map(|e| e.encode())
             .map(|e| e.unit)
-            .min()
-            .unwrap_or(0)
+            .fold((std::u16::MAX, std::u16::MIN), |(x, y), u| {
+                (x.min(u), y.max(u))
+            });
+        (min, max)
     });
     debug!("Tetst cases are sorted.");
     let mut predicts = vec![];
@@ -123,18 +125,12 @@ fn predict(
     }
     let mut f = Factory::new();
     for read in tests {
-        debug!(
-            "{}:{}\t{}",
-            read.id(),
-            answer.contains_key(read.id()),
-            dist.contains_key(read.id())
-        );
         let id = read.id().to_string();
         let answer = if answer[&id] { 0 } else { 1 };
         let length = read.recover_raw_sequence().len();
         let dist = dist[&id];
-        debug!("Read:{}\t{}", read, answer);
         let predict = make_prediction(&chunks, &read, &mut f);
+        debug!("Pred\tAns={}\t{}", predict, answer);
         predicts.push((id, answer, predict, length, dist));
         for unit in read.seq().iter().filter_map(|e| e.encode()) {
             assert_eq!(0, unit.contig);
@@ -219,7 +215,7 @@ fn make_prediction(
         .filter_map(|e| {
             let u = e.unit as usize;
             let (ref original, ref mutant) = &chunks[u];
-            if original.len() < 5 || mutant.len() < 5 {
+            if original.len() < 10 || mutant.len() < 10 {
                 return None;
             }
             let query = if e.is_forward {
@@ -227,17 +223,21 @@ fn make_prediction(
             } else {
                 last_tiling::revcmp(e.bases.as_bytes())
             };
-            let o = unit_prediction(original, &query, f);
-            let m = unit_prediction(mutant, &query, f);
+            let min = original.len().min(mutant.len());
+            let s = time::Instant::now();
+            let o = unit_prediction(&original[0..min], &query, f);
+            let m = unit_prediction(&mutant[0..min], &query, f);
+            let (o, m) = as_weight(o, m);
             debug!(
-                "Pred({})\t{}\t{}->{}\t{}",
+                "Pred({})\t{}\t{}->{:.4}\t{:.4} in {:?}",
                 u,
                 original.len(),
                 mutant.len(),
                 o,
-                m
+                m,
+                time::Instant::now() - s
             );
-            Some(as_weight(o, m))
+            Some((o, m))
         })
         .collect();
     if predicts.is_empty() {
@@ -245,9 +245,6 @@ fn make_prediction(
         return 0;
     }
     // Sum ln2 - H(p)
-    for &(o, m) in &predicts {
-        assert!(!o.is_nan() && !m.is_nan(), "{}\t{}", o, m);
-    }
     let xlnx = |x: &f64| if x == &0. { 0. } else { x * x.ln() };
     let entropy: Vec<_> = predicts
         .iter()
@@ -262,7 +259,7 @@ fn make_prediction(
         .fold((0., 0.), |(x, y), (a, b)| (x + a, y + b));
     let (p1, p2) = (p1 / sum, p2 / sum);
     assert!((p1 + p2 - 1.).abs() < 0.0001, "{}", p1 + p2);
-    eprintln!("Overall:{:.4}\t{:.4}", p1, p2);
+    debug!("Overall:{:.4}\t{:.4}", p1, p2);
     debug!("Time {}", (time::Instant::now() - start).as_millis());
     if p2 < p1 {
         0
@@ -273,14 +270,7 @@ fn make_prediction(
 
 fn unit_prediction(units: &[Seq], query: &[u8], f: &mut Factory) -> f64 {
     //let hmm = DBGHMM::new(units, K);
-    let start = time::Instant::now();
     let hmm = f.generate(units, K);
     let res = hmm.forward(&query, &DEFAULT_CONFIG);
-    assert!(!res.is_nan());
-    debug!(
-        "Unit {} {}",
-        units.len(),
-        (time::Instant::now() - start).as_millis()
-    );
     res
 }

@@ -1,0 +1,10 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N Simulation
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/log
+#$ -o ./logfiles/out
+#$ -V
+#$ -m e
+cargo run --release --bin simulated_data > ./result/simulated_data.tsv

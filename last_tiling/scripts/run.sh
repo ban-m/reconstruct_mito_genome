@@ -9,14 +9,6 @@
 set -ue
 
 # ---- Inputs ---- 
-# ROOT=$1/grid/ban-m/arabidopsis_thaliana/sequel/assemble/mine
-# READ=${ROOT}/filtered_read.fasta
-# CONTIGS=${ROOT}/initial_asm/scaffolds.contigs.fasta
-# LASTTAB=${ROOT}/last_db/initial.tab
-# SELF_LASTTAB=${ROOT}/last_db/self.tab
-# PREFIX=mine_w_repeat
-
-
 READ=$1
 CONTIGS=$2
 LASTTAB=$3
@@ -33,4 +25,4 @@ cargo run --release --bin encode \
 cargo run --release --bin convert_to_d3_data \
       -- ./data/${PREFIX}_contig.json ./data/${PREFIX}_reads.json \
       > ./data/${PREFIX}_d3.json
-cat ./data/template.html | sed -e "s/SED/${PREFIX}/g" > ./data/${PREFIX}.html
+cat ./scripts/template.html | sed -e "s/SED/${PREFIX}/g" > ./data/${PREFIX}.html

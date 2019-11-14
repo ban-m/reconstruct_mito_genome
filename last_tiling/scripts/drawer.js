@@ -27,9 +27,9 @@ const gap_scale = d3.scaleLog()
       .clamp(true);
 
 // Circle radius
-const min_radius = 1;
+const min_radius = 0;
 const max_radius = 8;
-const min_read_num = 3;
+const min_read_num = 10;
 
 const svg = d3.select("#plot")
       .append("svg")
@@ -120,8 +120,9 @@ const calcReadNumScale = (contigs) => {
     const num = contigs.map(c => c.start_stop.length).reduce((x,y)=> x+y);
     const max = Math.max(...contigs.flatMap(c => c.start_stop));
     console.log("mean", total/ num);
+    console.log("max", max);
     return d3.scaleLog()
-        .domain([min_read_num,9*max/10])
+        .domain([min_read_num,max])
         .range([min_radius,max_radius])
         .clamp(true);
 };

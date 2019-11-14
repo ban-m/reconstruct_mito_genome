@@ -10,8 +10,8 @@ generalplot <- function(g,name){
 args <- commandArgs(trailingOnly = TRUE)
 filename <- args[1]
 outname <- args[2]
-dataset <- read_tsv(args[1])
-dataset <- dataset %>% gather(key = type, value = accuracy, -Length, -Dist)
+dataset <- read_tsv(filename) %>%
+    gather(key = type, value = accuracy, -Length, -Dist)
 
 
 g <- dataset %>% ggplot() + geom_smooth(mapping = aes( x = Length, y = accuracy, color = type), se = TRUE) + facet_wrap( . ~ Dist)

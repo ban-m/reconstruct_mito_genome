@@ -1,10 +1,15 @@
 extern crate dbg_hmm;
 extern crate edlib_sys;
 extern crate rand;
+#[macro_use]
+extern crate log;
+extern crate env_logger;
 use dbg_hmm::gen_sample::*;
 use dbg_hmm::*;
 use rand::{rngs::StdRng, SeedableRng};
+use std::time::Instant;
 fn main() {
+    env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let len = 150;
     let num_seq = 50;
     let mut rng: StdRng = SeedableRng::seed_from_u64(12121899892);
@@ -37,22 +42,8 @@ fn main() {
     let data2: Vec<Vec<_>> = (0..num_seq)
         .map(|_| introduce_randomness(&template2, &mut rng, &PROFILE))
         .collect();
-    // for line in &data1 {
-    //     println!("Model1\t{}", String::from_utf8_lossy(line));
-    // }
-    // for line in &data2 {
-    //     println!("Model2\t{}", String::from_utf8_lossy(line));
-    // }
-    let k = 7;
+    let k = 6;
     println!("K={}", k);
-    let model1 = DBGHMM::new(&data1, k);
-    let model2 = DBGHMM::new(&data2, k);
-    let likelihood1 = model1.forward(&template1, &DEFAULT_CONFIG);
-    let likelihood2 = model1.forward(&template2, &DEFAULT_CONFIG);
-    println!("Model1's likelihood:{:.4}\t{:.4}", likelihood1, likelihood2);
-    let likelihood1 = model2.forward(&template1, &DEFAULT_CONFIG);
-    let likelihood2 = model2.forward(&template2, &DEFAULT_CONFIG);
-    println!("Model2's likelihood:{:.4}\t{:.4}", likelihood1, likelihood2);
     println!("Cross Validation");
     println!("Answer\tModel1\tModel2");
     let cv = cross_validation(&data1, &data2);
@@ -61,8 +52,8 @@ fn main() {
         let is_ok = (ans == 1 && m1 > m2) || (ans == 2 && m1 < m2);
         tot += 1;
         correct += is_ok as u32;
-        let sign = if is_ok { "OK" } else { "NG" };
-        println!("{}\t{:.4}\t{:.4}\t{}", ans, m1, m2, sign);
+        // let sign = if is_ok { "OK" } else { "NG" };
+        //println!("{}\t{:.4}\t{:.4}\t{}", ans, m1, m2, sign);
     }
     println!("{} out of {}", correct, tot);
     let cv = cross_validation_nn(&data1, &data2);
@@ -71,8 +62,8 @@ fn main() {
         let is_ok = (ans == 1 && m1 > m2) || (ans == 2 && m1 < m2);
         tot += 1;
         correct += is_ok as u32;
-        let sign = if is_ok { "OK" } else { "NG" };
-        println!("{}\t{:.4}\t{:.4}\t{}", ans, m1, m2, sign);
+        // let sign = if is_ok { "OK" } else { "NG" };
+        // println!("{}\t{:.4}\t{:.4}\t{}", ans, m1, m2, sign);
     }
     println!("{} out of {}", correct, tot);
 }
@@ -126,7 +117,7 @@ fn cross_validation_nn(data1: &[Vec<u8>], data2: &[Vec<u8>]) -> Vec<(usize, u8, 
 fn cross_validation(data1: &[Vec<u8>], data2: &[Vec<u8>]) -> Vec<(usize, f64, f64)> {
     let len = data1.len();
     let mut res = vec![];
-    let k = 7;
+    let k = 6;
     for i in 0..len {
         let test1 = &data1[i];
         let test2 = &data2[i];
@@ -144,14 +135,19 @@ fn cross_validation(data1: &[Vec<u8>], data2: &[Vec<u8>]) -> Vec<(usize, f64, f6
             .map(|(_, e)| e)
             .cloned()
             .collect();
+        let s = Instant::now();
         let m1 = DBGHMM::new(&data1, k);
         let m2 = DBGHMM::new(&data2, k);
+        let s2 = Instant::now();
         let m1_for_1 = m1.forward(test1, &DEFAULT_CONFIG);
         let m1_for_2 = m1.forward(test2, &DEFAULT_CONFIG);
         let m2_for_1 = m2.forward(test1, &DEFAULT_CONFIG);
         let m2_for_2 = m2.forward(test2, &DEFAULT_CONFIG);
         res.push((1, m1_for_1, m2_for_1));
         res.push((2, m1_for_2, m2_for_2));
+        let s3 = Instant::now();
+        eprintln!("{:?}\t{:?}\t{:?} in tot", s2 - s, s3 - s2, s3 - s);
+        eprintln!("{}\t{}", m1, m2);
     }
     res.sort_by_key(|e| e.0);
     res

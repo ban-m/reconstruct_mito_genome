@@ -12,3 +12,5 @@ edlib_sys = {path = "../../edlib-sys"}
 rand = "*"
 rand_xoshiro = "*"
 rayon = "*"
+log = "*"
+env_logger = "*"

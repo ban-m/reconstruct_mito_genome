@@ -15,7 +15,6 @@ extern crate env_logger;
 // Whether or not to use 'pseudo count' in the out-dgree.
 const PSEUDO_COUNT: bool = true;
 pub mod gen_sample;
-use std::collections::HashMap;
 // This setting is determined by experimentally.
 pub const DEFAULT_CONFIG: Config = Config {
     mismatch: 0.03,
@@ -54,12 +53,31 @@ pub struct DeBruijnGraphHiddenMarkovModel {
     k: usize,
 }
 
-pub struct Factory {
-    inner: std::collections::HashMap<Vec<u8>, usize>,
+impl std::fmt::Display for DBGHMM {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let edges = self
+            .nodes
+            .iter()
+            .map(|kmer| kmer.edges.iter().filter(|e| e.is_some()).count())
+            .sum::<usize>();
+        write!(
+            f,
+            "K:{}\tNodes:{}\tEdges:{}",
+            self.k,
+            self.nodes.len(),
+            edges
+        )
+    }
 }
+
+pub struct Factory {
+    inner: std::collections::HashMap<Vec<u8>, (u32, usize)>,
+}
+
+use std::collections::HashMap;
 impl Factory {
-    pub fn generate(&mut self, dataset: &[Vec<u8>], k: usize) -> DBGHMM {
-        let indexer = &mut self.inner;
+    pub fn generate_old(&mut self, dataset: &[Vec<u8>], k: usize) -> DBGHMM {
+        let indexer = &mut HashMap::new();
         let mut nodes = vec![];
         for seq in dataset {
             for x in seq.windows(k + 1) {
@@ -74,21 +92,6 @@ impl Factory {
         self.inner.clear();
         DBGHMM { nodes, k }
     }
-    pub fn generate_from_ref(&mut self, dataset: &[&[u8]], k: usize) -> DBGHMM {
-        let indexer = &mut self.inner;
-        let mut nodes = vec![];
-        for seq in dataset {
-            for x in seq.windows(k + 1) {
-                let from = Self::push(indexer, &mut nodes, &x[..k]);
-                let to = Self::push(indexer, &mut nodes, &x[1..]);
-                nodes[from].push_edge_with(x[k], to);
-            }
-        }
-        let mut nodes = Self::renaming_nodes(nodes);
-        nodes.iter_mut().for_each(Kmer::finalize);
-        self.inner.clear();
-        DBGHMM { nodes, k }
-    }
     fn push(hm: &mut HashMap<Vec<u8>, usize>, nodes: &mut Vec<Kmer>, kmer: &[u8]) -> usize {
         if !hm.contains_key(kmer) {
             hm.insert(kmer.to_vec(), nodes.len());
@@ -97,6 +100,102 @@ impl Factory {
         } else {
             hm[kmer]
         }
+    }
+    pub fn generate(&mut self, dataset: &[Vec<u8>], k: usize) -> DBGHMM {
+        let counter = &mut self.inner;
+        dataset.iter().for_each(|seq| {
+            seq.windows(k).for_each(|kmer| match counter.get_mut(kmer) {
+                Some(x) => x.0 += 1,
+                None => {
+                    counter.insert(kmer.to_vec(), (1, std::usize::MAX));
+                }
+            })
+        });
+        let thr = 0; // counter.values().map(|e| e.0).sum::<u32>() / counter.len() as u32 - 1;
+        let mut nodes = Vec::with_capacity(counter.len());
+        for seq in dataset {
+            for x in seq.windows(k + 1) {
+                let (prev, after) = (&x[..k], &x[1..]);
+                let from = {
+                    match counter.get_mut(prev) {
+                        Some(x) if x.0 <= thr => continue,
+                        Some(x) if x.1 != std::usize::MAX => x.1,
+                        Some(x) => {
+                            x.1 = nodes.len();
+                            nodes.push(Kmer::new(prev));
+                            nodes.len() - 1
+                        }
+                        _ => unreachable!(),
+                    }
+                };
+                let to = {
+                    match counter.get_mut(after) {
+                        Some(x) if x.0 <= thr => continue,
+                        Some(x) if x.1 != std::usize::MAX => x.1,
+                        Some(x) => {
+                            x.1 = nodes.len();
+                            nodes.push(Kmer::new(after));
+                            nodes.len() - 1
+                        }
+                        _ => unreachable!(),
+                    }
+                };
+                nodes[from].push_edge_with(x[k], to);
+            }
+        }
+        // Node Index -> Topological order.
+        let mut nodes = Self::renaming_nodes(nodes);
+        nodes.iter_mut().for_each(Kmer::finalize);
+        self.inner.clear();
+        DBGHMM { nodes, k }
+    }
+    pub fn generate_from_ref(&mut self, dataset: &[&[u8]], k: usize) -> DBGHMM {
+        let counter = &mut self.inner;
+        dataset.iter().for_each(|seq| {
+            seq.windows(k).for_each(|kmer| match counter.get_mut(kmer) {
+                Some(x) => x.0 += 1,
+                None => {
+                    counter.insert(kmer.to_vec(), (1, std::usize::MAX));
+                }
+            })
+        });
+        let thr = counter.values().map(|e| e.0).sum::<u32>() / counter.len() as u32;
+        let mut nodes = Vec::with_capacity(counter.len());
+        for seq in dataset {
+            for x in seq.windows(k + 1) {
+                let (prev, after) = (&x[..k], &x[1..]);
+                let from = {
+                    match counter.get_mut(prev) {
+                        Some(x) if x.0 <= thr => continue,
+                        Some(x) if x.1 != std::usize::MAX => x.1,
+                        Some(x) => {
+                            x.1 = nodes.len();
+                            nodes.push(Kmer::new(prev));
+                            nodes.len() - 1
+                        }
+                        _ => unreachable!(),
+                    }
+                };
+                let to = {
+                    match counter.get_mut(after) {
+                        Some(x) if x.0 <= thr => continue,
+                        Some(x) if x.1 != std::usize::MAX => x.1,
+                        Some(x) => {
+                            x.1 = nodes.len();
+                            nodes.push(Kmer::new(after));
+                            nodes.len() - 1
+                        }
+                        _ => unreachable!(),
+                    }
+                };
+                nodes[from].push_edge_with(x[k], to);
+            }
+        }
+        // Node Index -> Topological order.
+        let mut nodes = Self::renaming_nodes(nodes);
+        nodes.iter_mut().for_each(Kmer::finalize);
+        self.inner.clear();
+        DBGHMM { nodes, k }
     }
     // Return topological sorted order. If there's a cycle,
     // it neglect the back-edge, and proceed with raise error messages to stderr(DEBUG MODE).
@@ -110,8 +209,8 @@ impl Factory {
         match Self::topological_sort_inner(&edges, nodes.len()) {
             Ok(res) => res,
             Err(res) => {
-                debug!("The graph is cyclic.");
-                debug!("{:?}", nodes);
+                // debug!("The graph is cyclic.");
+                // debug!("{:?}", nodes);
                 res
             }
         }
@@ -264,6 +363,7 @@ impl DeBruijnGraphHiddenMarkovModel {
     }
     // This returns log p(obs|model) = \sum - log c_t.
     pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
+        //use std::time::Instant;
         assert!(obs.len() > self.k);
         //debug!("Nodes:{:?}", self.nodes);
         let mut cs = Vec::with_capacity(obs.len() + 1);
@@ -432,6 +532,7 @@ impl std::fmt::Debug for Kmer {
         writeln!(f, "Kmer:{}", String::from_utf8_lossy(&self.kmer))?;
         writeln!(f, "Last:{}", self.last as char)?;
         writeln!(f, "Weight:{:?}", self.weight)?;
+        writeln!(f, "Transition:{:?}", self.transition)?;
         writeln!(f, "tot:{}", self.tot)?;
         for (i, to) in self
             .edges
