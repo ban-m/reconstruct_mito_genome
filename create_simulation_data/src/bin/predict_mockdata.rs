@@ -13,10 +13,12 @@ use last_tiling::Contigs;
 use last_tiling::LastTAB;
 use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoroshiro128StarStar;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::io::{BufWriter, Write};
 use std::time;
 const K: usize = 6;
+// const MAX_COVERAGE: usize = 30;
 fn main() -> std::io::Result<()> {
     env_logger::from_env(env_logger::Env::default().default_filter_or("predict_mockdata=debug"))
         .init();
@@ -29,10 +31,11 @@ fn main() -> std::io::Result<()> {
     let reference = last_tiling::Contigs::from_file(&args[2])?;
     let alignments: Vec<_> = last_tiling::parse_tab_file(&args[3])?;
     debug!("{} alignments in total", alignments.len());
-    let len = reference.get_by_id(0).unwrap().len();
+    let _len = reference.get_by_id(0).unwrap().len();
     let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1893749823);
     let (training, testset): (Vec<_>, Vec<_>) = reads.into_iter().partition(|_| rng.gen_bool(0.5));
-    //reads.into_iter().partition(|r| before_half(r, len));
+    // reads.into_iter().partition(|r| before_half(r, len));
+    // let training: Vec<_> = training.into_iter().filter(|_| rng.gen_bool(0.4)).collect();
     debug!(
         "{} training reads and {} test reads dataset.",
         training.len(),
@@ -53,6 +56,7 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn before_half(r: &Record, len: usize) -> bool {
     let desc: &str = r.desc().unwrap();
     let desc: Vec<_> = desc.split_whitespace().nth(0).unwrap().split(',').collect();
@@ -106,7 +110,7 @@ fn predict(
     debug!("Answer and Distance hashmaps are built");
     let mut tests = last_tiling::encoding(&tests, contig, &alignments);
     tests.sort_by_key(|read| {
-        let (min, max) = read
+        let (min, _max) = read
             .seq()
             .iter()
             .filter_map(|e| e.encode())
@@ -114,7 +118,7 @@ fn predict(
             .fold((std::u16::MAX, std::u16::MIN), |(x, y), u| {
                 (x.min(u), y.max(u))
             });
-        (min, max)
+        (min, read.seq().len())
     });
     debug!("Tetst cases are sorted.");
     let mut predicts = vec![];
@@ -205,12 +209,12 @@ fn as_weight(x1: f64, x2: f64) -> (f64, f64) {
 fn make_prediction(
     chunks: &[(Vec<Seq>, Vec<Seq>)],
     read: &last_tiling::EncodedRead,
-    f: &mut Factory,
+    _f: &mut Factory,
 ) -> u8 {
     let start = time::Instant::now();
     let predicts: Vec<(f64, f64)> = read
         .seq()
-        .iter()
+        .par_iter()
         .filter_map(|e| e.encode())
         .filter_map(|e| {
             let u = e.unit as usize;
@@ -224,24 +228,31 @@ fn make_prediction(
                 last_tiling::revcmp(e.bases.as_bytes())
             };
             let min = original.len().min(mutant.len());
-            let s = time::Instant::now();
-            let o = unit_prediction(&original[0..min], &query, f);
-            let m = unit_prediction(&mutant[0..min], &query, f);
+            // let s = time::Instant::now();
+            let o = {
+                let hmm = DBGHMM::new(&original[..min], K);
+                hmm.forward(&query, &DEFAULT_CONFIG)
+            };
+            let m = {
+                let hmm = DBGHMM::new(&mutant[..min], K);
+                hmm.forward(&query, &DEFAULT_CONFIG)
+            };
             let (o, m) = as_weight(o, m);
-            debug!(
-                "Pred({})\t{}\t{}->{:.4}\t{:.4} in {:?}",
-                u,
-                original.len(),
-                mutant.len(),
-                o,
-                m,
-                time::Instant::now() - s
-            );
+            // debug!(
+            //     "Pred({})\t{}\t{}\t{}->{:.4}\t{:.4} in {:?}",
+            //     u,
+            //     original.len(),
+            //     mutant.len(),
+            //     min,
+            //     o,
+            //     m,
+            //     time::Instant::now() - s
+            // );
             Some((o, m))
         })
         .collect();
     if predicts.is_empty() {
-        debug!("Overall:{:.4}\t{:.4}", 0.5, 0.5);
+        debug!("Error! Overall:{:.4}\t{:.4}", 0.5, 0.5);
         return 0;
     }
     // Sum ln2 - H(p)
@@ -252,6 +263,8 @@ fn make_prediction(
         .collect();
     let sum = entropy.iter().sum::<f64>();
     assert!(!sum.is_nan() && sum > 0.0000001);
+    // let sum = predicts.len() as f64;
+    // let entropy = vec![1.; predicts.len()];
     let (p1, p2) = predicts
         .iter()
         .zip(entropy.iter())
@@ -266,11 +279,4 @@ fn make_prediction(
     } else {
         1
     }
-}
-
-fn unit_prediction(units: &[Seq], query: &[u8], f: &mut Factory) -> f64 {
-    //let hmm = DBGHMM::new(units, K);
-    let hmm = f.generate(units, K);
-    let res = hmm.forward(&query, &DEFAULT_CONFIG);
-    res
 }

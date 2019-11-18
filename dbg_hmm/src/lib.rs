@@ -6,12 +6,11 @@
 //! to calculate the probability this graph would generate the given observation.
 //! As a shorthand for the vary long name, I also supply [DBGHMM] as a alias for [DeBruijnGraphHiddenMarkovModel].
 extern crate edlib_sys;
+extern crate env_logger;
+extern crate log;
 extern crate rand;
 extern crate rand_xoshiro;
 extern crate test;
-#[macro_use]
-extern crate log;
-extern crate env_logger;
 // Whether or not to use 'pseudo count' in the out-dgree.
 const PSEUDO_COUNT: bool = true;
 pub mod gen_sample;
@@ -70,37 +69,13 @@ impl std::fmt::Display for DBGHMM {
     }
 }
 
+#[derive(Default)]
 pub struct Factory {
     inner: std::collections::HashMap<Vec<u8>, (u32, usize)>,
 }
 
-use std::collections::HashMap;
+
 impl Factory {
-    pub fn generate_old(&mut self, dataset: &[Vec<u8>], k: usize) -> DBGHMM {
-        let indexer = &mut HashMap::new();
-        let mut nodes = vec![];
-        for seq in dataset {
-            for x in seq.windows(k + 1) {
-                let from = Self::push(indexer, &mut nodes, &x[..k]);
-                let to = Self::push(indexer, &mut nodes, &x[1..]);
-                nodes[from].push_edge_with(x[k], to);
-            }
-        }
-        // Node Index -> Topological order.
-        let mut nodes = Self::renaming_nodes(nodes);
-        nodes.iter_mut().for_each(Kmer::finalize);
-        self.inner.clear();
-        DBGHMM { nodes, k }
-    }
-    fn push(hm: &mut HashMap<Vec<u8>, usize>, nodes: &mut Vec<Kmer>, kmer: &[u8]) -> usize {
-        if !hm.contains_key(kmer) {
-            hm.insert(kmer.to_vec(), nodes.len());
-            nodes.push(Kmer::new(kmer));
-            nodes.len() - 1
-        } else {
-            hm[kmer]
-        }
-    }
     pub fn generate(&mut self, dataset: &[Vec<u8>], k: usize) -> DBGHMM {
         let counter = &mut self.inner;
         dataset.iter().for_each(|seq| {
@@ -111,7 +86,8 @@ impl Factory {
                 }
             })
         });
-        let thr = 0; // counter.values().map(|e| e.0).sum::<u32>() / counter.len() as u32 - 1;
+        let thr = counter.values().map(|e| e.0).sum::<u32>() / counter.len() as u32;
+        let thr = thr.max(2) - 2;
         let mut nodes = Vec::with_capacity(counter.len());
         for seq in dataset {
             for x in seq.windows(k + 1) {
@@ -160,6 +136,7 @@ impl Factory {
             })
         });
         let thr = counter.values().map(|e| e.0).sum::<u32>() / counter.len() as u32;
+        let thr = thr.max(2) - 2;
         let mut nodes = Vec::with_capacity(counter.len());
         for seq in dataset {
             for x in seq.windows(k + 1) {
@@ -292,50 +269,44 @@ impl DeBruijnGraphHiddenMarkovModel {
     }
     // Calc hat. Return (c,d)
     fn update(&self, updates: &mut [Node], prev: &[Node], base: u8, config: &Config) -> (f64, f64) {
-        // let st = std::time::Instant::now();
-        for (idx, (from, node)) in self.nodes.iter().zip(prev.iter()).enumerate() {
-            if node.is_zero() {
-                continue;
-            }
+        for (idx, (from, node)) in self
+            .nodes
+            .iter()
+            .zip(prev.iter())
+            .enumerate()
+            .filter(|(_, (_, node))| !node.is_zero())
+        {
             let prob = node.match_succeed(config);
+            // Update `Ins` states. updates -> double dots
+            updates[idx].add_ins(node.insertion(&config) * from.insertion(base));
             // Update `Mat` states. updates -> double dots
-            for (i, to) in from
+            from
                 .edges
                 .iter()
                 .enumerate()
-                .filter_map(|(i, e)| e.map(|n| (i, n)))
-            {
-                // (from->to,base i edge)
-                updates[to].add_mat(prob * from.to(i) * self.nodes[to].prob(base, config));
-            }
-            // Update `Ins` states. updates -> double dots
-            updates[idx].add_ins(node.insertion(&config) * self.nodes[idx].insertion(base));
+                .for_each(|(i,e)|
+                          // (from->to,base i edge)
+                          if let Some(to) = e {
+                              updates[*to].add_mat(prob * from.to(i) * self.nodes[*to].prob(base, config))
+                          });
         }
-
-        // Calculate D.
         let d = 1. / updates.iter().map(|e| e.mat + e.ins).sum::<f64>();
         // Updates -> tilde
         updates.iter_mut().for_each(|e| *e = *e * d);
         // Update `Del` states.
-        // Up to thi line, almost free.
-        assert!(updates.iter().all(|e| e.del == 0.));
-        let non_zero_nodes: Vec<_> = self
-            .nodes
-            .iter()
-            .zip(updates.iter())
-            .filter(|(_, from)| !from.is_zero())
-            .map(|(n, from)| (n, from.push(&config)))
-            .collect();
-        for (node, pushing_weight) in non_zero_nodes {
-            for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
-                updates[to].add_del(pushing_weight);
+        for (idx, node) in self.nodes.iter().enumerate() {
+            if !updates[idx].is_zero() {
+                let pushing_weight = updates[idx].push(&config);
+                for to in node.edges.iter() {
+                    match to {
+                        Some(to) => updates[*to].add_del(pushing_weight),
+                        None => {}
+                    }
+                }
             }
         }
-        // calculate c.
         let c = 1. / updates.iter().map(Node::fold).sum::<f64>();
         updates.iter_mut().for_each(|e| *e = *e * c);
-        // let st2 = std::time::Instant::now();
-        // eprintln!("{:?}\t{:?}", st2 - st , st3 - st2);
         (c, d)
     }
     fn initialize(&self, tip: &[u8], config: &Config) -> (f64, f64, Vec<Node>) {
@@ -345,8 +316,8 @@ impl DeBruijnGraphHiddenMarkovModel {
             .iter()
             .map(|e| (e.calc_score(tip, config) as f64).exp())
             .collect();
-        let s = initial_prob.iter().sum::<f64>();
-        let initial_prob = initial_prob.into_iter().map(|e| e / s);
+        let s = 1. / initial_prob.iter().sum::<f64>();
+        let initial_prob = initial_prob.into_iter().map(|e| e * s);
         let last = tip[tip.len() - 1];
         let double_dots: Vec<_> = self
             .nodes
@@ -363,31 +334,18 @@ impl DeBruijnGraphHiddenMarkovModel {
     }
     // This returns log p(obs|model) = \sum - log c_t.
     pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
-        //use std::time::Instant;
         assert!(obs.len() > self.k);
-        //debug!("Nodes:{:?}", self.nodes);
-        let mut cs = Vec::with_capacity(obs.len() + 1);
-        let mut ds = Vec::with_capacity(obs.len() + 1);
-        // let's initialize the first array.
         let (c, d, mut prev) = self.initialize(&obs[..self.k], config);
-        cs.push(c);
-        ds.push(d);
+        let (mut cs, mut ds) = (-(c.ln()), -(d.ln()));
         let mut updated = vec![Node::new(0., 0., 0.); self.nodes.len()];
-        // let mut idx = self.k;
         for &base in &obs[self.k..] {
-            // debug!("{} nodes, weight sum:{}", self.nodes.len(), csum);
-            // idx += 1;
-            // debug!("{}-th base {}", idx, base as char);
             updated.iter_mut().for_each(Node::clear);
-            // Calculate hat.
-            // Calculate c. Calculate d.
             let (c, d) = self.update(&mut updated, &prev, base, config);
-            cs.push(c);
-            ds.push(d);
-            // Flip previous and updated.
+            cs -= c.ln();
+            ds -= d.ln();
             std::mem::swap(&mut prev, &mut updated);
         }
-        -cs.into_iter().map(|e| e.ln()).sum::<f64>() - ds.into_iter().map(|e| e.ln()).sum::<f64>()
+        cs + ds
     }
 }
 #[derive(Clone, Copy)]
@@ -908,24 +866,6 @@ mod tests {
         let model1 = DBGHMM::new(&model1, k);
         b.iter(|| test::black_box(model1.initialize(&template[..k], &DEFAULT_CONFIG)));
     }
-    #[bench]
-    fn forward_bench(b: &mut Bencher) {
-        let bases = b"ACTG";
-        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
-        let len = 150;
-        let num = 25;
-        let template: Vec<_> = (0..len)
-            .filter_map(|_| bases.choose(&mut rng))
-            .copied()
-            .collect();
-        let model1: Vec<Vec<_>> = (0..num)
-            .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
-            .collect();
-        let k = 6;
-        let model1 = DBGHMM::new(&model1, k);
-        b.iter(|| test::black_box(model1.initialize(&template[..k], &DEFAULT_CONFIG)));
-    }
-
     #[bench]
     fn score(b: &mut Bencher) {
         let bases = b"ACTG";
