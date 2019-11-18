@@ -22,7 +22,7 @@ impl std::fmt::Display for Strand {
     }
 }
 impl Strand {
-    pub fn is_forward(&self) -> bool {
+    pub fn is_forward(self) -> bool {
         match self {
             Self::Forward => true,
             Self::Reverse => false,

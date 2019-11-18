@@ -1,0 +1,20 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N Simulation
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/cas_mock.log
+#$ -o ./logfiles/cas_mock.out
+#$ -V
+#$ -m e
+
+ROOT=${PWD}
+READ=${ROOT}/data/mock_genome_read.fa
+REFERENCE=${ROOT}/data/mock_genome_ref.fa
+OUTPUT=${ROOT}/result/mock_genome
+CORES=24
+cargo run --release --bin compare_aggregate_strategy_on_mockdata \
+      -- ${READ} ${REFERENCE} ${OUTPUT}/last_db/alignments.tab\
+      > ./result/cas_predictions.tsv
+
+

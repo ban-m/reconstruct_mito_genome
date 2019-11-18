@@ -31,3 +31,9 @@ Create reference genomes for simulations. It would first create a random genome 
 Input:
 Output: TSV.
 This binary should be called from ./scripts/mock_genome_workfow.job.
+
+- compare_aggregate_strategy_on_mockdata.rs
+Input: Reads<Fasta>, Reference<Fasta>, and alignemnts<LastTAB>
+Output: TSV
+Make predictions.
+
