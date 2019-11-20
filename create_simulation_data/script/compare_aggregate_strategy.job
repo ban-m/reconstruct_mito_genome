@@ -7,4 +7,4 @@
 #$ -o ./logfiles/compare_aggregate_strategy.out
 #$ -V
 #$ -m e
-cargo run --release --bin compare_aggregate_strategy > ./result/compare_aggregate_strategy.tsv
+cargo run --release --bin compare_aggregate_strategy > ./result/compare_aggregate_strategy_config.tsv

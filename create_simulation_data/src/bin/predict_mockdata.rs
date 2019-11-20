@@ -10,11 +10,10 @@ extern crate rand;
 extern crate rand_xoshiro;
 use bio_utils::fasta::Record;
 use create_simulation_data::*;
-use dbg_hmm::*;
 use last_tiling::Contigs;
 use last_tiling::EncodedRead;
 use last_tiling::LastTAB;
-use rand::{Rng, SeedableRng};
+use rand::{Rng,SeedableRng};
 use rand_xoshiro::Xoroshiro128StarStar;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -63,9 +62,10 @@ fn main() -> std::io::Result<()> {
         .collect();
     debug!("Answer and Distance hashmaps are built");
     let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1893749823);
-    let (training, testset) = reads.into_iter().partition(|_| rng.gen_bool(0.5));
-    // let (training, testset): (Vec<_>, Vec<_>) =
-    //     reads.into_iter().partition(|r| dist[r.id()] < len / 2);
+    let (training, testset): (Vec<_>, Vec<_>) = reads.into_iter().partition(|_| rng.gen_bool(0.2));
+    // let (training, testset): (Vec<_>, Vec<_>) = reads
+    //     .into_iter()
+    //     .partition(|r| dist[r.id()] < len / 2);
     debug!(
         "{} training reads and {} test reads dataset.",
         training.len(),
@@ -76,42 +76,29 @@ fn main() -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut wtr = BufWriter::new(stdout.lock());
     writeln!(&mut wtr, "ReadID\tAnswer\tPredict\tLength\tDistance")?;
+    let (mut sum, mut ok) = (0, 0);
     for (readid, predict, length) in result {
-        let answer = answer[&readid];
+        let answer = if answer[&readid] { 0 } else { 1 };
         let dist = dist[&readid];
         writeln!(
             &mut wtr,
             "{}\t{}\t{}\t{}\t{}",
             readid, answer, predict, dist, length
         )?;
+        sum += 1;
+        ok += if answer == predict { 1 } else { 0 };
     }
+    debug!("Result:{}\t{}", sum, ok);
     Ok(())
 }
 
-#[allow(dead_code)]
-fn before_half(r: &Record, len: usize) -> bool {
-    let desc: &str = r.desc().unwrap();
-    let desc: Vec<_> = desc.split_whitespace().nth(0).unwrap().split(',').collect();
-    if desc.len() < 2 {
-        debug!("{:?}", r.desc());
-    }
-    let forward: bool = desc[1].starts_with('+');
-    let start: usize = if forward {
-        desc[2].split('-').nth(0).unwrap().parse().unwrap()
-    } else {
-        let l = desc[2].split('-').nth(1).unwrap().parse::<usize>().unwrap();
-        len - len.min(l)
-    };
-    start < len / 2
-}
-
-fn predict(
+fn setup(
     training: Vec<Record>,
     tests: Vec<Record>,
-    alignments: Vec<LastTAB>,
+    alns: Vec<LastTAB>,
     contig: &Contigs,
-) -> Option<Vec<(String, u8, usize)>> {
-    let mut is_original: Vec<_> = training
+) -> (Vec<bool>, Vec<bool>, Vec<EncodedRead>, usize) {
+    let is_original: Vec<_> = training
         .iter()
         .map(|read| {
             read.desc()
@@ -121,9 +108,10 @@ fn predict(
                 .unwrap()
                 .contains("sample1")
         })
+        .chain(vec![false; tests.len()])
         .collect();
-    let mut training: Vec<_> = last_tiling::encoding(&training, contig, &alignments);
-    let mut tests: Vec<_> = last_tiling::encoding(&tests, contig, &alignments);
+    let mut training: Vec<_> = last_tiling::encoding(&training, &contig, &alns);
+    let mut tests: Vec<_> = last_tiling::encoding(&tests, contig, &alns);
     tests.sort_by_key(|read| {
         read.seq()
             .iter()
@@ -132,53 +120,95 @@ fn predict(
             .min()
             .unwrap()
     });
-    let is_test: std::collections::HashSet<_> = tests.iter().map(|e| e.id().to_string()).collect();
-    let len = contig.get_last_unit(0)? as usize + 1;
-    while tests.is_empty() {
-        assert!(is_original.len() == training.len());
-        update(&mut is_original, &mut training, &mut tests, len);
+    let mut background = vec![false; training.len()];
+    for _ in 0..tests.len() / 2 {
+        background.push(false);
+        background.push(true);
     }
-    Some(
-        training
-            .into_iter()
-            .zip(is_original.iter())
-            .filter(|(read, predict)| is_test.contains(read.id()))
-            .map(|(read, predict)| {
-                (
-                    read.id().to_string(),
-                    if *predict { 0u8 } else { 1u8 },
-                    read.recover_raw_sequence().len(),
-                )
-            })
-            .collect(),
-    )
+    if background.len() < is_original.len() {
+        background.push(false);
+    }
+    let training_size = training.len();
+    training.append(&mut tests);
+    (is_original, background, training, training_size)
+}
+
+fn predict(
+    training: Vec<Record>,
+    tests: Vec<Record>,
+    alignments: Vec<LastTAB>,
+    contig: &Contigs,
+) -> Option<Vec<(String, u8, usize)>> {
+    // let is_test: std::collections::HashSet<_> = tests.iter().map(|e| e.id().to_string()).collect();
+    let (mut is_original, mut bg_assign, data, border) = setup(training, tests, alignments, contig);
+    let len = contig.get_last_unit(0)? as usize + 1;
+    let tot = data.len();
+    let ori = is_original.iter().filter(|&&e| e).count();
+    let muta = tot - ori;
+    debug!("Begin!");
+    debug!("{}\t{}\t{}", tot, ori, muta);
+    while update(&mut is_original, &mut bg_assign, &data, border, len) {
+        let tot = data.len();
+        let ori = is_original.iter().filter(|&&e| e).count();
+        let muta = tot - ori;
+        debug!("Updated");
+        debug!("{}\t{}\t{}", tot, ori, muta);
+    }
+    let result: Vec<_> = data[border..]
+        .iter()
+        .zip(is_original[border..].iter())
+        .map(|(read, predict)| {
+            let id = read.id().to_string();
+            let pred = if *predict { 0u8 } else { 1u8 };
+            let len = read.recover_raw_sequence().len();
+            (id, pred, len)
+        })
+        .collect();
+    Some(result)
 }
 fn update(
     is_original: &mut Vec<bool>,
-    training: &mut Vec<EncodedRead>,
-    tests: &mut Vec<EncodedRead>,
+    bg_assign: &mut Vec<bool>,
+    data: &[EncodedRead],
+    border: usize,
     len: usize,
-) {
-    let tot = training.len() + tests.len();
-    let mut chunks = construct_predictor(training, is_original, len);
+) -> bool {
+    use std::time::Instant;
+    let s = Instant::now();
+    // let mut chunks = construct_predictors(&data, is_original, bg_assign, len);
+    let mut chunks = construct_predictors_simple(&data, is_original, len);
     debug!("Predictors are constructed:{}", chunks.len());
-    for (idx, (os, ms)) in chunks.iter().enumerate() {
-        debug!("{}\t{}\t{}", idx, os.len(), ms.len());
-    }
-    let mut res = vec![];
-    while let Some(read) = tests.pop() {
-        if let Some(predict) = make_prediction(&chunks, &read) {
-            training.push(read);
-            is_original.push(predict == 0);
-        } else {
-            res.push(read);
-        }
-    }
-    tests.append(&mut res);
-    assert_eq!(tests.len() + training.len(), tot);
+    // for (idx, (os, ms)) in chunks.iter().enumerate() {
+    //     if idx % 4 == 0 {
+    //         debug!("{}\t{}\t{}", idx, os.len(), ms.len());
+    //     }
+    // }
+    let mut state = false;
+    let mut is_updated = false;
+    is_original[border..]
+        .iter_mut()
+        .zip(data[border..].iter())
+        .zip(bg_assign[border..].iter_mut())
+        .filter(|&((&mut is_ori, _), _)| !is_ori)
+        .for_each(|((is_ori, read), bg)| {
+            // let predict = make_prediction(&chunks, &read, *bg);
+            let predict = make_prediction_simple(&chunks, &read);
+            is_updated |= predict != if *is_ori { 0 } else { 1 };
+            if predict == 0 {
+                //merge(&mut chunks, read);
+                // merge_simple(&mut chunks, read);
+                *is_ori = true;
+            } else {
+                *is_ori = false;
+                *bg = state;
+                state = !state;
+            }
+        });
+    debug!("{:?}", Instant::now() - s);
+    is_updated
 }
 
-fn make_prediction(chunks: &[(Vec<Seq>, Vec<Seq>)], read: &last_tiling::EncodedRead) -> Option<u8> {
+fn make_prediction_simple(chunks: &[(Vec<Seq>, Vec<Seq>)], read: &last_tiling::EncodedRead) -> u8 {
     let predicts: Vec<(f64, f64)> = read
         .seq()
         .par_iter()
@@ -200,8 +230,35 @@ fn make_prediction(chunks: &[(Vec<Seq>, Vec<Seq>)], read: &last_tiling::EncodedR
             Some((o, m))
         })
         .collect();
-    if predicts.is_empty() {
-        return None;
+    //debug!("{}\t{}", read.id(), predicts.len());
+    if predicts.len() < 10 {
+        return 1;
     }
-    Some(predict_by_naive(&predicts))
+    predict_by_naive(&predicts)
 }
+
+fn construct_predictors_simple(
+    data: &[EncodedRead],
+    is_original: &[bool],
+    len: usize,
+) -> Vec<(Vec<Seq>, Vec<Seq>)> {
+    let mut chunks = vec![(vec![], vec![]); len];
+    use last_tiling::revcmp;
+    for (&is_original, read) in is_original.iter().zip(data.iter()) {
+        for unit in read.seq().iter().filter_map(|e| e.encode()) {
+            let u = unit.unit as usize;
+            let seq = if unit.is_forward {
+                unit.bases.as_bytes().to_vec()
+            } else {
+                revcmp(unit.bases.as_bytes())
+            };
+            if is_original {
+                chunks[u].0.push(seq);
+            } else {
+                chunks[u].1.push(seq);
+            }
+        }
+    }
+    chunks
+}
+

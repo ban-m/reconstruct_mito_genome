@@ -75,6 +75,11 @@ Output: None,
 Requirements: None
 Decompose the reads into blocks.
 
+- calc_error_profile.rs
+Input: Alignemnts<LASTTAB>, Read<Fasta>, and Contigs<Fasta>
+Output: ErrorProfile<TXT>
+Calculate error rates of given dataset. The alignments should be alignments from the reads the contigs.
+
 ### ./scripts
 
 - workflow.job

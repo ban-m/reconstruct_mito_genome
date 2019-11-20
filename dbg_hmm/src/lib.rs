@@ -8,6 +8,7 @@
 extern crate edlib_sys;
 extern crate env_logger;
 extern crate log;
+extern crate packed_simd;
 extern crate rand;
 extern crate rand_xoshiro;
 extern crate test;
@@ -38,7 +39,7 @@ pub const PACBIO_CONFIG: Config = Config {
     p_del: 0.0270,
     p_extend_ins: 0.3014,
     p_extend_del: 0.0695,
-    p_del_to_ins: 0.86,
+    p_del_to_ins: 0.0086,
     del_score: -1,
     match_score: 2,
     ins_score: -1,
@@ -74,7 +75,6 @@ pub struct Factory {
     inner: std::collections::HashMap<Vec<u8>, (u32, usize)>,
 }
 
-
 impl Factory {
     pub fn generate(&mut self, dataset: &[Vec<u8>], k: usize) -> DBGHMM {
         let counter = &mut self.inner;
@@ -86,6 +86,7 @@ impl Factory {
                 }
             })
         });
+        // TODO: simd!
         let thr = counter.values().map(|e| e.0).sum::<u32>() / counter.len() as u32;
         let thr = thr.max(2) - 2;
         let mut nodes = Vec::with_capacity(counter.len());
@@ -185,11 +186,7 @@ impl Factory {
         }
         match Self::topological_sort_inner(&edges, nodes.len()) {
             Ok(res) => res,
-            Err(res) => {
-                // debug!("The graph is cyclic.");
-                // debug!("{:?}", nodes);
-                res
-            }
+            Err(res) => res,
         }
     }
     // Topological sorting.
@@ -225,6 +222,7 @@ impl Factory {
                 // No-op
                 let last = stack.pop().unwrap();
                 order.push(last);
+                // Deactivate
                 status[last] = 2;
             }
         }
@@ -290,7 +288,8 @@ impl DeBruijnGraphHiddenMarkovModel {
                               updates[*to].add_mat(prob * from.to(i) * self.nodes[*to].prob(base, config))
                           });
         }
-        let d = 1. / updates.iter().map(|e| e.mat + e.ins).sum::<f64>();
+        // assert!(updates.iter().all(|e| e.del == 0.));
+        let d = 1. / Node::sum(&updates);
         // Updates -> tilde
         updates.iter_mut().for_each(|e| *e = *e * d);
         // Update `Del` states.
@@ -305,7 +304,7 @@ impl DeBruijnGraphHiddenMarkovModel {
                 }
             }
         }
-        let c = 1. / updates.iter().map(Node::fold).sum::<f64>();
+        let c = 1. / Node::sum(&updates);
         updates.iter_mut().for_each(|e| *e = *e * c);
         (c, d)
     }
@@ -374,6 +373,18 @@ impl std::ops::Mul<f64> for Node {
 }
 
 impl Node {
+    #[cfg(target_feature = "avx")]
+    fn sum(xs: &[Node]) -> f64 {
+        use packed_simd::f64x4 as f64s;
+        xs.iter()
+            .map(|e| f64s::new(e.mat, e.del, e.ins, 0.))
+            .sum::<f64s>()
+            .sum()
+    }
+    #[cfg(not(target_feature = "avx"))]
+    fn sum(xs: &[Node]) -> f64 {
+        xs.iter().map(Node::fold).sum::<f64>()
+    }
     fn new(mat: f64, del: f64, ins: f64) -> Self {
         Self { mat, del, ins }
     }
@@ -416,45 +427,45 @@ impl Node {
 #[derive(Debug, Clone, Default)]
 pub struct Config {
     /// Mismatch probability at given position. # mismatch/(#mism + #match)
-    mismatch: f64,
+    pub mismatch: f64,
     /// The base composition of the read. A,C,G, and T.
-    base_freq: [f64; 4],
+    pub base_freq: [f64; 4],
     /// probability of matching at match states.
-    p_match: f64,
+    pub p_match: f64,
     /// probability of starting insertion at match states.
-    p_ins: f64,
+    pub p_ins: f64,
     /// probability of starting deletion at match states.
-    p_del: f64,
+    pub p_del: f64,
     /// probability of extending insertion at insertion state.
-    p_extend_ins: f64,
+    pub p_extend_ins: f64,
     /// same for deletion
-    p_extend_del: f64,
+    pub p_extend_del: f64,
     /// probability of jump deletion state to insertion state.
-    p_del_to_ins: f64,
+    pub p_del_to_ins: f64,
     /// match score
-    match_score: i32,
+    pub match_score: i32,
     /// mismatch score
-    mism_score: i32,
+    pub mism_score: i32,
     /// deletion score
-    del_score: i32,
+    pub del_score: i32,
     /// insertion score
-    ins_score: i32,
+    pub ins_score: i32,
 }
 
 impl Config {
     pub fn new(
         mismatch: f64,
-        base_freq: [f64; 4],
         p_match: f64,
         p_ins: f64,
         p_del: f64,
         p_extend_ins: f64,
         p_extend_del: f64,
         p_del_to_ins: f64,
-        del_score: i32,
         match_score: i32,
         ins_score: i32,
+        del_score: i32,
         mism_score: i32,
+        base_freq: [f64; 4],
     ) -> Self {
         Self {
             mism_score,

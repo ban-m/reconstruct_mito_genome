@@ -19,10 +19,28 @@ use std::collections::HashMap;
 use std::io::{BufWriter, Write};
 use std::time;
 const K: usize = 6;
+const BADREAD_CONFIG: dbg_hmm::Config = dbg_hmm::Config {
+    mismatch: 0.0344,
+    p_match: 0.88,
+    p_ins: 0.0549,
+    p_del: 0.0651,
+    p_extend_ins: 0.0337,
+    p_extend_del: 0.1787,
+    p_del_to_ins: 0.0,
+    match_score: 1,
+    mism_score: -1,
+    del_score: -1,
+    ins_score: -1,
+    base_freq: [0.25, 0.25, 0.25, 0.25],
+};
+
 // const MAX_COVERAGE: usize = 30;
 fn main() -> std::io::Result<()> {
-    env_logger::from_env(env_logger::Env::default().default_filter_or("predict_mockdata=debug"))
-        .init();
+    env_logger::from_env(
+        env_logger::Env::default()
+            .default_filter_or("compare_aggregate_strategy_on_mockdata=debug"),
+    )
+    .init();
     let args: Vec<_> = std::env::args().collect();
     let reads: Vec<_> = bio_utils::fasta::parse_into_vec(&args[1])?
         .into_iter()
@@ -33,8 +51,7 @@ fn main() -> std::io::Result<()> {
     let alignments: Vec<_> = last_tiling::parse_tab_file(&args[3])?;
     debug!("{} alignments in total", alignments.len());
     let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1893749823);
-    let (training, testset): (Vec<_>, Vec<_>) = reads.into_iter().partition(|_| rng.gen_bool(0.5));
-    let training: Vec<_> = training.into_iter().filter(|_| rng.gen_bool(0.4)).collect();
+    let (training, testset): (Vec<_>, Vec<_>) = reads.into_iter().partition(|_| rng.gen_bool(0.2));
     debug!(
         "{} training reads and {} test reads dataset.",
         training.len(),
@@ -128,7 +145,7 @@ fn predict(
         let length = read.recover_raw_sequence().len();
         let dist = dist[&id];
         let predict = make_prediction(&chunks, &read);
-        debug!("Pred\tAns={}\t{}", predict, answer);
+        // debug!("Pred\tAns={}\t{}", predict, answer);
         predicts.push((id, answer, predict, length, dist));
         for unit in read.seq().iter().filter_map(|e| e.encode()) {
             assert_eq!(0, unit.contig);
@@ -168,6 +185,8 @@ fn make_prediction(chunks: &[(Vec<Seq>, Vec<Seq>)], read: &last_tiling::EncodedR
             };
             let min = original.len().min(mutant.len());
             // let s = time::Instant::now();
+            // let o = unit_predict_by(&query, &original[..min], K, &BADREAD_CONFIG);
+            // let m = unit_predict_by(&query, &mutant[..min], K, &BADREAD_CONFIG);
             let o = unit_predict(&query, &original[..min], K);
             let m = unit_predict(&query, &mutant[..min], K);
             Some((o, m))
@@ -180,6 +199,7 @@ fn make_prediction(chunks: &[(Vec<Seq>, Vec<Seq>)], read: &last_tiling::EncodedR
     let res = predict_by_naive(&predicts);
     // let res = predict_by_sow(&predicts);
     // let res = predict_by_sol(&predicts);
+    // let res = predict_by_independent(&predicts);
     debug!("Time {}", (time::Instant::now() - start).as_millis());
     res
 }

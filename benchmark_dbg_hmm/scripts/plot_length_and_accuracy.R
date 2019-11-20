@@ -24,6 +24,17 @@ g <- dataset %>%
 generalplot(g, paste0("gam_",outname,"_bw"))
 
 
+g <- dataset %>% filter(Type == "Proposed") %>%
+    mutate(ErrorRate = Dist/Length) %>% 
+    ggplot() + geom_smooth(mapping = aes( x = ErrorRate, y = accuracy, color = factor(Length)), alpha = 0.09)
+generalplot(g, paste0("gam_errorrate_",outname))
+
+g <- dataset %>% filter(Type == "Proposed") %>%
+    mutate(ErrorRate = Dist/Length) %>% 
+    ggplot() + geom_point(mapping = aes( x = ErrorRate, y = accuracy, color = Length), alpha = 0.09)
+generalplot(g, paste0("gam_errorrate_",outname))
+
+
 g <- dataset %>% ggplot() + geom_point(mapping = aes( x = Length, y = accuracy, color = type), alpha = 0.09) + facet_wrap( . ~ Dist)
 generalplot(g, paste0("point_",outname))
 

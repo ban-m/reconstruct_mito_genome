@@ -18,6 +18,15 @@ pub fn predict_by_naive(ps: &[(f64, f64)]) -> u8 {
     }
 }
 
+pub fn predict_by_independent(ps: &[(f64, f64)]) -> u8 {
+    let sum = ps.iter().filter(|(l1, l2)| l1 > l2).count();
+    if sum * 2 >= ps.len() {
+        0
+    } else {
+        1
+    }
+}
+
 pub fn predict_by_sol(ps: &[(f64, f64)]) -> u8 {
     let xlnx = |x: &f64| if x == &0. { 0. } else { x * x.ln() };
     let entropy: Vec<_> = ps
@@ -100,4 +109,8 @@ pub fn construct_predictor(
 
 pub fn unit_predict(query: &[u8], templates: &[Seq], k: usize) -> f64 {
     DBGHMM::new(templates, k).forward(&query, &DEFAULT_CONFIG)
+}
+
+pub fn unit_predict_by(query: &[u8], refs: &[Seq], k: usize, c: &Config) -> f64 {
+    DBGHMM::new(refs, k).forward(&query, c)
 }
