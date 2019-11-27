@@ -1,8 +1,6 @@
 extern crate dbg_hmm;
 extern crate edlib_sys;
 extern crate rand;
-#[macro_use]
-extern crate log;
 extern crate env_logger;
 use dbg_hmm::gen_sample::*;
 use dbg_hmm::*;

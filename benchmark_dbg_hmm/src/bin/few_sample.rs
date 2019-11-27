@@ -14,7 +14,7 @@ fn main() {
         .build_global()
         .unwrap();
     let args: Vec<_> = std::env::args().collect();
-    let len = 100;
+    let len = 150;
     let num_seq = (5..15).collect::<Vec<usize>>();
     let test_num = 1000;
     let k = 6;

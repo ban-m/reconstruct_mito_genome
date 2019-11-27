@@ -14,7 +14,9 @@ extern crate rand_xoshiro;
 extern crate test;
 // Whether or not to use 'pseudo count' in the out-dgree.
 const PSEUDO_COUNT: bool = true;
+const THR_ON: bool = true;
 pub mod gen_sample;
+use std::collections::HashMap;
 // This setting is determined by experimentally.
 pub const DEFAULT_CONFIG: Config = Config {
     mismatch: 0.03,
@@ -72,7 +74,7 @@ impl std::fmt::Display for DBGHMM {
 
 #[derive(Default)]
 pub struct Factory {
-    inner: std::collections::HashMap<Vec<u8>, (u32, usize)>,
+    inner: HashMap<Vec<u8>, (f64, usize)>,
 }
 
 impl Factory {
@@ -80,44 +82,19 @@ impl Factory {
         let counter = &mut self.inner;
         dataset.iter().for_each(|seq| {
             seq.windows(k).for_each(|kmer| match counter.get_mut(kmer) {
-                Some(x) => x.0 += 1,
+                Some(x) => x.0 += 1.,
                 None => {
-                    counter.insert(kmer.to_vec(), (1, std::usize::MAX));
+                    counter.insert(kmer.to_vec(), (1., std::usize::MAX));
                 }
             })
         });
-        // TODO: simd!
-        let thr = counter.values().map(|e| e.0).sum::<u32>() / counter.len() as u32;
-        let thr = thr.max(2) - 2;
+        let thr = Self::calc_thr(counter);
         let mut nodes = Vec::with_capacity(counter.len());
         for seq in dataset {
             for x in seq.windows(k + 1) {
-                let (prev, after) = (&x[..k], &x[1..]);
-                let from = {
-                    match counter.get_mut(prev) {
-                        Some(x) if x.0 <= thr => continue,
-                        Some(x) if x.1 != std::usize::MAX => x.1,
-                        Some(x) => {
-                            x.1 = nodes.len();
-                            nodes.push(Kmer::new(prev));
-                            nodes.len() - 1
-                        }
-                        _ => unreachable!(),
-                    }
-                };
-                let to = {
-                    match counter.get_mut(after) {
-                        Some(x) if x.0 <= thr => continue,
-                        Some(x) if x.1 != std::usize::MAX => x.1,
-                        Some(x) => {
-                            x.1 = nodes.len();
-                            nodes.push(Kmer::new(after));
-                            nodes.len() - 1
-                        }
-                        _ => unreachable!(),
-                    }
-                };
-                nodes[from].push_edge_with(x[k], to);
+                if let Some((from, to)) = Self::get_indices(x, counter, &mut nodes, thr, k) {
+                    nodes[from].push_edge_with(x[k], to);
+                }
             }
         }
         // Node Index -> Topological order.
@@ -130,43 +107,19 @@ impl Factory {
         let counter = &mut self.inner;
         dataset.iter().for_each(|seq| {
             seq.windows(k).for_each(|kmer| match counter.get_mut(kmer) {
-                Some(x) => x.0 += 1,
+                Some(x) => x.0 += 1.,
                 None => {
-                    counter.insert(kmer.to_vec(), (1, std::usize::MAX));
+                    counter.insert(kmer.to_vec(), (1., std::usize::MAX));
                 }
             })
         });
-        let thr = counter.values().map(|e| e.0).sum::<u32>() / counter.len() as u32;
-        let thr = thr.max(2) - 2;
+        let thr = Self::calc_thr(counter);
         let mut nodes = Vec::with_capacity(counter.len());
         for seq in dataset {
             for x in seq.windows(k + 1) {
-                let (prev, after) = (&x[..k], &x[1..]);
-                let from = {
-                    match counter.get_mut(prev) {
-                        Some(x) if x.0 <= thr => continue,
-                        Some(x) if x.1 != std::usize::MAX => x.1,
-                        Some(x) => {
-                            x.1 = nodes.len();
-                            nodes.push(Kmer::new(prev));
-                            nodes.len() - 1
-                        }
-                        _ => unreachable!(),
-                    }
-                };
-                let to = {
-                    match counter.get_mut(after) {
-                        Some(x) if x.0 <= thr => continue,
-                        Some(x) if x.1 != std::usize::MAX => x.1,
-                        Some(x) => {
-                            x.1 = nodes.len();
-                            nodes.push(Kmer::new(after));
-                            nodes.len() - 1
-                        }
-                        _ => unreachable!(),
-                    }
-                };
-                nodes[from].push_edge_with(x[k], to);
+                if let Some((from, to)) = Self::get_indices(x, counter, &mut nodes, thr, k) {
+                    nodes[from].push_edge_with(x[k], to);
+                }
             }
         }
         // Node Index -> Topological order.
@@ -175,6 +128,70 @@ impl Factory {
         self.inner.clear();
         DBGHMM { nodes, k }
     }
+    pub fn generate_with_weight(&mut self, dataset: &[&[u8]], ws: &[f64], k: usize) -> DBGHMM {
+        assert_eq!(dataset.len(), ws.len());
+        let counter = &mut self.inner;
+        dataset.iter().zip(ws.iter()).for_each(|(seq, w)| {
+            seq.windows(k).for_each(|kmer| match counter.get_mut(kmer) {
+                Some(x) => x.0 += w,
+                None => {
+                    counter.insert(kmer.to_vec(), (*w, std::usize::MAX));
+                }
+            })
+        });
+        let thr = Self::calc_thr(counter);
+        let mut nodes = Vec::with_capacity(counter.len());
+        for (seq, &w) in dataset.iter().zip(ws.iter()) {
+            for x in seq.windows(k + 1) {
+                if let Some((from, to)) = Self::get_indices(x, counter, &mut nodes, thr, k) {
+                    nodes[from].push_edge_with_weight(x[k], to, w);
+                }
+            }
+        }
+        // Node Index -> Topological order.
+        let mut nodes = Self::renaming_nodes(nodes);
+        nodes.iter_mut().for_each(Kmer::finalize);
+        self.inner.clear();
+        DBGHMM { nodes, k }
+    }
+    fn calc_thr(counter: &HashMap<Vec<u8>, (f64, usize)>) -> f64 {
+        let thr = counter.values().map(|e| e.0).sum::<f64>() / counter.len() as f64;
+        if THR_ON {
+            thr - 2.
+        } else {
+            0.
+        }
+    }
+    fn get_idx(
+        kmer: &[u8],
+        counter: &mut HashMap<Vec<u8>, (f64, usize)>,
+        nodes: &mut Vec<Kmer>,
+        thr: f64,
+    ) -> Option<usize> {
+        match counter.get_mut(kmer) {
+            Some(x) if x.0 <= thr => None,
+            Some(x) if x.1 != std::usize::MAX => Some(x.1),
+            Some(x) => {
+                x.1 = nodes.len();
+                nodes.push(Kmer::new(kmer));
+                Some(nodes.len() - 1)
+            }
+            _ => unreachable!(),
+        }
+    }
+    fn get_indices(
+        x: &[u8],
+        counter: &mut HashMap<Vec<u8>, (f64, usize)>,
+        nodes: &mut Vec<Kmer>,
+        thr: f64,
+        k: usize,
+    ) -> Option<(usize, usize)> {
+        let (prev, after) = (&x[..k], &x[1..]);
+        let from = Self::get_idx(prev, counter, nodes, thr)?;
+        let to = Self::get_idx(after, counter, nodes, thr)?;
+        Some((from, to))
+    }
+
     // Return topological sorted order. If there's a cycle,
     // it neglect the back-edge, and proceed with raise error messages to stderr(DEBUG MODE).
     fn topological_sort(nodes: &[Kmer]) -> Vec<usize> {
@@ -490,7 +507,7 @@ struct Kmer {
     last: u8,
     weight: [f64; 4],
     transition: [f64; 4],
-    tot: u16,
+    tot: f64,
     // The location to the edges with the label of A,C,G,and T.
     // If there is no edges, None
     edges: [Option<usize>; 4],
@@ -520,11 +537,8 @@ impl Kmer {
         let kmer = x.to_vec();
         let last = *kmer.last().unwrap();
         // Prior
-        let (weight, tot) = if PSEUDO_COUNT {
-            ([1.; 4], 4)
-        } else {
-            ([0.; 4], 0)
-        };
+        let weight = if PSEUDO_COUNT { [1.; 4] } else { [0.; 4] };
+        let tot = 0.;
         let transition = [0f64; 4];
         let edges = [None; 4];
         Self {
@@ -537,15 +551,18 @@ impl Kmer {
         }
     }
     fn finalize(&mut self) {
-        let tot_for_weight = self.tot as f64;
-        let tot_for_trans = if PSEUDO_COUNT {
-            (self.tot - 4) as f64
+        let tot_for_weight = if PSEUDO_COUNT {
+            self.tot + 4.
         } else {
-            self.tot as f64
+            self.tot
         };
-        for i in 0..4 {
-            self.weight[i] /= tot_for_weight;
-            self.transition[i] /= tot_for_trans;
+        if self.tot > 0. {
+            for i in 0..4 {
+                self.weight[i] /= tot_for_weight;
+                self.transition[i] /= self.tot;
+            }
+        } else {
+            self.weight = [0.25; 4];
         }
     }
     // renaming all the edges by `map`
@@ -569,14 +586,26 @@ impl Kmer {
             Some(x) => *x = Some(to),
             _ => unreachable!(),
         };
-        self.tot += 1;
+        self.tot += 1.;
         self.weight[i] += 1.;
         self.transition[i] += 1.;
     }
-    // return how many occurence there is.
-    #[allow(dead_code)]
-    fn count(&self) -> u16 {
-        self.tot
+    fn push_edge_with_weight(&mut self, base: u8, to: usize, w: f64) {
+        let i = match base {
+            b'A' => 0,
+            b'C' => 1,
+            b'G' => 2,
+            b'T' => 3,
+            _ => unreachable!(),
+        };
+        match self.edges.get_mut(i) {
+            Some(Some(target)) => assert_eq!(*target, to),
+            Some(x) => *x = Some(to),
+            _ => unreachable!(),
+        };
+        self.tot += w;
+        self.weight[i] += w;
+        self.transition[i] += w;
     }
     // return Score(self.kmer,tip)
     fn calc_score(&self, tip: &[u8], _config: &Config) -> i32 {
@@ -751,6 +780,56 @@ mod tests {
         let k = 7;
         let model1 = DBGHMM::new(&model1, k);
         let model2 = DBGHMM::new(&model2, k);
+        let likelihood1 = model1.forward(&template, &DEFAULT_CONFIG);
+        let likelihood2 = model2.forward(&template, &DEFAULT_CONFIG);
+        assert!(likelihood1 > likelihood2, "{},{}", likelihood1, likelihood2);
+    }
+    #[test]
+    fn random_check_weight() {
+        let bases = b"ACTG";
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
+        let template: Vec<_> = (0..150)
+            .filter_map(|_| bases.choose(&mut rng))
+            .copied()
+            .collect();
+        let model1: Vec<Vec<_>> = (0..50)
+            .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
+            .collect();
+        let model2: Vec<Vec<_>> = (0..50)
+            .map(|_| {
+                (0..150)
+                    .filter_map(|_| bases.choose(&mut rng))
+                    .copied()
+                    .collect()
+            })
+            .collect();
+        let k = 7;
+        let weight1: Vec<_> = (0..model1.len())
+            .map(|_| 1.)
+            .chain((0..model2.len()).map(|_| 0.))
+            .collect();
+        let weight2: Vec<_> = (0..model1.len())
+            .map(|_| 0.)
+            .chain((0..model2.len()).map(|_| 1.))
+            .collect();
+        let dataset: Vec<_> = model1
+            .iter()
+            .chain(model2.iter())
+            .map(|e| e.as_slice())
+            .collect();
+        let mut f = Factory::new();
+        let model1 = f.generate_with_weight(&dataset, &weight1, k);
+        let model2 = f.generate_with_weight(&dataset, &weight2, k);
+        let (a, b, ps) = model1.initialize(&template, &DEFAULT_CONFIG);
+        assert!(!a.is_nan() && !b.is_nan());
+        assert!(ps.iter().all(|e| !e.fold().is_nan()));
+        let mut pps = vec![Node::new(0., 0., 0.); ps.len()];
+        let (a, b) = model1.update(&mut pps, &ps, b'A', &DEFAULT_CONFIG);
+        assert!(!a.is_nan() && !b.is_nan());
+        assert!(pps.into_iter().all(|e| !e.fold().is_nan()));
+        let (a, b, ps) = model2.initialize(&template, &DEFAULT_CONFIG);
+        assert!(ps.into_iter().all(|e| !e.fold().is_nan()));
+        assert!(!a.is_nan() && !b.is_nan());
         let likelihood1 = model1.forward(&template, &DEFAULT_CONFIG);
         let likelihood2 = model2.forward(&template, &DEFAULT_CONFIG);
         assert!(likelihood1 > likelihood2, "{},{}", likelihood1, likelihood2);

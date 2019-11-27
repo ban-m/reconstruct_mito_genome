@@ -7,6 +7,7 @@ use dbg_hmm::*;
 use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
+#[allow(dead_code)]
 const BADREAD_CONFIG: dbg_hmm::Config = dbg_hmm::Config {
     mismatch: 0.0344,
     p_match: 0.88,

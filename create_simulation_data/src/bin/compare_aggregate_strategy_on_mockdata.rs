@@ -19,20 +19,6 @@ use std::collections::HashMap;
 use std::io::{BufWriter, Write};
 use std::time;
 const K: usize = 6;
-const BADREAD_CONFIG: dbg_hmm::Config = dbg_hmm::Config {
-    mismatch: 0.0344,
-    p_match: 0.88,
-    p_ins: 0.0549,
-    p_del: 0.0651,
-    p_extend_ins: 0.0337,
-    p_extend_del: 0.1787,
-    p_del_to_ins: 0.0,
-    match_score: 1,
-    mism_score: -1,
-    del_score: -1,
-    ins_score: -1,
-    base_freq: [0.25, 0.25, 0.25, 0.25],
-};
 
 // const MAX_COVERAGE: usize = 30;
 fn main() -> std::io::Result<()> {
@@ -107,12 +93,14 @@ fn predict(
         })
         .collect();
     debug!("Answer and Distance hashmaps are built");
-    let mut tests = last_tiling::encoding(&tests, contig, &alignments);
+    let mut tests = last_tiling::encoding(&tests, contig, &alignments)
+        .into_iter()
+        .map(ERead::new)
+        .collect::<Vec<_>>();
     tests.sort_by_key(|read| {
         let (min, _max) = read
             .seq()
             .iter()
-            .filter_map(|e| e.encode())
             .map(|e| e.unit)
             .fold((std::u16::MAX, std::u16::MIN), |(x, y), u| {
                 (x.min(u), y.max(u))
@@ -132,29 +120,28 @@ fn predict(
                 .contains("sample1")
         })
         .collect();
-    let training = last_tiling::encoding(&training, contig, &alignments);
+    let training: Vec<_> = last_tiling::encoding(&training, contig, &alignments)
+        .into_iter()
+        .map(ERead::new)
+        .collect();
     let len = contig.get_last_unit(0)? as usize + 1;
     let mut chunks = construct_predictor(&training, &is_original, len);
     debug!("Predictors are constructed:{}", chunks.len());
     for (idx, (os, ms)) in chunks.iter().enumerate() {
         debug!("{}\t{}\t{}", idx, os.len(), ms.len());
     }
-    for read in tests {
+    for read in &tests {
         let id = read.id().to_string();
         let answer = if answer[&id] { 0 } else { 1 };
-        let length = read.recover_raw_sequence().len();
+        let length = read.seq().iter().map(|e| e.bases().len()).sum::<usize>();
         let dist = dist[&id];
         let predict = make_prediction(&chunks, &read);
         // debug!("Pred\tAns={}\t{}", predict, answer);
         predicts.push((id, answer, predict, length, dist));
-        for unit in read.seq().iter().filter_map(|e| e.encode()) {
+        for unit in read.seq().iter() {
             assert_eq!(0, unit.contig);
             let u = unit.unit as usize;
-            let seq = if unit.is_forward {
-                unit.bases.as_bytes().to_vec()
-            } else {
-                last_tiling::revcmp(unit.bases.as_bytes())
-            };
+            let seq = unit.bases();
             if predict == 0 {
                 chunks[u].0.push(seq);
             } else {
@@ -166,23 +153,18 @@ fn predict(
     Some(predicts)
 }
 
-fn make_prediction(chunks: &[(Vec<Seq>, Vec<Seq>)], read: &last_tiling::EncodedRead) -> u8 {
+fn make_prediction(chunks: &[(Vec<&[u8]>, Vec<&[u8]>)], read: &ERead) -> u8 {
     let start = time::Instant::now();
     let predicts: Vec<(f64, f64)> = read
         .seq()
         .par_iter()
-        .filter_map(|e| e.encode())
         .filter_map(|e| {
             let u = e.unit as usize;
             let (ref original, ref mutant) = &chunks[u];
             if original.len() < 10 || mutant.len() < 10 {
                 return None;
             }
-            let query = if e.is_forward {
-                e.bases.as_bytes().to_vec()
-            } else {
-                last_tiling::revcmp(e.bases.as_bytes())
-            };
+            let query = e.bases();
             let min = original.len().min(mutant.len());
             // let s = time::Instant::now();
             // let o = unit_predict_by(&query, &original[..min], K, &BADREAD_CONFIG);

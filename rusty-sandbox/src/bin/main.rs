@@ -21,17 +21,14 @@ pub fn is_contained(record: &rust_htslib::bam::Record) -> bool {
     head < THR && tail < THR
 }
 
-fn is_overlap(record: &rust_htslib::bam::Record, ref_length: usize) -> bool {
+fn is_overlap(record: &rust_htslib::bam::Record, _ref_length: usize) -> bool {
     let cigar = record.cigar();
     let ref_begin = record.pos() as u32;
     let query_begin = match cigar.as_slice().first() {
         Some(Cigar::SoftClip(l)) | Some(Cigar::HardClip(l)) => *l,
         _ => 0,
     };
-    let ref_end = match record.cigar().end_pos() {
-        Ok(res) => ref_length as u32 - res as u32,
-        Err(_) => return true,
-    };
+    let ref_end = record.cigar().end_pos() as u32;
     let query_end = match cigar.as_slice().last() {
         Some(Cigar::SoftClip(l)) | Some(Cigar::HardClip(l)) => *l,
         _ => 0,

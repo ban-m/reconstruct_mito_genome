@@ -5,6 +5,72 @@ extern crate rayon;
 use dbg_hmm::*;
 use last_tiling::EncodedRead;
 
+pub const BADREAD_CONFIG: dbg_hmm::Config = dbg_hmm::Config {
+    mismatch: 0.0344,
+    p_match: 0.88,
+    p_ins: 0.0549,
+    p_del: 0.0651,
+    p_extend_ins: 0.0337,
+    p_extend_del: 0.1787,
+    p_del_to_ins: 0.0,
+    match_score: 1,
+    mism_score: -1,
+    del_score: -1,
+    ins_score: -1,
+    base_freq: [0.25, 0.25, 0.25, 0.25],
+};
+
+/// A simple repr for EncodedRead.
+#[derive(Debug, Clone)]
+pub struct ERead {
+    pub id: String,
+    pub seq: Vec<CUnit>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CUnit {
+    pub contig: u16,
+    pub unit: u16,
+    pub bases: Vec<u8>,
+}
+
+impl CUnit {
+    pub fn bases(&self) -> &[u8] {
+        &self.bases
+    }
+}
+
+impl ERead {
+    pub fn new(er: EncodedRead) -> Self {
+        let EncodedRead { id, seq } = er;
+        let seq = seq
+            .iter()
+            .filter_map(|u| u.encode())
+            .map(|e| {
+                let contig = e.contig;
+                let unit = e.unit;
+                let bases = if e.is_forward {
+                    e.bases.as_bytes().to_vec()
+                } else {
+                    last_tiling::revcmp(e.bases.as_bytes())
+                };
+                CUnit {
+                    contig,
+                    unit,
+                    bases,
+                }
+            })
+            .collect();
+        Self { id, seq }
+    }
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+    pub fn seq(&self) -> &[CUnit] {
+        &self.seq
+    }
+}
+
 pub fn predict_by_naive(ps: &[(f64, f64)]) -> u8 {
     let p1_larget_than_p2 = ps
         .iter()
@@ -82,21 +148,16 @@ fn as_weight(x1: f64, x2: f64) -> (f64, f64) {
 
 pub type Seq = Vec<u8>;
 // UnitID -> Sequences -> (color, seq)
-pub fn construct_predictor(
-    training: &[EncodedRead],
+pub fn construct_predictor<'a>(
+    training: &'a [ERead],
     is_original: &[bool],
     len: usize,
-) -> Vec<(Vec<Seq>, Vec<Seq>)> {
+) -> Vec<(Vec<&'a [u8]>, Vec<&'a [u8]>)> {
     let mut chunks = vec![(vec![], vec![]); len];
-    use last_tiling::revcmp;
     for (&is_original, read) in is_original.iter().zip(training.iter()) {
-        for unit in read.seq().iter().filter_map(|e| e.encode()) {
+        for unit in read.seq.iter() {
             let u = unit.unit as usize;
-            let seq = if unit.is_forward {
-                unit.bases.as_bytes().to_vec()
-            } else {
-                revcmp(unit.bases.as_bytes())
-            };
+            let seq = unit.bases.as_slice();
             if is_original {
                 chunks[u].0.push(seq);
             } else {
@@ -107,10 +168,10 @@ pub fn construct_predictor(
     chunks
 }
 
-pub fn unit_predict(query: &[u8], templates: &[Seq], k: usize) -> f64 {
-    DBGHMM::new(templates, k).forward(&query, &DEFAULT_CONFIG)
+pub fn unit_predict(query: &[u8], templates: &[&[u8]], k: usize) -> f64 {
+    DBGHMM::new_from_ref(templates, k).forward(&query, &DEFAULT_CONFIG)
 }
 
-pub fn unit_predict_by(query: &[u8], refs: &[Seq], k: usize, c: &Config) -> f64 {
-    DBGHMM::new(refs, k).forward(&query, c)
+pub fn unit_predict_by(query: &[u8], refs: &[&[u8]], k: usize, c: &Config) -> f64 {
+    DBGHMM::new_from_ref(refs, k).forward(&query, c)
 }

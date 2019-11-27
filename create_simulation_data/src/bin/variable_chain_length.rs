@@ -21,8 +21,8 @@ fn main() {
         .unwrap();
     let chain_len = 3..40;
     let k = 6;
-    let len = 100;
-    let coverage = 20;
+    let len = 150;
+    // let coverage = 20;
     let test_num = 100;
     let sample_num: Vec<(usize, u64)> = chain_len
         .flat_map(|e| (0..200).map(|c| (e, c)).collect::<Vec<_>>())
@@ -32,18 +32,20 @@ fn main() {
         ins: 0.002,
         del: 0.002,
     };
-    let result: Vec<_> = sample_num
-        .into_par_iter()
-        .map(|(chain_len, seed)| {
-            debug!("Start{}\t{}", seed, chain_len);
-            let (hmm, dist) = benchmark(seed, p, coverage, test_num, chain_len, k, len);
-            debug!("Fin{}\t{}", seed, chain_len);
-            (hmm, dist, chain_len)
-        })
-        .collect();
     println!("HMM\tDist\tCoverage\tLength");
-    for (hmm, dist, clen) in result {
-        println!("{}\t{}\t{}\t{}", hmm, dist, coverage, len * clen);
+    for coverage in vec![10, 20, 30] {
+        let result: Vec<_> = sample_num
+            .par_iter()
+            .map(|&(chain_len, seed)| {
+                debug!("Start{}\t{}", seed, chain_len);
+                let (hmm, dist) = benchmark(seed, p, coverage, test_num, chain_len, k, len);
+                debug!("Fin{}\t{}", seed, chain_len);
+                (hmm, dist, chain_len)
+            })
+            .collect();
+        for (hmm, dist, clen) in result {
+            println!("{}\t{}\t{}\t{}", hmm, dist, coverage, len * clen);
+        }
     }
 }
 fn benchmark(
