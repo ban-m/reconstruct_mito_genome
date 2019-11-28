@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 bio_utils = {path = "../../bio_utils"}
 last_tiling = {path = "../last_tiling"}
+dbg_hmm = {path = "../dbg_hmm"}
 rand = "0.7.2"
 log = "*"
 env_logger = "*"

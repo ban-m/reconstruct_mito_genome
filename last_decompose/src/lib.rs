@@ -5,9 +5,8 @@ extern crate env_logger;
 extern crate last_tiling;
 extern crate rand;
 extern crate serde;
-
 pub use find_breakpoint::critical_regions;
-
+pub mod utils;
 use bio_utils::fasta;
 use last_tiling::LastTAB;
 use log::Level;
@@ -16,6 +15,7 @@ use rand::SeedableRng;
 mod find_breakpoint;
 use last_tiling::UNIT_SIZE;
 mod assignments;
+
 pub fn decompose(
     read: Vec<fasta::Record>,
     alignments: Vec<LastTAB>,

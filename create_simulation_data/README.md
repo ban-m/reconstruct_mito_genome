@@ -37,3 +37,7 @@ Input: Reads<Fasta>, Reference<Fasta>, and alignemnts<LastTAB>
 Output: TSV
 Make predictions.
 
+- em_algorithm_check.rs
+Input:None
+Output: TSV
+Assess EM algorthm.

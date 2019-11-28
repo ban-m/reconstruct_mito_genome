@@ -1,6 +1,6 @@
 #!/bin/bash
 #$ -S /bin/bash
-#$ -N Simulation
+#$ -N MockGenomePred
 #$ -cwd
 #$ -pe smp 24
 #$ -e ./logfiles/mock_genome_workflow.log

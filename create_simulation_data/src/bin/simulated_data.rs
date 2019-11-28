@@ -1,10 +1,12 @@
+extern crate create_simulation_data;
 extern crate dbg_hmm;
 extern crate edlib_sys;
 extern crate rand;
 extern crate rand_xoshiro;
 extern crate rayon;
+use create_simulation_data::*;
 use dbg_hmm::*;
-use rand::{seq::SliceRandom, Rng, SeedableRng};
+use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
 fn main() {
@@ -60,153 +62,96 @@ fn benchmark(
 ) -> (f64, f64, u32) {
     let seed = 100342374 + seed;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
-    let templates1: Vec<_> = (0..chain_len)
+    let template1: Vec<_> = (0..chain_len)
         .map(|_| gen_sample::generate_seq(&mut rng, len))
         .collect();
-    let templates2: Vec<_> = templates1
+    let template2: Vec<_> = template1
         .iter()
         .map(|e| gen_sample::introduce_randomness(e, &mut rng, &p))
         .collect();
-    let prob_1 = 0.5;
-    let dist = templates1
+    let dist = template1
         .iter()
-        .zip(templates2.iter())
+        .zip(template2.iter())
         .map(|(t1, t2)| edlib_sys::global_dist(t1, t2))
         .sum::<u32>();
-    let (dataset2, model2) = generate_dataset(&templates2, coverage, &mut rng, k);
-    let (dataset1, model1) = generate_dataset(&templates1, coverage, &mut rng, k);
-    let p = &gen_sample::PROFILE;
-    let tests: Vec<(_, Vec<_>)> = (0..test_num)
-        .map(|_| {
-            if rng.gen_bool(prob_1) {
-                let d = templates1
-                    .iter()
-                    .map(|e| gen_sample::introduce_randomness(e, &mut rng, &p))
-                    .collect();
-                (1, d)
-            } else {
-                let d = templates2
-                    .iter()
-                    .map(|e| gen_sample::introduce_randomness(e, &mut rng, &p))
-                    .collect();
-                (2, d)
-            }
-        })
-        .collect();
-    let correct = tests
+    let prob_0 = 0.5;
+    let (dataset, label, answer, border) =
+        generate_dataset(&template1, &template2, coverage, test_num, &mut rng, prob_0);
+    let em_pred = em_solve(&dataset, &label, border, k, 10);
+    let correct = em_pred
         .iter()
-        .filter(|&(ans, ref test)| {
-            let l1 = predict(&model1, test);
-            let l2 = predict(&model2, test);
-            let (l1, l2) = merge_predict(&l1, &l2);
-            let p = if l2 < l1 { 1 } else { 2 };
-            *ans == p
-        })
+        .zip(answer.iter())
+        .filter(|(p, a)| a == p)
         .count();
     let hmm = correct as f64 / test_num as f64;
-    let correct = tests
+    let aln = align_pred(&dataset, &label, border);
+    let correct = aln
         .iter()
-        .filter(|&(ans, ref test)| {
-            let test = test.concat();
-            let l1: u32 = dataset1
-                .iter()
-                .map(|seq| edlib_sys::global_dist(seq, &test))
-                .min()
-                .unwrap();
-            let l2: u32 = dataset2
-                .iter()
-                .map(|seq| edlib_sys::global_dist(seq, &test))
-                .min()
-                .unwrap();
-            if l2 < l1 {
-                *ans == 2
-            } else if l1 < l2 {
-                *ans == 1
-            } else {
-                ans == [1, 2].choose(&mut rng).unwrap()
-            }
-        })
+        .zip(answer.iter())
+        .filter(|(p, a)| p == a)
         .count();
     let aln = correct as f64 / test_num as f64;
     (hmm, aln, dist)
 }
 
-fn generate_dataset<T: Rng>(
-    templates: &[Vec<u8>],
-    coverage: usize,
-    rng: &mut T,
-    k: usize,
-) -> (Vec<Vec<u8>>, Vec<DBGHMM>) {
-    let dataset: Vec<_> = templates
+fn align_pred(data: &[Vec<Vec<u8>>], label: &[u8], border: usize) -> Vec<u8> {
+    let data = data
         .iter()
-        .map(|e| {
-            (0..coverage)
-                .map(|_| gen_sample::introduce_randomness(e, rng, &gen_sample::PROFILE))
+        .map(|read| {
+            read.iter()
+                .flat_map(|e| e.iter().map(|&e| e))
                 .collect::<Vec<_>>()
         })
-        .collect();
-    let mut f = Factory::new();
-    let models: Vec<_> = dataset.iter().map(|e| f.generate(e, k)).collect();
-    let dataset: Vec<_> = (0..coverage)
-        .map(|i| {
-            dataset
-                .iter()
-                .flat_map(|e| &e[i])
-                .copied()
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    (dataset, models)
-}
-
-fn predict(models: &[DBGHMM], test: &[Vec<u8>]) -> Vec<f64> {
-    models
+        .collect::<Vec<_>>();
+    let d0: Vec<&Vec<_>> = data
         .iter()
-        .zip(test.iter())
-        // .map(|(e, f)| e.forward(f, &PACBIO_CONFIG))
-        .map(|(e, f)| e.forward(f, &DEFAULT_CONFIG))
-        .collect()
-}
-
-#[allow(dead_code)]
-fn merge_predict_naive(l1: &[f64], l2: &[f64]) -> (f64, f64) {
-    // l1 and l2 are the log prob.
-    let sum1 = l1.iter().sum();
-    let sum2 = l2.iter().sum();
-    as_weight(sum1, sum2)
-}
-
-#[allow(dead_code)]
-fn merge_predict(l1: &[f64], l2: &[f64]) -> (f64, f64) {
-    //println!("merging prediction below:");
-    let ratio: Vec<_> = l1
-        .iter()
-        .zip(l2.iter())
-        .map(|(&x1, &x2)| as_weight(x1, x2))
+        .zip(label.iter())
+        .filter_map(|(r, &b)| if b == 0 { Some(r) } else { None })
         .collect();
-    let weights: Vec<_> = ratio
+    let d1: Vec<&Vec<_>> = data
         .iter()
-        .map(|(x1, x2)| 2f64.ln() + x1 * x1.ln() + x2 * x2.ln())
+        .zip(label.iter())
+        .filter_map(|(r, &b)| if b != 0 { Some(r) } else { None })
         .collect();
-    let tot = weights.iter().fold(0., |x, y| x + y);
-    // eprintln!("Dump weights");
-    // for (idx, ((&l1, &l2), w)) in l1.iter().zip(l2.iter()).zip(weights.iter()).enumerate() {
-    //     let (w1, w2) = as_weight(l1, l2);
-    //     eprintln!("{}\t{:.4}\t{:.4}\t{:.4}", idx, w1, w2, w / tot);
-    // }
-    let (p1, p2) = ratio
-        .into_iter()
-        .zip(weights.into_iter())
-        .map(|((f1, f2), w)| (f1 * w, f2 * w))
-        .fold((0., 0.), |(x, y), (a, b)| (x + a, y + b));
-    assert!((p1 / tot + p2 / tot - 1.).abs() < 0.0001);
-    // eprintln!("Summping to:{}\t{}",p1 / tot, p2 / tot);
-    // eprintln!();
-    (p1 / tot, p2 / tot)
-}
-
-fn as_weight(x1: f64, x2: f64) -> (f64, f64) {
-    let max = x1.max(x2);
-    let log_denominator = max + ((x1 - max).exp() + (x2 - max).exp()).ln();
-    ((x1 - log_denominator).exp(), (x2 - log_denominator).exp())
+    let mut assign: Vec<_> = label
+        .iter()
+        .copied()
+        .chain(data.iter().skip(border).map(|query| {
+            let min0 = d0.iter().map(|r| edlib_sys::global_dist(r, query)).min();
+            let min1 = d1.iter().map(|r| edlib_sys::global_dist(r, query)).min();
+            if min0 < min1 {
+                0
+            } else {
+                1
+            }
+        }))
+        .collect();
+    let mut updated = true;
+    while updated {
+        let d0: Vec<&Vec<_>> = data
+            .iter()
+            .zip(assign.iter())
+            .filter_map(|(r, &b)| if b == 0 { Some(r) } else { None })
+            .collect();
+        let d1: Vec<&Vec<_>> = data
+            .iter()
+            .zip(assign.iter())
+            .filter_map(|(r, &b)| if b != 0 { Some(r) } else { None })
+            .collect();
+        updated = assign
+            .par_iter_mut()
+            .enumerate()
+            .skip(border)
+            .map(|(idx, a)| {
+                let query = &data[idx];
+                let min0 = d0.iter().map(|r| edlib_sys::global_dist(r, query)).min();
+                let min1 = d1.iter().map(|r| edlib_sys::global_dist(r, query)).min();
+                let p = if min0 < min1 { 0 } else { 1 };
+                let updated = p != *a;
+                *a = p;
+                updated
+            })
+            .reduce(|| false, |p, q| q | p);
+    }
+    assign.into_iter().skip(border).collect()
 }

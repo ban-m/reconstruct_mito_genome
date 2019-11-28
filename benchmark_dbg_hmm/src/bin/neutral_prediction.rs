@@ -6,7 +6,7 @@ use dbg_hmm::*;
 use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoroshiro128StarStar;
 fn main() {
-    let len = 100;
+    let len = 150;
     let num_seq = 20;
     let test_num = 1000;
     let k = 6;

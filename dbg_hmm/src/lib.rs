@@ -17,6 +17,7 @@ const PSEUDO_COUNT: bool = true;
 const THR_ON: bool = true;
 pub mod gen_sample;
 use std::collections::HashMap;
+const COV_THR: f64 = 5.;
 // This setting is determined by experimentally.
 pub const DEFAULT_CONFIG: Config = Config {
     mismatch: 0.03,
@@ -53,6 +54,8 @@ pub type DBGHMM = DeBruijnGraphHiddenMarkovModel;
 pub struct DeBruijnGraphHiddenMarkovModel {
     nodes: Vec<Kmer>,
     k: usize,
+    // roughtly the same as coverage.
+    weight: f64,
 }
 
 impl std::fmt::Display for DBGHMM {
@@ -101,7 +104,8 @@ impl Factory {
         let mut nodes = Self::renaming_nodes(nodes);
         nodes.iter_mut().for_each(Kmer::finalize);
         self.inner.clear();
-        DBGHMM { nodes, k }
+        let weight = dataset.len() as f64;
+        DBGHMM { nodes, k , weight}
     }
     pub fn generate_from_ref(&mut self, dataset: &[&[u8]], k: usize) -> DBGHMM {
         let counter = &mut self.inner;
@@ -126,7 +130,8 @@ impl Factory {
         let mut nodes = Self::renaming_nodes(nodes);
         nodes.iter_mut().for_each(Kmer::finalize);
         self.inner.clear();
-        DBGHMM { nodes, k }
+        let weight = dataset.len() as f64;
+        DBGHMM { nodes, k, weight }
     }
     pub fn generate_with_weight(&mut self, dataset: &[&[u8]], ws: &[f64], k: usize) -> DBGHMM {
         assert_eq!(dataset.len(), ws.len());
@@ -152,7 +157,8 @@ impl Factory {
         let mut nodes = Self::renaming_nodes(nodes);
         nodes.iter_mut().for_each(Kmer::finalize);
         self.inner.clear();
-        DBGHMM { nodes, k }
+        let weight = ws.iter().sum::<f64>();
+        DBGHMM { nodes, k, weight }
     }
     fn calc_thr(counter: &HashMap<Vec<u8>, (f64, usize)>) -> f64 {
         let thr = counter.values().map(|e| e.0).sum::<f64>() / counter.len() as f64;
@@ -350,6 +356,9 @@ impl DeBruijnGraphHiddenMarkovModel {
     }
     // This returns log p(obs|model) = \sum - log c_t.
     pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
+        if self.weight < COV_THR {
+            return -100_000_000.0;
+        }
         assert!(obs.len() > self.k);
         let (c, d, mut prev) = self.initialize(&obs[..self.k], config);
         let (mut cs, mut ds) = (-(c.ln()), -(d.ln()));
@@ -724,6 +733,8 @@ mod tests {
             b"CAGTGCTAGTCGATGTCA".to_vec(),
             b"CA".to_vec(),
             b"TTTTTTGTGTGACTGTACGTGACG".to_vec(),
+            b"CACACACACGTGTACGTGTTGGGGGGCTAAA".to_vec(),
+            b"CACACACACGTGTACGTGTTGGGGGGCTAAA".to_vec(),
             b"CACACACACGTGTACGTGTTGGGGGGCTAAA".to_vec(),
         ];
         let mode = DBGHMM::new(&test, 12);

@@ -1,5 +1,6 @@
 extern crate rand;
 use rand::seq::SliceRandom;
+#[derive(Debug)]
 pub struct Profile {
     pub sub: f64,
     pub del: f64,
