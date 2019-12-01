@@ -27,6 +27,13 @@ Output: A Fasta record.
 Create reference genomes for simulations. It would first create a random genome with specified length, then introduce some mutations. Both depths of these contigs are set to 1.0. These genomes are circular. The error profile is as follows: substitution 0.2%, insertion 0.2%, and deletion 0.2%.
 
 
+- create_complext_structure.rs
+Input: The length of the genome to be created<Int> and the path to the directory to output<Path>
+Output:None
+Create reference genomes for simulations. It would first create a circular genome with four building blocks, A, B, C, and D. This program writes this genome as "reference.fa". This genome is circular. Depth is 1.0.
+Then, this program create another structure, A->D->C. This sequence has linear structure and has depth=0.5. Then, the reference and this structure is output as "complex1.fa".
+Also, two structure A->D(Circular, depth=0.5) and C->D(Circular, depth=0.5) would be created and output as "complex2.fa". Each structure has error rate of 0.6% from the reference sequence independently each other.
+
 - predict_mockdata.rs
 Input:
 Output: TSV.

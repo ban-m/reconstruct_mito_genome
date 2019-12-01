@@ -58,7 +58,7 @@ fn benchmark(
     test_num: usize,
     config: &Config,
 ) -> (f64, f64, u32, usize) {
-    let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(122492 + seed);
+    let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(122_492 + seed);
     let template1 = dbg_hmm::gen_sample::generate_seq(&mut rng, len);
     let template2 = dbg_hmm::gen_sample::introduce_randomness(&template1, &mut rng, &p);
     let dist = edlib_sys::global_dist(&template1, &template2);
@@ -105,12 +105,10 @@ fn benchmark(
                 .map(|seq| edlib_sys::global_dist(seq, test))
                 .min()
                 .unwrap();
-            let is_1 = if from1 < from2 {
-                true
-            } else if from1 == from2 {
-                rng.gen_bool(0.5)
-            } else {
-                false
+            let is_1 = match from1.cmp(&from2) {
+                std::cmp::Ordering::Less => true,
+                std::cmp::Ordering::Equal => rng.gen_bool(0.5),
+                std::cmp::Ordering::Greater => false,
             };
             (is_1 && *ans == 1) || (!is_1 && *ans == 2)
         })

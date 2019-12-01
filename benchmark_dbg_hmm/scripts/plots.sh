@@ -11,3 +11,8 @@ Rscript ./scripts/plot_few_sample.R \
 
 Rscript ./scripts/plot_neutral_prediction.R
 
+Rscript ./scripts/plot_em_clustering.R \
+        ./result/em_clustering_default.tsv em_clustering_default
+
+Rscript ./scripts/plot_em_clustering.R \
+        ./result/em_clustering_pacbio.tsv em_clustering_pacbio

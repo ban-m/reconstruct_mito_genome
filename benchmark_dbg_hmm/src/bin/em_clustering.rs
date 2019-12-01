@@ -10,8 +10,9 @@ use dbg_hmm::*;
 use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoroshiro128StarStar;
 use rayon::prelude::*;
+use std::time::Instant;
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     rayon::ThreadPoolBuilder::new()
         .num_threads(24)
         .build_global()
@@ -19,9 +20,6 @@ fn main() {
     let args: Vec<_> = std::env::args().collect();
     let len = 150;
     let k = 6;
-    // let num_seq = (6..20).collect::<Vec<usize>>();
-    // let test_num = (20..300).step_by(15).collect::<Vec<usize>>();
-    // let sample_num: Vec<u64> = (0..20).collect();
     // (num_seq, test_num, sample_num);
     let params: Vec<_> = (6..20)
         .flat_map(|x| {
@@ -42,16 +40,24 @@ fn main() {
         PACBIO_CONFIG
     };
     let s = &gen_sample::PROFILE;
-    println!("Training\tTes\tNaive\tEM\tDist");
+    println!("Training\tTest\tNaive\tEM\tDist");
     let res: Vec<_> = params
         .into_par_iter()
         .map(|(training, test, seed)| {
-            let (n, e, d) = benchmark(p, s, seed, k, len, training, test, &c);
+            let start = Instant::now();
+            info!("Start:{}\t{}\t{}", training, test, seed);
+            let (e, n, d) = benchmark(p, s, seed, k, len, training, test, &c);
+            let ela = Instant::now() - start;
+            let millis = ela.as_millis() as f64 / (training + test) as f64;
+            info!(
+                "End {}\t{}\t{}, {:?}({:.4}/sample)",
+                training, test, seed, ela, millis
+            );
             (training, test, n, e, d)
         })
         .collect();
     for (training, test, n, e, d) in res {
-        println!("{}\t{}\t{}\t{}\t{}", training, test, n, e, d);
+        println!("{}\t{}\t{:.4}\t{:.4}\t{}", training, test, n, e, d);
     }
 }
 fn benchmark(
@@ -82,8 +88,8 @@ fn benchmark(
         .collect();
     let d = edlib_sys::global_dist(&template1, &template2);
     let pred = naive_pred(&dataset, &answers, training, k, config);
-    assert!(dataset.len() == pred.len());
-    let em_pred = em_pred(&dataset, &pred, k, config, training);
+    // assert!(dataset.len() == pred.len());
+    let em_pred = { em_pred(&dataset, &pred, k, config, training) };
     let naive = pred
         .iter()
         .zip(answers.iter())
@@ -108,14 +114,23 @@ fn em_pred(dataset: &[Vec<u8>], pred: &[bool], k: usize, c: &Config, border: usi
     };
     let mut gamma0: Vec<_> = pred.iter().map(|&e| if e { 1. } else { 0. }).collect();
     let mut gamma1: Vec<_> = pred.iter().map(|&e| if !e { 1. } else { 0. }).collect();
+    assert_eq!(gamma0.len(), dataset.len());
     let mut model0 = construct_model(&dataset, &gamma0, k);
     let mut model1 = construct_model(&dataset, &gamma1, k);
     let mut lk = calc_lk(&dataset[border..], &model0, &model1, w0, w1, c);
     let ep = 0.001;
+    debug!("Start");
+    debug!("{}\t{}", model0, model1);
+    debug!("{:.4}\t{:.4}", w0, w1);
+    debug!("LK:{:.4}", lk);
     for _ in 0..10 {
+        // for (g0, g1) in gamma0.iter().zip(gamma1.iter()) {
+        //     debug!("{:.3}\t{:.3}", g0, g1);
+        // }
         for (idx, chunk) in dataset.iter().enumerate().skip(border) {
             let log_m0 = model0.forward(chunk, c);
             let log_m1 = model1.forward(chunk, c);
+            // debug!("Time:{:?}", Instant::now() - s);
             let w = logsum(log_m0, log_m1, w0, w1);
             gamma0[idx] = (w0.ln() + log_m0 - w).exp();
             gamma1[idx] = (w1.ln() + log_m1 - w).exp();
@@ -125,13 +140,17 @@ fn em_pred(dataset: &[Vec<u8>], pred: &[bool], k: usize, c: &Config, border: usi
         w0 = gamma0.iter().sum::<f64>() / tot;
         w1 = gamma1.iter().sum::<f64>() / tot;
         model0 = construct_model(&dataset, &gamma0, k);
-        model1 = construct_model(&dataset, &gamma0, k);
+        model1 = construct_model(&dataset, &gamma1, k);
         let next_lk = calc_lk(&dataset[border..], &model0, &model1, w0, w1, c);
         if (lk - next_lk).abs() < ep {
             break;
         } else {
             lk = next_lk;
         }
+        debug!("Update");
+        debug!("{}\t{}", model0, model1);
+        debug!("{}\t{}", w0, w1);
+        debug!("LK:{:.4}", lk);
     }
     gamma0.iter().map(|&f| f > 0.5).collect()
 }
@@ -151,48 +170,45 @@ fn naive_pred(
     if l == 0 {
         (0..dataset.len()).map(|i| i % 2 == 0).collect()
     } else {
-        let m0: Vec<_> = dataset
+        let (d0, d1): (Vec<_>, Vec<_>) = dataset
             .iter()
+            .map(|e| e.as_slice())
             .zip(answer.iter())
             .take(training)
-            .filter_map(|(e, &b)| if b { Some(e.as_slice()) } else { None })
-            .collect();
-        let m1: Vec<_> = dataset
-            .iter()
-            .zip(answer.iter())
-            .take(training)
-            .filter_map(|(e, &b)| if !b { Some(e.as_slice()) } else { None })
-            .collect();
+            .partition(|(_, &b)| b);
+        let mut d0: Vec<_> = d0.into_iter().map(|(x, _)| x).collect();
+        let mut d1: Vec<_> = d1.into_iter().map(|(x, _)| x).collect();
         let mut f = Factory::new();
-        let m0 = f.generate_from_ref(&m0[..l], k);
-        let m1 = f.generate_from_ref(&m1[..l], k);
+        // let mut m0 = f.generate_from_ref(&d0[..l], k);
+        // let mut m1 = f.generate_from_ref(&d1[..l], k);
         let mut is_updated = true;
-        let mut pred: Vec<_> = dataset
-            .iter()
-            .skip(training)
-            .map(|chunk| m0.forward(chunk, c) > m1.forward(chunk, c))
-            .collect();
+        let mut pred: Vec<_> = vec![false; dataset.len() - training];
         while is_updated {
-            assert!(pred.len() + training == dataset.len());
-            let d0: Vec<_> = dataset
+            is_updated = pred
+                .iter_mut()
+                .enumerate()
+                .map(|(idx, p)| {
+                    let chunk = &dataset[idx + training];
+                    let f0 = d0.iter().map(|e| edlib_sys::global_dist(e, chunk)).min();
+                    let f1 = d1.iter().map(|e| edlib_sys::global_dist(e, chunk)).min();
+                    let next = f0 < f1;
+                    let up = next != *p;
+                    *p = next;
+                    up
+                })
+                .fold(false, |p, q| p | q);
+            d0 = dataset
                 .iter()
                 .zip(answer.iter().take(training).chain(pred.iter()))
                 .filter_map(|(e, &b)| if b { Some(e.as_slice()) } else { None })
                 .collect();
-            let d1: Vec<_> = dataset
+            d1 = dataset
                 .iter()
                 .zip(answer.iter().take(training).chain(pred.iter()))
                 .filter_map(|(e, &b)| if !b { Some(e.as_slice()) } else { None })
                 .collect();
-            let m0 = f.generate_from_ref(&d0, k);
-            let m1 = f.generate_from_ref(&d1, k);
-            let pred_next = dataset
-                .iter()
-                .skip(training)
-                .map(|chunk| m0.forward(chunk, c) > m1.forward(chunk, c))
-                .collect();
-            is_updated = pred != pred_next;
-            pred = pred_next;
+            // m0 = f.generate_from_ref(&d0, k);
+            // m1 = f.generate_from_ref(&d1, k);
         }
         answer.iter().take(training).copied().chain(pred).collect()
     }

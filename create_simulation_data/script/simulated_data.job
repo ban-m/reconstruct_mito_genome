@@ -3,8 +3,8 @@
 #$ -N Simulation
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/log
-#$ -o ./logfiles/out
+#$ -e ./logfiles/simulated_data.log
+#$ -o ./logfiles/simulated_data.out
 #$ -V
 #$ -m e
 cargo run --release --bin simulated_data > ./result/simulated_data.tsv

@@ -45,7 +45,7 @@ fn main() {
     let result: Vec<_> = rep
         .par_iter()
         .flat_map(|e| {
-            let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12218993492 + e);
+            let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12_218_993_492 + e);
             let mut res = vec![];
             for len in min_len / by..max_len / by {
                 for &d in &dists {

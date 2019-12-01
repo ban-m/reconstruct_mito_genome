@@ -12,7 +12,9 @@ args <- commandArgs(trailingOnly = TRUE)
 filename <- args[1]
 outputname <- args[2]
 
-dataset <- read_tsv(filename) %>% 
+rawdata <- read_tsv(filename)
+
+dataset <- rawdata %>% 
     gather(key = Type, value = Accuracy, -Dist, -Coverage, -Length) %>%
     mutate(ErrorRate = Dist/Length * 100)
 
@@ -22,6 +24,10 @@ g <- dataset %>%
     facet_wrap(.~Coverage)
 generalplot(g, paste0(outputname,"_point"))
 
+g <- rawdata %>% mutate(Improvement = HMM-Aln) %>%
+    mutate(ErrorRate = Dist/Length * 100) %>% 
+    ggplot() + geom_point(mapping = aes(x = Coverage, y = Improvement, color = ErrorRate))
+generalplot(g, paste0(outputname,"_improvement_point"))
 
 g <- dataset %>%
     ggplot() +

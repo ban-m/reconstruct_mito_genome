@@ -10,7 +10,7 @@ fn main() {
     let num_seq = 20;
     let test_num = 1000;
     let k = 6;
-    let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12218993);
+    let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12_218_993);
     let template1 = dbg_hmm::gen_sample::generate_seq(&mut rng, len);
     let template2 = gen_sample::introduce_errors(&template1, &mut rng, 1, 1, 1);
     let template3 = gen_sample::introduce_errors(&template1, &mut rng, 1, 1, 1);

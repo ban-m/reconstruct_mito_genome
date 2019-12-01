@@ -1,15 +1,15 @@
+extern crate create_simulation_data;
 extern crate dbg_hmm;
 extern crate edlib_sys;
 extern crate rand;
 extern crate rand_xoshiro;
 extern crate rayon;
-extern crate create_simulation_data;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
 use create_simulation_data::*;
 use dbg_hmm::*;
-use rand::{SeedableRng};
+use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
 fn main() {
@@ -23,10 +23,10 @@ fn main() {
     let chain_len = 10;
     let k = 6;
     let len = 150;
-    let coverage: Vec<_> = (10..30).step_by(2).collect();
-    let test_num: Vec<_> = (10..400).step_by(20).collect();
+    let coverage: Vec<_> = (6..20).step_by(2).collect();
+    let test_num: Vec<_> = (100..300).step_by(20).collect();
     let skew: Vec<_> = (1..10).map(|e| e as f64 / 10.).collect();
-    let sample_num: Vec<_> = (0..10).collect();
+    let sample_num: Vec<_> = (0..12).collect();
     let p = &gen_sample::Profile {
         sub: 0.002,
         ins: 0.002,
@@ -98,8 +98,8 @@ fn benchmark(
         .collect();
     let (dataset, assignment, answer, border) =
         generate_dataset(&templates1, &templates2, coverage, test_num, &mut rng, skew);
-    let naive_pred = naive_solve(&dataset, &assignment, border, k);
-    let em_pred = em_solve(&dataset, &assignment, border, k, seed);
+    let naive_pred = align_solve(&dataset, &assignment, border);
+    let em_pred = em_solve(&dataset, &assignment, border, k, &answer);
     assert_eq!(em_pred.len(), answer.len());
     let (em_tp, em_tn) = calc_metric(&em_pred, &answer);
     let (naive_tp, naive_tn) = calc_metric(&naive_pred, &answer);
@@ -107,7 +107,6 @@ fn benchmark(
         (0, 0),
         |(p, n), &x| if x == 0 { (p + 1, n) } else { (p, n + 1) },
     );
-    debug!("{}\t{}", pos, neg);
     (em_tp, em_tn, naive_tp, naive_tn, pos, neg)
 }
 
@@ -124,5 +123,3 @@ fn calc_metric(pred: &[u8], answer: &[u8]) -> (usize, usize) {
             }
         })
 }
-
-

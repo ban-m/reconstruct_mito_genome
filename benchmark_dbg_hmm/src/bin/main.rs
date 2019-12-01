@@ -1,7 +1,7 @@
 extern crate dbg_hmm;
 extern crate edlib_sys;
-extern crate rand;
 extern crate env_logger;
+extern crate rand;
 use dbg_hmm::gen_sample::*;
 use dbg_hmm::*;
 use rand::{rngs::StdRng, SeedableRng};
@@ -10,7 +10,7 @@ fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let len = 150;
     let num_seq = 50;
-    let mut rng: StdRng = SeedableRng::seed_from_u64(12121899892);
+    let mut rng: StdRng = SeedableRng::seed_from_u64(12_121_899_892);
     let template1: Vec<_> = generate_seq(&mut rng, len);
     let p = Profile {
         sub: 0.005,
@@ -41,6 +41,21 @@ fn main() {
         .map(|_| introduce_randomness(&template2, &mut rng, &PROFILE))
         .collect();
     let k = 6;
+    let m1 = DBGHMM::new(&data1,k);
+    let m2 = DBGHMM::new(&data2,k);
+    for i in 0..10 {
+        let q = if i % 2 == 0 {
+            introduce_randomness(&template1, &mut rng, &PROFILE)
+        } else {
+            introduce_randomness(&template2, &mut rng, &PROFILE)
+        };
+        eprintln!(
+            "{}\t{:.4}\t{:.4}",
+            i % 2 + 1,
+            m1.forward(&q, &DEFAULT_CONFIG),
+            m2.forward(&q, &DEFAULT_CONFIG)
+        );
+    }
     println!("K={}", k);
     println!("Cross Validation");
     println!("Answer\tModel1\tModel2");
