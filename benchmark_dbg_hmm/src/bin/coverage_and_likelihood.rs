@@ -28,10 +28,10 @@ fn main() {
     debug!("{}", edlib_sys::global_dist(&template, &diff));
     println!("Coverage\tLikelihood\tType");
     for i in 1..num_seq {
+        let m: Vec<_> = data[..i].iter().map(|e| e.as_slice()).collect();
+        let w = vec![1.; i];
+        let m = f.generate_with_weight(&m, &w, k);
         for _ in 0..100 {
-            let m: Vec<_> = data[..i].iter().map(|e| e.as_slice()).collect();
-            let w = vec![1.; i];
-            let m = f.generate_with_weight(&m, &w, k);
             let q = introduce_randomness(&template, &mut rng, &PROFILE);
             let lk = m.forward(&q, &DEFAULT_CONFIG);
             println!("{}\t{:.4}\tTRUE", i, lk);

@@ -35,7 +35,6 @@ fn main() {
     let ws: Vec<_> = vec![1.; num_seq * 2];
     let full = f.generate_with_weight(&full, &ws, k);
     debug!("{}", edlib_sys::global_dist(&template, &diff));
-    debug!("F:{}", full);
     println!("Coverage\tCorrect\tWrong\tFull");
     for i in 1..num_seq {
         let w = vec![1.; i];
@@ -43,15 +42,12 @@ fn main() {
         let m = f.generate_with_weight(&m, &w, k);
         let d: Vec<_> = data_diff[..i].iter().map(|e| e.as_slice()).collect();
         let d = f.generate_with_weight(&d, &w, k);
-        //let d = f.generate_from_ref(&d, k);
-        debug!("{}\t{}\t{}", i, m, d);
         for _ in 0..100 {
             let q = introduce_randomness(&template, &mut rng, &PROFILE);
             let lk = m.forward(&q, &DEFAULT_CONFIG);
             let lkd = d.forward(&q, &DEFAULT_CONFIG);
             let lkf = full.forward(&q, &DEFAULT_CONFIG);
             println!("{}\t{}\t{}\t{}", i, lk, lkd, lkf);
-            // println!("{}\t{}", i, lkd);
         }
     }
 }

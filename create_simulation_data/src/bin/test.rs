@@ -29,7 +29,7 @@ fn main() {
     };
     use std::time::Instant;
     let seed = 11920981;
-    let coverage = 20;
+    let coverage = 6;
     let s = Instant::now();
     let (hmm, dist) = benchmark(seed, p, coverage, test_num, chain_len, k, len);
     eprintln!("{:?}", Instant::now() - s);

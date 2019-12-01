@@ -103,7 +103,7 @@ impl Factory {
                 }
             }
         }
-        let nodes = Self::clean_up_nodes(nodes, thr + THR);
+        let nodes = Self::clean_up_nodes(nodes, thr, k);
         self.inner.clear();
         let weight = dataset.len() as f64;
         DBGHMM { nodes, k, weight }
@@ -127,7 +127,7 @@ impl Factory {
                 }
             }
         }
-        let nodes = Self::clean_up_nodes(nodes, thr + THR);
+        let nodes = Self::clean_up_nodes(nodes, thr, k);
         self.inner.clear();
         let weight = dataset.len() as f64;
         DBGHMM { nodes, k, weight }
@@ -143,8 +143,7 @@ impl Factory {
                 }
             })
         });
-        let thr = Self::calc_thr(counter);
-        let ave = thr + THR;
+        let thr = Self::calc_thr(counter) + THR - 1.0001;
         let mut nodes = Vec::with_capacity(counter.len());
         for (seq, &w) in dataset.iter().zip(ws.iter()) {
             for x in seq.windows(k + 1) {
@@ -155,17 +154,46 @@ impl Factory {
         }
         self.inner.clear();
         let weight = ws.iter().sum::<f64>();
-        let nodes = Self::clean_up_nodes(nodes, ave);
+        let nodes = Self::clean_up_nodes(nodes, thr, k);
         DBGHMM { nodes, k, weight }
     }
-    fn clean_up_nodes(nodes: Vec<Kmer>, ave: f64) -> Vec<Kmer> {
-        // Cut components.
-        let nodes = Self::pick_largest_components(nodes);
-        // Cut loops
-        // let nodes = Self::cut_lightweight_loop(nodes, ave);
-        // Cut tips
-        // let nodes = Self::cut_tip(nodes);
-        //  Node Index -> Topological order.
+    fn clean_up_nodes(nodes: Vec<Kmer>, ave: f64, k: usize) -> Vec<Kmer> {
+        // eprintln!("Polishing. Ave:{}, k:{}", ave, k);
+        // eprintln!(
+        //     "Init:{}\t{}",
+        //     nodes.len(),
+        //     nodes
+        //         .iter()
+        //         .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
+        //         .sum::<usize>()
+        // );
+        // let nodes = Self::cut_lightweight_loop(nodes, ave + 1.);
+        // eprintln!(
+        //     "Cut loops:{}\t{}",
+        //     nodes.len(),
+        //     nodes
+        //         .iter()
+        //         .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
+        //         .sum::<usize>()
+        // );
+        // let nodes = Self::cut_tip(nodes, 2);
+        // eprintln!(
+        //     "Cut tips:{}\t{}",
+        //     nodes.len(),
+        //     nodes
+        //         .iter()
+        //         .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
+        //         .sum::<usize>()
+        // );
+        // let nodes = Self::pick_largest_components(nodes);
+        // eprintln!(
+        //     "Pick largest component:{}\t{}",
+        //     nodes.len(),
+        //     nodes
+        //         .iter()
+        //         .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
+        //         .sum::<usize>()
+        // );
         let mut nodes = Self::renaming_nodes(nodes);
         nodes.iter_mut().for_each(Kmer::finalize);
         nodes
@@ -213,6 +241,17 @@ impl Factory {
         assert_eq!(result.len(), size);
         result
     }
+    #[allow(dead_code)]
+    fn select_supported_node(edges: &[Vec<usize>], nodes: usize, is_safe: &[bool]) -> Vec<bool> {
+        let mut is_supported = vec![false; nodes];
+        for (from, edges) in edges.iter().enumerate() {
+            for &to in edges.iter() {
+                is_supported[to] |= is_safe[from];
+                is_supported[from] |= is_safe[to];
+            }
+        }
+        is_supported
+    }
     fn cut_lightweight_loop(nodes: Vec<Kmer>, safe_limit: f64) -> Vec<Kmer> {
         let is_safe: Vec<_> = nodes.iter().map(|e| e.tot > safe_limit).collect();
         let mut is_supported: Vec<_> = vec![false; nodes.len()];
@@ -251,6 +290,117 @@ impl Factory {
             .collect();
         assert_eq!(result.len(), size);
         result
+    }
+    // Cut tips. We can assume that the graph is a
+    // connected graph or a tree.
+    fn cut_tip(nodes: Vec<Kmer>, k: usize) -> Vec<Kmer> {
+        let mut edges: Vec<Vec<_>> = vec![vec![]; nodes.len()];
+        for (idx, node) in nodes.iter().enumerate() {
+            for to in node.edges.iter().filter_map(|e| e.as_ref()) {
+                edges[idx].push(*to);
+            }
+        }
+        let is_supported = Self::cut_tip_inner(&edges, nodes.len(), k);
+        let size = is_supported.iter().filter(|&&e| e).count();
+        let new_index: Vec<_> = {
+            let mut index = 0;
+            (0..nodes.len())
+                .map(|e| {
+                    if is_supported[e] {
+                        index += 1;
+                        index - 1
+                    } else {
+                        index
+                    }
+                })
+                .collect()
+        };
+        let result: Vec<_> = nodes
+            .into_iter()
+            .enumerate()
+            .filter_map(|(idx, mut kmer)| {
+                if is_supported[idx] {
+                    kmer.remove_if_not_supported(&is_supported);
+                    kmer.rename_by(&new_index);
+                    Some(kmer)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(result.len(), size);
+        result
+    }
+    // Cut tips. We can assume that the graph is a
+    // connected graph or a tree.
+    fn cut_tip_inner(edges: &[Vec<usize>], nodes: usize, k: usize) -> Vec<bool> {
+        let k = k as i32;
+        let dist_to_root = Self::dist_to_root(edges, nodes);
+        let bad_list: Vec<_> = (0..nodes)
+            .filter(|&e| edges[e].len() > 1)
+            .flat_map(|e| edges[e].iter().filter(|&&to| dist_to_root[to] <= k / 2))
+            .copied()
+            .collect();
+        // If arrived, true.
+        let mut is_arrived: Vec<bool> = vec![false; nodes];
+        for i in bad_list {
+            if is_arrived[i] {
+                continue;
+            }
+            let mut stack = vec![i];
+            'dfs: while !stack.is_empty() {
+                let node = *stack.last().unwrap();
+                is_arrived[node] |= true;
+                for &to in &edges[node] {
+                    if !is_arrived[to] {
+                        stack.push(to);
+                        continue 'dfs;
+                    }
+                }
+                stack.pop().unwrap();
+            }
+        }
+        let is_supported: Vec<_> = is_arrived.into_iter().map(|e| !e).collect();
+        is_supported
+    }
+    fn dist_to_root(edges: &[Vec<usize>], nodes: usize) -> Vec<i32> {
+        // 0 -> never arrived
+        // 1 -> active(arrived, being traversed currently)
+        // 2 -> inactive(arrived, have been traversed)
+        let mut status = vec![0; nodes];
+        let mut dist_to_root: Vec<i32> = vec![-1; nodes];
+        for i in 0..nodes {
+            if status[i] != 0 {
+                continue;
+            }
+            let mut stack = vec![i];
+            'dfs: while !stack.is_empty() {
+                let node = *stack.last().unwrap();
+                if status[node] == 0 {
+                    status[node] = 1;
+                }
+                for &to in &edges[node] {
+                    if status[to] == 0 {
+                        stack.push(to);
+                        continue 'dfs;
+                    } else if status[to] == 1 {
+                        // Loop detected.
+                        dist_to_root[node] = 100000;
+                    }
+                }
+                let last = stack.pop().unwrap();
+                dist_to_root[last] = edges[node]
+                    .iter()
+                    .map(|&to| dist_to_root[to])
+                    .max()
+                    .unwrap_or(-1)
+                    .max(dist_to_root[last])
+                    + 1;
+                // Deactivate
+                status[last] = 2;
+            }
+        }
+        dist_to_root
     }
     fn calc_thr(counter: &HashMap<Vec<u8>, (f64, usize)>) -> f64 {
         let (sum, denom) =
@@ -678,6 +828,8 @@ impl Kmer {
                 self.weight[i] /= tot_for_weight;
                 self.transition[i] /= self.tot;
             }
+        // assert!((1. - self.transition.iter().sum::<f64>()).abs() < 0.0001);
+        // assert!((1. - self.weight.iter().sum::<f64>()).abs() < 0.0001);
         } else {
             self.weight = [0.25; 4];
         }
@@ -697,7 +849,7 @@ impl Kmer {
                 if fu.find(res).unwrap() != mg {
                     self.edges[i] = None;
                     self.tot -= self.transition[i];
-                    self.weight[i] = 1.;
+                    self.weight[i] -= self.transition[i];
                     self.transition[i] = 0.;
                 }
             }
@@ -710,7 +862,7 @@ impl Kmer {
                 if !is_supported[res] {
                     self.edges[i] = None;
                     self.tot -= self.transition[i];
-                    self.weight[i] = 1.;
+                    self.weight[i] -= self.transition[i];
                     self.transition[i] = 0.;
                 }
             }
@@ -786,6 +938,82 @@ mod tests {
     #[test]
     fn works() {}
     #[test]
+    fn tip_cut() {
+        let edges = vec![
+            vec![1, 2],
+            vec![],
+            vec![],
+            vec![4],
+            vec![0, 5],
+            vec![9],
+            vec![7],
+            vec![8],
+            vec![11],
+            vec![6, 7, 10],
+            vec![],
+            vec![],
+        ];
+        let nodes = 12;
+        assert_eq!(edges.len(), 12);
+        let dist_to_root = Factory::dist_to_root(&edges, nodes);
+        let answer = vec![1, 0, 0, 7, 6, 5, 3, 2, 1, 4, 0, 0];
+        assert_eq!(dist_to_root, answer);
+        let is_supported = Factory::cut_tip_inner(&edges, nodes, 2);
+        let answer = vec![
+            false, false, false, true, true, true, true, true, true, true, false, true,
+        ];
+        assert_eq!(is_supported, answer);
+        let edges = vec![
+            vec![1],
+            vec![2, 3],
+            vec![],
+            vec![4],
+            vec![],
+            vec![6],
+            vec![7],
+            vec![0, 8],
+            vec![5],
+        ];
+        let nodes = 9;
+        assert_eq!(edges.len(), nodes);
+        let dist_to_root = Factory::dist_to_root(&edges, nodes);
+        let answer = vec![3, 2, 0, 1, 0];
+        eprintln!("{:?}", dist_to_root);
+        for i in 0..5 {
+            assert_eq!(dist_to_root[i], answer[i]);
+        }
+        for i in 5..nodes {
+            assert!(dist_to_root[i] > 100);
+        }
+        let is_supported = Factory::cut_tip_inner(&edges, nodes, 2);
+        let answer = vec![true, true, false, false, false, true, true, true, true];
+        assert_eq!(answer, is_supported);
+    }
+    #[test]
+    fn select_supported_test() {
+        let edges = vec![
+            vec![1],
+            vec![2],
+            vec![3, 7],
+            vec![],
+            vec![5],
+            vec![],
+            vec![7],
+            vec![4],
+            vec![6],
+            vec![8, 0],
+            vec![9],
+        ];
+        let nodes = 11;
+        let is_safe = vec![
+            false, true, true, false, true, true, false, false, false, true, true,
+        ];
+        let supported = Factory::select_supported_node(&edges, nodes, &is_safe);
+        let mut answer = vec![true; nodes];
+        answer[6] = false;
+        assert_eq!(supported, answer);
+    }
+    #[test]
     fn topological_sorting() {
         let edges = vec![
             vec![1],
@@ -854,6 +1082,13 @@ mod tests {
     #[test]
     fn initialize() {
         let test = [
+            b"CAGTGCTAGTCGATGTCA".to_vec(),
+            b"CAGTGCTAGTCGATGTCA".to_vec(),
+            b"CAGTGCTAGTCGATGTCA".to_vec(),
+            b"CAGTGCTAGTCGATGTCA".to_vec(),
+            b"CAGTGCTAGTCGATGTCA".to_vec(),
+            b"CAGTGCTAGTCGATGTCA".to_vec(),
+            b"CAGTGCTAGTCGATGTCA".to_vec(),
             b"CAGTGCTAGTCGATGTCA".to_vec(),
             b"CA".to_vec(),
             b"TTTTTTGTGTGACTGTACGTGACG".to_vec(),
@@ -1084,7 +1319,7 @@ mod tests {
 
     #[test]
     fn low_coverage_test() {
-        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(121212);
         let template1: Vec<_> = b"CAGTGTCAGTGCTAGCT".to_vec();
         let template2: Vec<_> = b"CAGTGTCTGTGCTAGCT".to_vec();
         let model1: Vec<Vec<_>> = (0..10)
@@ -1093,7 +1328,7 @@ mod tests {
         let model2: Vec<Vec<_>> = (0..10)
             .map(|_| introduce_randomness(&template2, &mut rng, &PROFILE))
             .collect();
-        let k = 7;
+        let k = 6;
         for m in &model1 {
             eprintln!("1:{}", String::from_utf8_lossy(m));
         }
@@ -1105,7 +1340,9 @@ mod tests {
         eprintln!("1:{}", String::from_utf8_lossy(&test1));
         eprintln!("2:{}", String::from_utf8_lossy(&test2));
         let model1 = DBGHMM::new(&model1, k);
+        eprintln!("Model1:{}", model1);
         let model2 = DBGHMM::new(&model2, k);
+        eprintln!("Model2:{}", model2);
         {
             let likelihood1 = model1.forward(&test1, &DEFAULT_CONFIG);
             let likelihood2 = model2.forward(&test1, &DEFAULT_CONFIG);
@@ -1118,7 +1355,49 @@ mod tests {
             assert!(likelihood1 < likelihood2, "{},{}", likelihood1, likelihood2);
             eprintln!("{:.4}\t{:.4}", likelihood1, likelihood2);
         }
+        // assert!(false);
     }
+    #[test]
+    fn high_coverage_test() {
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(121212332);
+        let template1: Vec<_> = b"CAGTGTCAGTGCTAGCT".to_vec();
+        let template2: Vec<_> = b"CAGTGTCTGTGCTAGCT".to_vec();
+        let model1: Vec<Vec<_>> = (0..200)
+            .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
+            .collect();
+        let model2: Vec<Vec<_>> = (0..200)
+            .map(|_| introduce_randomness(&template2, &mut rng, &PROFILE))
+            .collect();
+        let k = 6;
+        for m in &model1 {
+            eprintln!("1:{}", String::from_utf8_lossy(m));
+        }
+        for m in &model2 {
+            eprintln!("2:{}", String::from_utf8_lossy(m));
+        }
+        let test1 = introduce_randomness(&template1, &mut rng, &PROFILE);
+        let test2 = introduce_randomness(&template2, &mut rng, &PROFILE);
+        eprintln!("1:{}", String::from_utf8_lossy(&test1));
+        eprintln!("2:{}", String::from_utf8_lossy(&test2));
+        let model1 = DBGHMM::new(&model1, k);
+        eprintln!("Model1:{}", model1);
+        let model2 = DBGHMM::new(&model2, k);
+        eprintln!("Model2:{}", model2);
+        {
+            let likelihood1 = model1.forward(&test1, &DEFAULT_CONFIG);
+            let likelihood2 = model2.forward(&test1, &DEFAULT_CONFIG);
+            assert!(likelihood1 > likelihood2, "{},{}", likelihood1, likelihood2);
+            eprintln!("{:.4}\t{:.4}", likelihood1, likelihood2);
+        }
+        {
+            let likelihood1 = model1.forward(&test2, &DEFAULT_CONFIG);
+            let likelihood2 = model2.forward(&test2, &DEFAULT_CONFIG);
+            assert!(likelihood1 < likelihood2, "{},{}", likelihood1, likelihood2);
+            eprintln!("{:.4}\t{:.4}", likelihood1, likelihood2);
+        }
+        // assert!(false);
+    }
+
     use test::Bencher;
     #[bench]
     fn new(b: &mut Bencher) {

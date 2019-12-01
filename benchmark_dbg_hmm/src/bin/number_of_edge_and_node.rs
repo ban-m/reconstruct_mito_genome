@@ -19,7 +19,7 @@ fn main() {
     let k = 6;
     let mut f = Factory::new();
     println!("Coverage\tNodes\tEdges\tWeight");
-    for i in 25..26 {
+    for i in 1..num_seq {
         let m: Vec<_> = data[..i].iter().map(|e| e.as_slice()).collect();
         let w = vec![1.; i];
         let m = f.generate_with_weight(&m, &w, k);

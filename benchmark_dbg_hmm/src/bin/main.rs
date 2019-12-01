@@ -10,7 +10,7 @@ fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let len = 150;
     let num_seq = 50;
-    let mut rng: StdRng = SeedableRng::seed_from_u64(12_121_899_892);
+    let mut rng: StdRng = SeedableRng::seed_from_u64(899_892);
     let template1: Vec<_> = generate_seq(&mut rng, len);
     let p = Profile {
         sub: 0.005,

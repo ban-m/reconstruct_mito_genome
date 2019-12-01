@@ -1,0 +1,15 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N CovLike
+#$ -cwd
+#$ -pe smp 1
+#$ -e ./logfiles/coverage_and_likelihood.log
+#$ -o ./logfiles/coverage_and_likelihood.log
+#$ -V
+#$ -m e
+cargo run --release --bin coverage_and_likelihood \
+      > ./result/coverage_and_likelihood2.tsv
+cargo run --release --bin coverage_and_likelihood_diff \
+      > ./result/coverage_and_likelihood_diff2.tsv
+
+
