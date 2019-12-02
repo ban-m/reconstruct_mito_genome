@@ -30,9 +30,9 @@ fn main() {
         })
         .collect();
     let p = &gen_sample::Profile {
-        sub: 0.008,
-        ins: 0.007,
-        del: 0.008,
+        sub: 0.006,
+        ins: 0.006,
+        del: 0.006,
     };
     let c = if args[1] == "default" {
         DEFAULT_CONFIG

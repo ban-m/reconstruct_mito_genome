@@ -29,3 +29,11 @@ g <- dataset %>%
     geom_line(mapping = aes(x = Coverage, y = UpperBound), data = upperbound)  + 
     facet_wrap(.~Dist)
 generalplot(g,paste0(outputname,"_smooth"))
+
+
+g <-  dataset %>%
+    mutate(ImpHMM = WHMM-HMM, ImpAln = WHMM-Aln) %>%
+    filter(Dist > 0) %>%
+    select(-WHMM, -HMM, -Aln) %>% 
+    gather(key = Type, value = Improvement,-Dist,-Coverage ) %>%
+    ggplot() + geom_smooth(aes(x = Coverage, y = Improvement, color = Type))  + facet_wrap(.~Dist)

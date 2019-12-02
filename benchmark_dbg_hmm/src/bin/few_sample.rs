@@ -18,7 +18,7 @@ fn main() {
     let num_seq = (5..15).collect::<Vec<usize>>();
     let test_num = 1000;
     let k = 6;
-    let sample_num: Vec<u64> = (0..800).collect();
+    let sample_num: Vec<u64> = (0..100).collect();
     let p = &gen_sample::Profile {
         sub: 0.003,
         ins: 0.004,
@@ -43,9 +43,9 @@ fn main() {
         .par_iter()
         .map(|&(seed, num_seq)| benchmark(p, s, seed, k, len, num_seq, test_num, &c))
         .collect();
-    println!("HMM\tAln\tDist\tCoverage");
-    for (hmm, aln, dist, num_seq) in result {
-        println!("{}\t{}\t{}\t{}", hmm, aln, dist, num_seq);
+    println!("HMM\t\tWHMM\tAln\tDist\tCoverage");
+    for (hmm, whmm, aln, dist, num_seq) in result {
+        println!("{}\t{}\t{}\t{}\t{}", hmm, whmm, aln, dist, num_seq);
     }
 }
 fn benchmark(
@@ -57,8 +57,8 @@ fn benchmark(
     num_seq: usize,
     test_num: usize,
     config: &Config,
-) -> (f64, f64, u32, usize) {
-    let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(122_492 + seed);
+) -> (f64, f64, f64, u32, usize) {
+    let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(122_492_789 + seed);
     let template1 = dbg_hmm::gen_sample::generate_seq(&mut rng, len);
     let template2 = dbg_hmm::gen_sample::introduce_randomness(&template1, &mut rng, &p);
     let dist = edlib_sys::global_dist(&template1, &template2);
@@ -92,6 +92,29 @@ fn benchmark(
     let time_par_case = time.as_millis() as f64 / test_num as f64;
     eprintln!("{:?}({:.3}millis/sample)", time, time_par_case);
     let hmm = correct as f64 / test_num as f64;
+    let start = time::Instant::now();
+    let mut f = Factory::new();
+    let data: Vec<_> = data1
+        .iter()
+        .chain(data2.iter())
+        .map(|e| e.as_slice())
+        .collect();
+    let weight1 = vec![vec![1.; num_seq], vec![0.; num_seq]].concat();
+    let weight2 = vec![vec![0.; num_seq], vec![1.; num_seq]].concat();
+    let model1 = f.generate_with_weight(&data, &weight1, k);
+    let model2 = f.generate_with_weight(&data, &weight2, k);
+    let correct = tests
+        .iter()
+        .filter(|&(ans, ref test)| {
+            let l1 = model1.forward(&test, config);
+            let l2 = model2.forward(&test, config);
+            (l2 < l1 && *ans == 1) || (l1 < l2 && *ans == 2)
+        })
+        .count();
+    let time = time::Instant::now() - start;
+    let time_par_case = time.as_millis() as f64 / test_num as f64;
+    eprintln!("{:?}({:.3}millis/sample)", time, time_par_case);
+    let whmm = correct as f64 / test_num as f64;
     let correct = tests
         .iter()
         .filter(|&(ans, ref test)| {
@@ -114,5 +137,5 @@ fn benchmark(
         })
         .count();
     let aln = correct as f64 / test_num as f64;
-    (hmm, aln, dist, num_seq)
+    (hmm, whmm, aln, dist, num_seq)
 }

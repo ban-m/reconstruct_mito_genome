@@ -9,16 +9,15 @@ use dbg_hmm::gen_sample::*;
 use dbg_hmm::*;
 use rand::{rngs::StdRng, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
-
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let len = 150;
     let num_seq = 50;
-    let mut rng: Xoshiro256PlusPlus = SeedableRng::seed_from_u64(121_892);
+    let mut rng: Xoshiro256PlusPlus = SeedableRng::seed_from_u64(121_899_000);
     let p = &gen_sample::Profile {
-        sub: 0.002,
-        ins: 0.002,
-        del: 0.002,
+        sub: 0.004,
+        ins: 0.004,
+        del: 0.004,
     };
     let template: Vec<_> = generate_seq(&mut rng, len);
     let diff = introduce_randomness(&template, &mut rng, p);
@@ -30,7 +29,7 @@ fn main() {
         .collect();
     let k = 6;
     let mut f = Factory::new();
-    debug!("{}", edlib_sys::global_dist(&template, &diff));
+    debug!("Dist:{}", edlib_sys::global_dist(&template, &diff));
     println!("Coverage\tCorrect\tWrong");
     let tot = (1..num_seq)
         .map(|i| {
@@ -40,7 +39,7 @@ fn main() {
             let d: Vec<_> = data_diff[..i].iter().map(|e| e.as_slice()).collect();
             let d = f.generate_with_weight(&d, &w, k);
             let correct = (0..100)
-                .map(|e| {
+                .map(|_| {
                     let q = introduce_randomness(&template, &mut rng, &PROFILE);
                     let lk = m.forward(&q, &DEFAULT_CONFIG);
                     let lkd = d.forward(&q, &DEFAULT_CONFIG);

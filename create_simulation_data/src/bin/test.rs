@@ -21,7 +21,7 @@ fn main() {
     let chain_len = 20;
     let k = 6;
     let len = 150;
-    let test_num = 300;
+    let test_num = 100;
     let p = &gen_sample::Profile {
         sub: 0.002,
         ins: 0.002,
@@ -29,7 +29,7 @@ fn main() {
     };
     use std::time::Instant;
     let seed = 11920981;
-    let coverage = 6;
+    let coverage = 20;
     let s = Instant::now();
     let (hmm, dist) = benchmark(seed, p, coverage, test_num, chain_len, k, len);
     eprintln!("{:?}", Instant::now() - s);

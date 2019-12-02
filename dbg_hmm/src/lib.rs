@@ -150,11 +150,18 @@ impl Factory {
                 })
             });
         let thr = Self::calc_thr_weight(counter);
+        // eprintln!("{}", thr);
         let mut nodes = Vec::new();
         for (seq, &w) in dataset.iter().zip(ws.iter()).filter(|&(_, &w)| w > ep) {
             for x in seq.windows(k + 1) {
                 if let Some((from, to)) = Self::get_indices(x, counter, &mut nodes, thr, k) {
                     nodes[from].push_edge_with_weight(x[k], to, w);
+                }
+            }
+            let last = &seq[seq.len() - k..];
+            if let Some(x) = counter.get(last) {
+                if x.0 > thr && x.1 != std::usize::MAX {
+                    nodes[x.1].is_tail = true;
                 }
             }
         }
@@ -168,16 +175,7 @@ impl Factory {
         nodes.iter_mut().for_each(Kmer::finalize);
         nodes
     }
-    fn clean_up_nodes_exp(nodes: Vec<Kmer>, ave: f64, k: usize) -> Vec<Kmer> {
-        eprintln!("Polishing. Ave:{}, k:{}", ave, k);
-        // eprintln!(
-        //     "Init:{}\t{}",
-        //     nodes.len(),
-        //     nodes
-        //         .iter()
-        //         .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
-        //         .sum::<usize>()
-        // );
+    fn clean_up_nodes_exp(nodes: Vec<Kmer>, ave: f64, _k: usize) -> Vec<Kmer> {
         let nodes = Self::cut_lightweight_loop(nodes, ave);
         // eprintln!(
         //     "Cut loops:{}\t{}",
@@ -187,16 +185,20 @@ impl Factory {
         //         .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
         //         .sum::<usize>()
         // );
-        let nodes = Self::cut_tip(nodes, 2);
-        // eprintln!(
-        //     "Cut tips:{}\t{}",
-        //     nodes.len(),
-        //     nodes
-        //         .iter()
-        //         .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
-        //         .sum::<usize>()
-        // );
-        let nodes = Self::pick_largest_components(nodes);
+        let nodes = if ave > 0.999 {
+            let nodes = Self::cut_tip(nodes, 2);
+            // eprintln!(
+            //     "Cut tips:{}\t{}",
+            //     nodes.len(),
+            //     nodes
+            //         .iter()
+            //         .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
+            //         .sum::<usize>()
+            // );
+            Self::pick_largest_components(nodes)
+        } else {
+            Self::pick_largest_components(nodes)
+        };
         // eprintln!(
         //     "Pick largest component:{}\t{}",
         //     nodes.len(),
@@ -305,13 +307,32 @@ impl Factory {
     // Cut tips. We can assume that the graph is a
     // connected graph or a tree.
     fn cut_tip(nodes: Vec<Kmer>, t: usize) -> Vec<Kmer> {
-        let mut edges: Vec<Vec<_>> = vec![vec![]; nodes.len()];
+        // last node is for a pseudo node for tail kmer.
+        let pseudo_node = nodes.len();
+        let mut edges: Vec<Vec<_>> = vec![vec![]; nodes.len() + 1];
+        let mut is_near_tail: Vec<_> = nodes.iter().map(|e| e.is_tail).collect();
         for (idx, node) in nodes.iter().enumerate() {
-            for to in node.edges.iter().filter_map(|e| e.as_ref()) {
-                edges[idx].push(*to);
+            for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
+                edges[idx].push(to);
+                is_near_tail[idx] |= nodes[to].is_tail;
+            }
+            if node.is_tail {
+                edges[idx].push(pseudo_node);
             }
         }
-        let is_supported = Self::cut_tip_inner(&edges, nodes.len(), t);
+        let ave = nodes.iter().map(|e| e.kmer_weight).sum::<f64>() / nodes.len() as f64;
+        let is_heavy = nodes.iter().map(|n| n.kmer_weight > ave);
+        let is_supported: Vec<_> = Self::cut_tip_inner(&edges, nodes.len() + 1, t)
+            .into_iter()
+            .zip(is_heavy)
+            .zip(is_near_tail)
+            .take(pseudo_node)
+            .map(|((sup, is_heavy), is_near_tail)| {
+                // let is_heavy = nodes[idx].kmer_weight > ave;
+                // let is_near_tail = is_near_tail[idx];
+                sup | (is_near_tail & is_heavy)
+            })
+            .collect();
         let size = is_supported.iter().filter(|&&e| e).count();
         let new_index: Vec<_> = {
             let mut index = 0;
@@ -446,7 +467,7 @@ impl Factory {
             Some(x) if x.1 != std::usize::MAX => Some(x.1),
             Some(x) => {
                 x.1 = nodes.len();
-                nodes.push(Kmer::new(kmer));
+                nodes.push(Kmer::new(kmer, x.0));
                 Some(nodes.len() - 1)
             }
             _ => unreachable!(),
@@ -461,7 +482,7 @@ impl Factory {
             Some(x) if x.1 != std::usize::MAX => x.1,
             Some(x) => {
                 x.1 = nodes.len();
-                nodes.push(Kmer::new(kmer));
+                nodes.push(Kmer::new(kmer, x.0));
                 nodes.len() - 1
             }
             _ => unreachable!(),
@@ -826,19 +847,26 @@ struct Kmer {
     last: u8,
     weight: [f64; 4],
     transition: [f64; 4],
+    // Total number of *Outdegree*
     tot: f64,
     // The location to the edges with the label of A,C,G,and T.
     // If there is no edges, None
     edges: [Option<usize>; 4],
+    // Weight of this kmer.
+    kmer_weight: f64,
+    // Whether this is the end of unit.
+    is_tail: bool,
 }
 
 impl std::fmt::Debug for Kmer {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         writeln!(f, "Kmer:{}", String::from_utf8_lossy(&self.kmer))?;
+        writeln!(f, "KmerWeight:{:.3}", self.kmer_weight)?;
         writeln!(f, "Last:{}", self.last as char)?;
         writeln!(f, "Weight:{:?}", self.weight)?;
         writeln!(f, "Transition:{:?}", self.transition)?;
         writeln!(f, "tot:{}", self.tot)?;
+        writeln!(f, "is_tail:{}", self.is_tail)?;
         for (i, to) in self
             .edges
             .iter()
@@ -852,21 +880,25 @@ impl std::fmt::Debug for Kmer {
 }
 
 impl Kmer {
-    fn new(x: &[u8]) -> Self {
+    fn new(x: &[u8], w: f64) -> Self {
         let kmer = x.to_vec();
+        let kmer_weight = w;
         let last = *kmer.last().unwrap();
         // Prior
         let weight = if PSEUDO_COUNT { [1.; 4] } else { [0.; 4] };
         let tot = 0.;
         let transition = [0f64; 4];
         let edges = [None; 4];
+        let is_tail = false;
         Self {
             kmer,
+            kmer_weight,
             last,
             weight,
             tot,
             edges,
             transition,
+            is_tail,
         }
     }
     fn finalize(&mut self) {
@@ -1111,7 +1143,7 @@ mod tests {
     }
     #[test]
     fn kmer() {
-        let mut kmer = Kmer::new(b"ACTCGTA");
+        let mut kmer = Kmer::new(b"ACTCGTA", 0.);
         assert_eq!(kmer.last, b'A');
         kmer.push_edge_with(b'A', 12);
         kmer.push_edge_with(b'C', 34);
@@ -1127,7 +1159,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn kmer2() {
-        let mut kmer = Kmer::new(b"ACTCGTA");
+        let mut kmer = Kmer::new(b"ACTCGTA", 1.);
         kmer.push_edge_with(b'A', 12);
         kmer.push_edge_with(b'A', 34);
     }
@@ -1276,25 +1308,43 @@ mod tests {
     #[test]
     fn has_true_edge_test() {
         let bases = b"ACTG";
-        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
-        let template1: Vec<_> = (0..150)
-            .filter_map(|_| bases.choose(&mut rng))
-            .copied()
-            .collect();
-        let num = 20;
-        let model1: Vec<Vec<_>> = (0..num)
-            .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
-            .collect();
-        let weight = vec![1.; num];
-        let model1: Vec<_> = model1.iter().map(|e| e.as_slice()).collect();
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12_122_432);
         let k = 6;
-        let mut f = Factory::new();
-        let model1 = f.generate_with_weight(&model1, &weight, k);
-        for kmer in template1.windows(k) {
-            assert!(model1.nodes.iter().any(|node| node.kmer == kmer));
+        for num in 20..200 {
+            let template1: Vec<_> = (0..150)
+                .filter_map(|_| bases.choose(&mut rng))
+                .copied()
+                .collect();
+            let model1: Vec<Vec<_>> = (0..num)
+                .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
+                .collect();
+            let weight = vec![1.; num];
+            let kmers: std::collections::HashSet<Vec<u8>> = model1
+                .iter()
+                .flat_map(|e| e.windows(k))
+                .map(|e| e.to_vec())
+                .collect();
+            let model1: Vec<_> = model1.iter().map(|e| e.as_slice()).collect();
+            let mut f = Factory::new();
+            let model1 = f.generate_with_weight(&model1, &weight, k);
+            eprintln!("{}", model1);
+            eprintln!("{}", String::from_utf8_lossy(&template1));
+            eprintln!("{}", num);
+            let num = template1
+                .windows(k)
+                .filter(|&kmer| !model1.nodes.iter().any(|node| node.kmer == kmer))
+                .inspect(|kmer| eprintln!("{}", String::from_utf8_lossy(kmer)))
+                .count();
+            eprintln!("{}", num);
+            for kmer in template1.windows(k).filter(|&kmer| kmers.contains(kmer)) {
+                assert!(
+                    model1.nodes.iter().any(|node| node.kmer == kmer),
+                    "{:?}",
+                    model1
+                );
+            }
         }
     }
-
     #[test]
     fn hard_test() {
         let bases = b"ACTG";
@@ -1371,6 +1421,8 @@ mod tests {
         let mut f = Factory::new();
         let m1 = f.generate_with_weight(&seqs, &weight1, k);
         let m2 = f.generate_with_weight(&seqs, &weight2, k);
+        // let m1 = DBGHMM::new(&model1, k);
+        // let m2 = DBGHMM::new(&model2, k);
         eprintln!("{}\t{}", m1, m2);
         let correct = (0..100)
             .filter(|e| {
@@ -1433,31 +1485,33 @@ mod tests {
         }
         // assert!(false);
     }
+
     #[test]
-    fn high_coverage_test() {
-        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(121212332);
+    fn low_coverage_weighted_test() {
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(121212);
         let template1: Vec<_> = b"CAGTGTCAGTGCTAGCT".to_vec();
         let template2: Vec<_> = b"CAGTGTCTGTGCTAGCT".to_vec();
-        let model1: Vec<Vec<_>> = (0..200)
+        let model1: Vec<Vec<_>> = (0..10)
             .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
             .collect();
-        let model2: Vec<Vec<_>> = (0..200)
+        let model2: Vec<Vec<_>> = (0..10)
             .map(|_| introduce_randomness(&template2, &mut rng, &PROFILE))
             .collect();
         let k = 6;
-        for m in &model1 {
-            eprintln!("1:{}", String::from_utf8_lossy(m));
-        }
-        for m in &model2 {
-            eprintln!("2:{}", String::from_utf8_lossy(m));
-        }
         let test1 = introduce_randomness(&template1, &mut rng, &PROFILE);
         let test2 = introduce_randomness(&template2, &mut rng, &PROFILE);
-        eprintln!("1:{}", String::from_utf8_lossy(&test1));
-        eprintln!("2:{}", String::from_utf8_lossy(&test2));
-        let model1 = DBGHMM::new(&model1, k);
+        let dataset: Vec<_> = model1
+            .iter()
+            .chain(model2.iter())
+            .map(|e| e.as_slice())
+            .collect();
+
+        let weight1 = vec![vec![1.; 10], vec![0.; 10]].concat();
+        let weight2 = vec![vec![0.; 10], vec![1.; 10]].concat();
+        let mut f = Factory::new();
+        let model1 = f.generate_with_weight(&dataset, &weight1, k);
         eprintln!("Model1:{}", model1);
-        let model2 = DBGHMM::new(&model2, k);
+        let model2 = f.generate_with_weight(&dataset, &weight2, k);
         eprintln!("Model2:{}", model2);
         {
             let likelihood1 = model1.forward(&test1, &DEFAULT_CONFIG);
@@ -1474,6 +1528,56 @@ mod tests {
         // assert!(false);
     }
 
+    #[test]
+    fn high_coverage_test() {
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(121212332);
+        let template1: Vec<_> = b"CAGTGTCAGTGCTAGCT".to_vec();
+        let template2: Vec<_> = b"CAGTGTCTGTGCTAGCT".to_vec();
+        let model1: Vec<Vec<_>> = (0..200)
+            .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
+            .collect();
+        let model2: Vec<Vec<_>> = (0..200)
+            .map(|_| introduce_randomness(&template2, &mut rng, &PROFILE))
+            .collect();
+        let k = 6;
+        let test1 = introduce_randomness(&template1, &mut rng, &PROFILE);
+        let test2 = introduce_randomness(&template2, &mut rng, &PROFILE);
+        {
+            let model1 = DBGHMM::new(&model1, k);
+            let model2 = DBGHMM::new(&model2, k);
+
+            let likelihood1 = model1.forward(&test1, &DEFAULT_CONFIG);
+            let likelihood2 = model2.forward(&test1, &DEFAULT_CONFIG);
+            assert!(likelihood1 > likelihood2, "{},{}", likelihood1, likelihood2);
+            let likelihood1 = model1.forward(&test2, &DEFAULT_CONFIG);
+            let likelihood2 = model2.forward(&test2, &DEFAULT_CONFIG);
+            assert!(likelihood1 < likelihood2, "{},{}", likelihood1, likelihood2);
+        }
+        let dataset: Vec<_> = model1
+            .iter()
+            .chain(model2.iter())
+            .map(|e| e.as_slice())
+            .collect();
+        let weight1 = vec![vec![1.; 200], vec![0.; 200]].concat();
+        let weight2 = vec![vec![0.; 200], vec![1.; 200]].concat();
+        let mut f = Factory::new();
+        let model1 = f.generate_with_weight(&dataset, &weight1, k);
+        eprintln!("Model1:{}", model1);
+        let model2 = f.generate_with_weight(&dataset, &weight2, k);
+        eprintln!("Model2:{}", model2);
+        {
+            let likelihood1 = model1.forward(&test1, &DEFAULT_CONFIG);
+            let likelihood2 = model2.forward(&test1, &DEFAULT_CONFIG);
+            assert!(likelihood1 > likelihood2, "{},{}", likelihood1, likelihood2);
+            eprintln!("{:.4}\t{:.4}", likelihood1, likelihood2);
+        }
+        {
+            let likelihood1 = model1.forward(&test2, &DEFAULT_CONFIG);
+            let likelihood2 = model2.forward(&test2, &DEFAULT_CONFIG);
+            assert!(likelihood1 < likelihood2, "{},{}", likelihood1, likelihood2);
+            eprintln!("{:.4}\t{:.4}", likelihood1, likelihood2);
+        }
+    }
     use test::Bencher;
     #[bench]
     fn new(b: &mut Bencher) {
