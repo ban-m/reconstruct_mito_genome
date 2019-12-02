@@ -89,7 +89,7 @@ fn benchmark(
     let d = edlib_sys::global_dist(&template1, &template2);
     let pred = naive_pred(&dataset, &answers, training, k, config);
     // assert!(dataset.len() == pred.len());
-    let em_pred = { em_pred(&dataset, &pred, k, config, training) };
+    let em_pred = em_pred(&dataset, &pred, k, config, training);
     let naive = pred
         .iter()
         .zip(answers.iter())
@@ -159,8 +159,8 @@ fn naive_pred(
     dataset: &[Vec<u8>],
     answer: &[bool],
     training: usize,
-    k: usize,
-    c: &Config,
+    _k: usize,
+    _c: &Config,
 ) -> Vec<bool> {
     let l = {
         let l0 = answer.iter().take(training).filter(|&&e| e).count();
@@ -178,7 +178,7 @@ fn naive_pred(
             .partition(|(_, &b)| b);
         let mut d0: Vec<_> = d0.into_iter().map(|(x, _)| x).collect();
         let mut d1: Vec<_> = d1.into_iter().map(|(x, _)| x).collect();
-        let mut f = Factory::new();
+        let mut _f = Factory::new();
         // let mut m0 = f.generate_from_ref(&d0[..l], k);
         // let mut m1 = f.generate_from_ref(&d1[..l], k);
         let mut is_updated = true;

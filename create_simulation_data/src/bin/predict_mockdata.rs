@@ -63,9 +63,9 @@ fn main() -> std::io::Result<()> {
         .collect();
     debug!("Answer and Distance hashmaps are built");
     let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1893749823);
-    // let (training, testset): (Vec<_>, Vec<_>) = reads.into_iter().partition(|_| rng.gen_bool(0.2));
-    let (training, testset): (Vec<_>, Vec<_>) =
-        reads.into_iter().partition(|r| dist[r.id()] < len / 2);
+    let (training, testset): (Vec<_>, Vec<_>) = reads.into_iter().partition(|_| rng.gen_bool(0.2));
+    // let (training, testset): (Vec<_>, Vec<_>) =
+    //     reads.into_iter().partition(|r| dist[r.id()] < len / 2);
     debug!(
         "{} training reads and {} test reads dataset.",
         training.len(),

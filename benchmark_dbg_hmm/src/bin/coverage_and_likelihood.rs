@@ -7,12 +7,11 @@ extern crate log;
 use dbg_hmm::gen_sample::*;
 use dbg_hmm::*;
 use rand::{rngs::StdRng, SeedableRng};
-use std::time::Instant;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let len = 150;
     let num_seq = 50;
-    let mut rng: StdRng = SeedableRng::seed_from_u64(12_121_899_892);
+    let mut rng: StdRng = SeedableRng::seed_from_u64(121_892);
     let p = &gen_sample::Profile {
         sub: 0.002,
         ins: 0.002,

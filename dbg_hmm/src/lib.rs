@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 #![feature(test)]
 //! A tiny implementation for de Bruijn graph with Hidden Markov model.
 //! Currently, this implementation is minimal. In other words, it exposes only one struct with just two methods:
@@ -103,7 +104,7 @@ impl Factory {
                 }
             }
         }
-        let nodes = Self::clean_up_nodes(nodes, thr, k);
+        let nodes = Self::clean_up_nodes(nodes);
         self.inner.clear();
         let weight = dataset.len() as f64;
         DBGHMM { nodes, k, weight }
@@ -127,25 +128,30 @@ impl Factory {
                 }
             }
         }
-        let nodes = Self::clean_up_nodes(nodes, thr, k);
+        let nodes = Self::clean_up_nodes(nodes);
         self.inner.clear();
         let weight = dataset.len() as f64;
         DBGHMM { nodes, k, weight }
     }
     pub fn generate_with_weight(&mut self, dataset: &[&[u8]], ws: &[f64], k: usize) -> DBGHMM {
         assert_eq!(dataset.len(), ws.len());
+        let ep = 0.0001;
         let counter = &mut self.inner;
-        dataset.iter().zip(ws.iter()).for_each(|(seq, w)| {
-            seq.windows(k).for_each(|kmer| match counter.get_mut(kmer) {
-                Some(x) => x.0 += w,
-                None => {
-                    counter.insert(kmer.to_vec(), (*w, std::usize::MAX));
-                }
-            })
-        });
-        let thr = Self::calc_thr(counter) + THR - 1.0001;
-        let mut nodes = Vec::with_capacity(counter.len());
-        for (seq, &w) in dataset.iter().zip(ws.iter()) {
+        dataset
+            .iter()
+            .zip(ws.iter())
+            .filter(|&(_, &w)| w > ep)
+            .for_each(|(seq, w)| {
+                seq.windows(k).for_each(|kmer| match counter.get_mut(kmer) {
+                    Some(x) => x.0 += w,
+                    None => {
+                        counter.insert(kmer.to_vec(), (*w, std::usize::MAX));
+                    }
+                })
+            });
+        let thr = Self::calc_thr_weight(counter);
+        let mut nodes = Vec::new();
+        for (seq, &w) in dataset.iter().zip(ws.iter()).filter(|&(_, &w)| w > ep) {
             for x in seq.windows(k + 1) {
                 if let Some((from, to)) = Self::get_indices(x, counter, &mut nodes, thr, k) {
                     nodes[from].push_edge_with_weight(x[k], to, w);
@@ -154,11 +160,16 @@ impl Factory {
         }
         self.inner.clear();
         let weight = ws.iter().sum::<f64>();
-        let nodes = Self::clean_up_nodes(nodes, thr, k);
+        let nodes = Self::clean_up_nodes_exp(nodes, thr, k);
         DBGHMM { nodes, k, weight }
     }
-    fn clean_up_nodes(nodes: Vec<Kmer>, ave: f64, k: usize) -> Vec<Kmer> {
-        // eprintln!("Polishing. Ave:{}, k:{}", ave, k);
+    fn clean_up_nodes(nodes: Vec<Kmer>) -> Vec<Kmer> {
+        let mut nodes = Self::renaming_nodes(nodes);
+        nodes.iter_mut().for_each(Kmer::finalize);
+        nodes
+    }
+    fn clean_up_nodes_exp(nodes: Vec<Kmer>, ave: f64, k: usize) -> Vec<Kmer> {
+        eprintln!("Polishing. Ave:{}, k:{}", ave, k);
         // eprintln!(
         //     "Init:{}\t{}",
         //     nodes.len(),
@@ -167,7 +178,7 @@ impl Factory {
         //         .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
         //         .sum::<usize>()
         // );
-        // let nodes = Self::cut_lightweight_loop(nodes, ave + 1.);
+        let nodes = Self::cut_lightweight_loop(nodes, ave);
         // eprintln!(
         //     "Cut loops:{}\t{}",
         //     nodes.len(),
@@ -176,7 +187,7 @@ impl Factory {
         //         .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
         //         .sum::<usize>()
         // );
-        // let nodes = Self::cut_tip(nodes, 2);
+        let nodes = Self::cut_tip(nodes, 2);
         // eprintln!(
         //     "Cut tips:{}\t{}",
         //     nodes.len(),
@@ -185,7 +196,7 @@ impl Factory {
         //         .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
         //         .sum::<usize>()
         // );
-        // let nodes = Self::pick_largest_components(nodes);
+        let nodes = Self::pick_largest_components(nodes);
         // eprintln!(
         //     "Pick largest component:{}\t{}",
         //     nodes.len(),
@@ -293,14 +304,14 @@ impl Factory {
     }
     // Cut tips. We can assume that the graph is a
     // connected graph or a tree.
-    fn cut_tip(nodes: Vec<Kmer>, k: usize) -> Vec<Kmer> {
+    fn cut_tip(nodes: Vec<Kmer>, t: usize) -> Vec<Kmer> {
         let mut edges: Vec<Vec<_>> = vec![vec![]; nodes.len()];
         for (idx, node) in nodes.iter().enumerate() {
             for to in node.edges.iter().filter_map(|e| e.as_ref()) {
                 edges[idx].push(*to);
             }
         }
-        let is_supported = Self::cut_tip_inner(&edges, nodes.len(), k);
+        let is_supported = Self::cut_tip_inner(&edges, nodes.len(), t);
         let size = is_supported.iter().filter(|&&e| e).count();
         let new_index: Vec<_> = {
             let mut index = 0;
@@ -333,12 +344,12 @@ impl Factory {
     }
     // Cut tips. We can assume that the graph is a
     // connected graph or a tree.
-    fn cut_tip_inner(edges: &[Vec<usize>], nodes: usize, k: usize) -> Vec<bool> {
-        let k = k as i32;
+    fn cut_tip_inner(edges: &[Vec<usize>], nodes: usize, t: usize) -> Vec<bool> {
+        let t = t as i32;
         let dist_to_root = Self::dist_to_root(edges, nodes);
         let bad_list: Vec<_> = (0..nodes)
             .filter(|&e| edges[e].len() > 1)
-            .flat_map(|e| edges[e].iter().filter(|&&to| dist_to_root[to] <= k / 2))
+            .flat_map(|e| edges[e].iter().filter(|&&to| dist_to_root[to] <= t))
             .copied()
             .collect();
         // If arrived, true.
@@ -403,13 +414,22 @@ impl Factory {
         dist_to_root
     }
     fn calc_thr(counter: &HashMap<Vec<u8>, (f64, usize)>) -> f64 {
+        let ave = counter.values().map(|e| e.0).sum::<f64>() / counter.len() as f64;
+        if THR_ON {
+            ave - THR
+        } else {
+            0.
+        }
+    }
+    fn calc_thr_weight(counter: &HashMap<Vec<u8>, (f64, usize)>) -> f64 {
         let (sum, denom) =
             counter.values().fold(
                 (0., 0.),
-                |(x, y), &(w, _)| if w >= 0.999 { (x + w, y + 1.) } else { (x, y) },
+                |(x, y), &(w, _)| if w >= 1. { (x + w, y + 1.) } else { (x, y) },
             );
         if THR_ON {
-            sum / denom - THR
+            // y = x - 1 - epsilon
+            sum / denom - 1.05
         } else {
             0.
         }
@@ -432,6 +452,22 @@ impl Factory {
             _ => unreachable!(),
         }
     }
+    fn get_idx_exp(
+        kmer: &[u8],
+        counter: &mut HashMap<Vec<u8>, (f64, usize)>,
+        nodes: &mut Vec<Kmer>,
+    ) -> usize {
+        match counter.get_mut(kmer) {
+            Some(x) if x.1 != std::usize::MAX => x.1,
+            Some(x) => {
+                x.1 = nodes.len();
+                nodes.push(Kmer::new(kmer));
+                nodes.len() - 1
+            }
+            _ => unreachable!(),
+        }
+    }
+
     fn get_indices(
         x: &[u8],
         counter: &mut HashMap<Vec<u8>, (f64, usize)>,
@@ -443,6 +479,22 @@ impl Factory {
         let from = Self::get_idx(prev, counter, nodes, thr)?;
         let to = Self::get_idx(after, counter, nodes, thr)?;
         Some((from, to))
+    }
+    fn get_indices_exp(
+        x: &[u8],
+        counter: &mut HashMap<Vec<u8>, (f64, usize)>,
+        nodes: &mut Vec<Kmer>,
+        thr: f64,
+        k: usize,
+    ) -> Option<(usize, usize)> {
+        let (prev, next) = (&x[..k], &x[1..]);
+        if counter[prev].0 <= thr && counter[next].0 <= thr {
+            None
+        } else {
+            let from = Self::get_idx_exp(prev, counter, nodes);
+            let next = Self::get_idx_exp(next, counter, nodes);
+            Some((from, next))
+        }
     }
 
     // Return topological sorted order. If there's a cycle,
@@ -544,10 +596,10 @@ impl DeBruijnGraphHiddenMarkovModel {
             .enumerate()
             .filter(|(_, (_, node))| !node.is_zero())
         {
-            let prob = node.match_succeed(config);
             // Update `Ins` states. updates -> double dots
             updates[idx].add_ins(node.insertion(&config) * from.insertion(base));
             // Update `Mat` states. updates -> double dots
+            let prob = node.match_succeed(config);
             from
                 .edges
                 .iter()
@@ -558,7 +610,7 @@ impl DeBruijnGraphHiddenMarkovModel {
                               updates[*to].add_mat(prob * from.to(i) * self.nodes[*to].prob(base, config))
                           });
         }
-        // assert!(updates.iter().all(|e| e.del == 0.));
+        assert!(updates.iter().all(|e| e.del == 0.));
         let d = 1. / Node::sum(&updates);
         // Updates -> tilde
         updates.iter_mut().for_each(|e| *e = *e * d);
@@ -905,7 +957,7 @@ impl Kmer {
     }
     // return Score(self.kmer,tip)
     fn calc_score(&self, tip: &[u8]) -> i32 {
-        tip.len() as i32 - edlib_sys::global_dist_k(&self.kmer, tip, 2) as i32
+        tip.len() as i32 - edlib_sys::global_dist(&self.kmer, tip) as i32
     }
     // return P(idx|self)
     fn to(&self, idx: usize) -> f64 {
@@ -958,7 +1010,7 @@ mod tests {
         let dist_to_root = Factory::dist_to_root(&edges, nodes);
         let answer = vec![1, 0, 0, 7, 6, 5, 3, 2, 1, 4, 0, 0];
         assert_eq!(dist_to_root, answer);
-        let is_supported = Factory::cut_tip_inner(&edges, nodes, 2);
+        let is_supported = Factory::cut_tip_inner(&edges, nodes, 1);
         let answer = vec![
             false, false, false, true, true, true, true, true, true, true, false, true,
         ];
@@ -985,7 +1037,7 @@ mod tests {
         for i in 5..nodes {
             assert!(dist_to_root[i] > 100);
         }
-        let is_supported = Factory::cut_tip_inner(&edges, nodes, 2);
+        let is_supported = Factory::cut_tip_inner(&edges, nodes, 1);
         let answer = vec![true, true, false, false, false, true, true, true, true];
         assert_eq!(answer, is_supported);
     }
@@ -1222,6 +1274,28 @@ mod tests {
         assert!(likelihood1 > likelihood2, "{},{}", likelihood1, likelihood2);
     }
     #[test]
+    fn has_true_edge_test() {
+        let bases = b"ACTG";
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
+        let template1: Vec<_> = (0..150)
+            .filter_map(|_| bases.choose(&mut rng))
+            .copied()
+            .collect();
+        let num = 20;
+        let model1: Vec<Vec<_>> = (0..num)
+            .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
+            .collect();
+        let weight = vec![1.; num];
+        let model1: Vec<_> = model1.iter().map(|e| e.as_slice()).collect();
+        let k = 6;
+        let mut f = Factory::new();
+        let model1 = f.generate_with_weight(&model1, &weight, k);
+        for kmer in template1.windows(k) {
+            assert!(model1.nodes.iter().any(|node| node.kmer == kmer));
+        }
+    }
+
+    #[test]
     fn hard_test() {
         let bases = b"ACTG";
         let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
@@ -1244,77 +1318,79 @@ mod tests {
         let k = 7;
         let model1 = DBGHMM::new(&model1, k);
         let model2 = DBGHMM::new(&model2, k);
-        {
+        for _i in 0..20 {
             let likelihood1 = model1.forward(&template1, &DEFAULT_CONFIG);
             let likelihood2 = model2.forward(&template1, &DEFAULT_CONFIG);
             assert!(likelihood1 > likelihood2, "{},{}", likelihood1, likelihood2);
         }
-        {
+        for _i in 0..20 {
             let likelihood1 = model1.forward(&template2, &DEFAULT_CONFIG);
             let likelihood2 = model2.forward(&template2, &DEFAULT_CONFIG);
             assert!(likelihood1 < likelihood2, "{},{}", likelihood1, likelihood2);
         }
     }
+
     #[test]
     fn single_error_test() {
         let bases = b"ACTG";
-        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
+        // let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12121343932);
         let template1: Vec<_> = (0..150)
             .filter_map(|_| bases.choose(&mut rng))
             .copied()
             .collect();
-        let template2: Vec<_> = template1[..40]
-            .iter()
-            .chain(vec![b'A'].iter())
-            .chain(&template1[40..])
-            .copied()
-            .collect();
+        let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 0, 1);
+        eprintln!("Insertion Error...");
         check(&template1, &template2, &mut rng);
-        let template2: Vec<_> = template1[..39]
-            .iter()
-            .chain(&template1[40..])
-            .copied()
-            .collect();
+        let template2 = gen_sample::introduce_errors(&template1, &mut rng, 1, 0, 0);
+        eprintln!("Substituion Error...");
         check(&template1, &template2, &mut rng);
-        let subs = if template1[39] == b'A' { b'C' } else { b'A' };
-        let template2: Vec<_> = template1[..39]
-            .iter()
-            .chain(vec![subs].iter())
-            .chain(&template1[40..])
-            .copied()
-            .collect();
+        let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 1, 0);
+        eprintln!("Deletion Error...");
         check(&template1, &template2, &mut rng);
+        assert!(false);
     }
     fn check<R: rand::Rng>(t1: &[u8], t2: &[u8], rng: &mut R) {
-        let model1: Vec<_> = (0..20)
-            .map(|_| introduce_randomness(&t1, rng, &PAC_BIO))
+        let num = 20;
+        let model1: Vec<_> = (0..num)
+            //.map(|_| t1.to_vec())
+            .map(|_| introduce_randomness(&t1, rng, &PROFILE))
             .collect();
-        let model2: Vec<_> = (0..20)
-            .map(|_| introduce_randomness(&t2, rng, &PAC_BIO))
+        let model2: Vec<_> = (0..num)
+            //.map(|_| t2.to_vec())
+            .map(|_| introduce_randomness(&t2, rng, &PROFILE))
             .collect();
         let seqs: Vec<_> = model1
             .iter()
             .chain(model2.iter())
             .map(|e| e.as_slice())
             .collect();
-        let weight1 = vec![vec![0.3; 20], vec![0.7; 20]].concat();
-        let weight2 = vec![vec![0.7; 20], vec![0.3; 20]].concat();
+        let weight1 = vec![vec![1.; num], vec![0.; num]].concat();
+        let weight2 = vec![vec![0.; num], vec![1.; num]].concat();
         let k = 6;
         let mut f = Factory::new();
         let m1 = f.generate_with_weight(&seqs, &weight1, k);
         let m2 = f.generate_with_weight(&seqs, &weight2, k);
-        let num = (0..100)
+        eprintln!("{}\t{}", m1, m2);
+        let correct = (0..100)
             .filter(|e| {
                 if e % 2 == 0 {
-                    let q = introduce_randomness(&t1, rng, &PAC_BIO);
-                    m1.forward(&q, &PACBIO_CONFIG) > m2.forward(&q, &PACBIO_CONFIG)
+                    let q = introduce_randomness(&t1, rng, &PROFILE);
+                    // let d1: u32 = model1.iter().map(|e| edlib_sys::global_dist(&q, e)).sum();
+                    // let d2: u32 = model2.iter().map(|e| edlib_sys::global_dist(&q, e)).sum();
+                    // d1 < d2
+                    m1.forward(&q, &DEFAULT_CONFIG) > m2.forward(&q, &DEFAULT_CONFIG)
                 } else {
-                    let q = introduce_randomness(&t2, rng, &PAC_BIO);
-                    m1.forward(&q, &PACBIO_CONFIG) < m2.forward(&q, &PACBIO_CONFIG)
+                    let q = introduce_randomness(&t2, rng, &PROFILE);
+                    // let d1: u32 = model1.iter().map(|e| edlib_sys::global_dist(&q, e)).sum();
+                    // let d2: u32 = model2.iter().map(|e| edlib_sys::global_dist(&q, e)).sum();
+                    // d1 > d2
+                    m1.forward(&q, &DEFAULT_CONFIG) < m2.forward(&q, &DEFAULT_CONFIG)
                 }
             })
             .count();
-        assert!(80 > num);
+        eprintln!("{}", correct);
+        assert!(50 < correct, "{}", correct);
     }
 
     #[test]
