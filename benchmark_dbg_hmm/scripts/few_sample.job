@@ -7,7 +7,7 @@
 #$ -o ./logfiles/few_sample.out
 #$ -V
 #$ -m e
-cargo run --release --bin few_sample -- default > ./result/few_sample_default_2.tsv
-# cargo run --release --bin few_sample -- pacbio > ./result/few_sample_pacbio.tsv
+cargo run --release --bin few_sample -- default > ./result/few_sample_default.tsv
+cargo run --release --bin few_sample -- pacbio > ./result/few_sample_pacbio.tsv
 
 

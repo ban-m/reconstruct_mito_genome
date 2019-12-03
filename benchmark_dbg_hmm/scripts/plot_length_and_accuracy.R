@@ -31,14 +31,14 @@ g <- dataset %>%
 generalplot(g, paste0("gam_",outname,"_bw"))
 
 
-g <- dataset %>% filter(Type == "Proposed") %>%
-    mutate(ErrorRate = Dist/Length) %>% 
-    ggplot() +
-    geom_line(mapping = aes(x = Length, y = UpperBound), data = upperbound) +
-    geom_smooth(mapping = aes( x = ErrorRate, y = accuracy, color = factor(Length)), alpha = 0.09)
-generalplot(g, paste0("gam_errorrate_",outname))
+## g <- dataset %>% filter(type == "Proposed") %>%
+##     mutate(ErrorRate = Dist/Length) %>% 
+##     ggplot() +
+##     geom_line(mapping = aes(x = Length, y = UpperBound), data = upperbound) +
+##     geom_smooth(mapping = aes( x = ErrorRate, y = accuracy, color = factor(Length)), alpha = 0.09)
+## generalplot(g, paste0("gam_errorrate_",outname))
 
-g <- dataset %>% filter(Type == "Proposed") %>%
+g <- dataset %>% filter(type == "Proposed") %>%
     mutate(ErrorRate = Dist/Length) %>% 
     ggplot() + geom_point(mapping = aes( x = ErrorRate, y = accuracy, color = Length), alpha = 0.09)
 generalplot(g, paste0("gam_errorrate_",outname))

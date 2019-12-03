@@ -99,7 +99,7 @@ fn benchmark(
     let (dataset, assignment, answer, border) =
         generate_dataset(&templates1, &templates2, coverage, test_num, &mut rng, skew);
     let naive_pred = align_solve(&dataset, &assignment, border);
-    let em_pred = em_solve(&dataset, &assignment, border, k, &answer);
+    let em_pred = em_solve_with(&dataset, &assignment, border, k);
     assert_eq!(em_pred.len(), answer.len());
     let (em_tp, em_tn) = calc_metric(&em_pred, &answer);
     let (naive_tp, naive_tn) = calc_metric(&naive_pred, &answer);

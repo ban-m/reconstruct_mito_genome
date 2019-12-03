@@ -2,7 +2,6 @@ extern crate dbg_hmm;
 extern crate edlib_sys;
 extern crate env_logger;
 extern crate rand;
-#[macro_use]
 extern crate log;
 use dbg_hmm::gen_sample::*;
 use dbg_hmm::*;
@@ -18,11 +17,13 @@ fn main() {
         .collect();
     let k = 6;
     let mut f = Factory::new();
-    println!("Coverage\tNodes\tEdges\tWeight");
+    println!("Coverage\tNodes\tEdges\tWeight\tMethod");
     for i in 1..num_seq {
-        let m: Vec<_> = data[..i].iter().map(|e| e.as_slice()).collect();
+        let ms: Vec<_> = data[..i].iter().map(|e| e.as_slice()).collect();
         let w = vec![1.; i];
-        let m = f.generate_with_weight(&m, &w, k);
-        println!("{}\t{}\t{}\t{}", i, m.node_num(), m.edge_num(), m.weight());
+        let m = f.generate_with_weight(&ms, &w, k);
+        println!("{}\t{}\t{}\t{}\tW", i, m.node_num(), m.edge_num(), m.weight());
+        let m = f.generate_from_ref(&ms, k);
+        println!("{}\t{}\t{}\t{}\tH", i, m.node_num(), m.edge_num(), m.weight());
     }
 }

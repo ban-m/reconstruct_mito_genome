@@ -8,8 +8,8 @@
 #$ -V
 #$ -m e
 cargo run --release --bin coverage_and_likelihood \
-      > ./result/coverage_and_likelihood2.tsv
+      > ./result/coverage_and_likelihood.tsv
 cargo run --release --bin coverage_and_likelihood_diff \
-      > ./result/coverage_and_likelihood_diff2.tsv
+      > ./result/coverage_and_likelihood_diff.tsv
 
 

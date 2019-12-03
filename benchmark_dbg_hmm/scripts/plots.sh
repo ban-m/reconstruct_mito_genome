@@ -16,3 +16,7 @@ Rscript ./scripts/plot_em_clustering.R \
 
 Rscript ./scripts/plot_em_clustering.R \
         ./result/em_clustering_pacbio.tsv em_clustering_pacbio
+
+
+Rscript ./scripts/plot_coverage_and_likelihood.R
+Rscript ./scripts/plot_number_of_edge_and_node.R

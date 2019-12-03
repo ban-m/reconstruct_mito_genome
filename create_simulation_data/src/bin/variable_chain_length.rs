@@ -122,7 +122,14 @@ fn generate_dataset<T: Rng>(
         })
         .collect();
     let mut f = Factory::new();
-    let models: Vec<_> = dataset.iter().map(|e| f.generate(e, k)).collect();
+    let models: Vec<_> = dataset
+        .iter()
+        .map(|e| {
+            let ds:Vec<_> = e.iter().map(|e|e.as_slice()).collect();
+            let ws = vec![1.; e.len()];
+            f.generate_with_weight(&ds, &ws, k)
+        })
+        .collect();
     let dataset: Vec<_> = (0..coverage)
         .map(|i| {
             dataset

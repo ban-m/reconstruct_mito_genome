@@ -12,14 +12,14 @@ fn main() {
         .num_threads(24)
         .build_global()
         .unwrap();
-    let args:Vec<_> = std::env::args().collect();
+    let args: Vec<_> = std::env::args().collect();
     let min_len = 50;
-    let max_len = 300;
+    let max_len = 200;
     let by = 5;
     let num_seq = 15;
-    let test_num = 500;
+    let test_num = 100;
     let k = 6;
-    let rep = (0..50).collect::<Vec<u64>>();
+    let rep = (0..100).collect::<Vec<u64>>();
     let c = if args[1] == "default" {
         DEFAULT_CONFIG
     } else {
@@ -30,6 +30,9 @@ fn main() {
         (1, 0, 0),
         (0, 1, 0),
         (0, 0, 1),
+        (1, 1, 0),
+        (0, 1, 1),
+        (1, 0, 1),
         (1, 1, 1),
         (1, 2, 1),
         (2, 1, 1),
@@ -37,15 +40,12 @@ fn main() {
         (2, 2, 1),
         (2, 1, 2),
         (1, 2, 2),
-        (2, 2, 2),
-        (3, 3, 3),
-        (4, 4, 4),
     ];
     println!("Length\tDist\tProposed\tNaive");
     let result: Vec<_> = rep
         .par_iter()
         .flat_map(|e| {
-            let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12_218_993_492 + e);
+            let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12_218_993 + e);
             let mut res = vec![];
             for len in min_len / by..max_len / by {
                 for &d in &dists {
@@ -79,8 +79,16 @@ fn simulate<T: Rng>(
         .map(|_| gen_sample::introduce_randomness(&template2, rng, p))
         .collect();
     let dist = sub + del + ins;
-    let model1 = DBGHMM::new(&data1, k);
-    let model2 = DBGHMM::new(&data2, k);
+    let mut f = Factory::new();
+    let dataset:Vec<_> = data1
+        .iter()
+        .chain(data2.iter())
+        .map(|e| e.as_slice())
+        .collect();
+    let w1 = vec![vec![1.; data1.len()], vec![0.; data2.len()]].concat();
+    let w2 = vec![vec![0.; data1.len()], vec![1.; data2.len()]].concat();
+    let model1 = f.generate_with_weight(&dataset, &w1, k);
+    let model2 = f.generate_with_weight(&dataset, &w2, k);
     let tests: Vec<_> = (0..test_num)
         .map(|_| {
             if rng.gen_bool(0.5) {

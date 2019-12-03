@@ -21,6 +21,8 @@ const THR_ON: bool = true;
 const THR: f64 = 2.;
 mod find_union;
 pub mod gen_sample;
+use rand::{Rng, SeedableRng};
+use rand_xoshiro::Xoshiro256StarStar;
 use std::collections::HashMap;
 // This setting is determined by experimentally.
 pub const DEFAULT_CONFIG: Config = Config {
@@ -97,10 +99,20 @@ impl Factory {
         });
         let thr = Self::calc_thr(counter);
         let mut nodes = Vec::with_capacity(counter.len());
-        for seq in dataset {
+        for seq in dataset.iter().filter(|seq| seq.len() > k) {
             for x in seq.windows(k + 1) {
                 if let Some((from, to)) = Self::get_indices(x, counter, &mut nodes, thr, k) {
                     nodes[from].push_edge_with(x[k], to);
+                }
+            }
+            if let Some(x) = counter.get(&seq[seq.len() - k..]) {
+                if x.0 > thr && x.1 != std::usize::MAX {
+                    nodes[x.1].is_tail = true;
+                }
+            }
+            if let Some(x) = counter.get(&seq[..k]) {
+                if x.0 > thr && x.1 != std::usize::MAX {
+                    nodes[x.1].is_head = true;
                 }
             }
         }
@@ -127,6 +139,16 @@ impl Factory {
                     nodes[from].push_edge_with(x[k], to);
                 }
             }
+            if let Some(x) = counter.get(&seq[seq.len() - k..]) {
+                if x.0 > thr && x.1 != std::usize::MAX {
+                    nodes[x.1].is_tail = true;
+                }
+            }
+            if let Some(x) = counter.get(&seq[..k]) {
+                if x.0 > thr && x.1 != std::usize::MAX {
+                    nodes[x.1].is_head = true;
+                }
+            }
         }
         let nodes = Self::clean_up_nodes(nodes);
         self.inner.clear();
@@ -134,6 +156,7 @@ impl Factory {
         DBGHMM { nodes, k, weight }
     }
     pub fn generate_with_weight(&mut self, dataset: &[&[u8]], ws: &[f64], k: usize) -> DBGHMM {
+        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(dataset.len() as u64);
         assert_eq!(dataset.len(), ws.len());
         let ep = 0.0001;
         let counter = &mut self.inner;
@@ -150,24 +173,31 @@ impl Factory {
                 })
             });
         let thr = Self::calc_thr_weight(counter);
-        // eprintln!("{}", thr);
+        // eprintln!("THR:{}", thr);
         let mut nodes = Vec::new();
         for (seq, &w) in dataset.iter().zip(ws.iter()).filter(|&(_, &w)| w > ep) {
             for x in seq.windows(k + 1) {
-                if let Some((from, to)) = Self::get_indices(x, counter, &mut nodes, thr, k) {
+                //if let Some((from, to)) = Self::get_indices(x, counter, &mut nodes, thr, k) {
+                if let Some((from, to)) =
+                    Self::get_indices_exp(x, counter, &mut nodes, thr, k, &mut rng)
+                {
                     nodes[from].push_edge_with_weight(x[k], to, w);
                 }
             }
-            let last = &seq[seq.len() - k..];
-            if let Some(x) = counter.get(last) {
-                if x.0 > thr && x.1 != std::usize::MAX {
+            if let Some(x) = counter.get(&seq[seq.len() - k..]) {
+                if x.1 != std::usize::MAX {
                     nodes[x.1].is_tail = true;
+                }
+            }
+            if let Some(x) = counter.get(&seq[..k]) {
+                if x.1 != std::usize::MAX {
+                    nodes[x.1].is_head = true;
                 }
             }
         }
         self.inner.clear();
         let weight = ws.iter().sum::<f64>();
-        let nodes = Self::clean_up_nodes_exp(nodes, thr, k);
+        let nodes = Self::clean_up_nodes_exp(nodes, thr, &mut rng);
         DBGHMM { nodes, k, weight }
     }
     fn clean_up_nodes(nodes: Vec<Kmer>) -> Vec<Kmer> {
@@ -175,40 +205,19 @@ impl Factory {
         nodes.iter_mut().for_each(Kmer::finalize);
         nodes
     }
-    fn clean_up_nodes_exp(nodes: Vec<Kmer>, ave: f64, _k: usize) -> Vec<Kmer> {
-        let nodes = Self::cut_lightweight_loop(nodes, ave);
-        // eprintln!(
-        //     "Cut loops:{}\t{}",
-        //     nodes.len(),
-        //     nodes
-        //         .iter()
-        //         .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
-        //         .sum::<usize>()
-        // );
-        let nodes = if ave > 0.999 {
+    fn clean_up_nodes_exp<R: Rng>(nodes: Vec<Kmer>, thr: f64, rng: &mut R) -> Vec<Kmer> {
+        let nodes = Self::cut_lightweight_loop(nodes, thr, rng);
+        let nodes = if thr > 0.999 {
             let nodes = Self::cut_tip(nodes, 2);
-            // eprintln!(
-            //     "Cut tips:{}\t{}",
-            //     nodes.len(),
-            //     nodes
-            //         .iter()
-            //         .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
-            //         .sum::<usize>()
-            // );
             Self::pick_largest_components(nodes)
         } else {
             Self::pick_largest_components(nodes)
         };
-        // eprintln!(
-        //     "Pick largest component:{}\t{}",
-        //     nodes.len(),
-        //     nodes
-        //         .iter()
-        //         .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
-        //         .sum::<usize>()
-        // );
         let mut nodes = Self::renaming_nodes(nodes);
         nodes.iter_mut().for_each(Kmer::finalize);
+        if nodes.iter().all(|e| !e.is_head) {
+            nodes.iter_mut().for_each(|e| e.is_head = true);
+        }
         nodes
     }
     fn pick_largest_components(nodes: Vec<Kmer>) -> Vec<Kmer> {
@@ -254,7 +263,6 @@ impl Factory {
         assert_eq!(result.len(), size);
         result
     }
-    #[allow(dead_code)]
     fn select_supported_node(edges: &[Vec<usize>], nodes: usize, is_safe: &[bool]) -> Vec<bool> {
         let mut is_supported = vec![false; nodes];
         for (from, edges) in edges.iter().enumerate() {
@@ -265,8 +273,12 @@ impl Factory {
         }
         is_supported
     }
-    fn cut_lightweight_loop(nodes: Vec<Kmer>, safe_limit: f64) -> Vec<Kmer> {
-        let is_safe: Vec<_> = nodes.iter().map(|e| e.tot > safe_limit).collect();
+    fn cut_lightweight_loop<R: Rng>(nodes: Vec<Kmer>, thr: f64, rng: &mut R) -> Vec<Kmer> {
+        let is_safe: Vec<_> = nodes
+            .iter()
+            .map(|e| !rng.gen_bool(Self::prob(e.kmer_weight, thr)))
+            // .map(|e| e.tot > thr)
+            .collect();
         let mut is_supported: Vec<_> = vec![false; nodes.len()];
         for (from, ref node) in nodes.iter().enumerate() {
             for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
@@ -321,17 +333,13 @@ impl Factory {
             }
         }
         let ave = nodes.iter().map(|e| e.kmer_weight).sum::<f64>() / nodes.len() as f64;
-        let is_heavy = nodes.iter().map(|n| n.kmer_weight > ave);
+        let is_heavy = nodes.iter().map(|n| n.kmer_weight > ave / 2.0);
         let is_supported: Vec<_> = Self::cut_tip_inner(&edges, nodes.len() + 1, t)
             .into_iter()
             .zip(is_heavy)
             .zip(is_near_tail)
             .take(pseudo_node)
-            .map(|((sup, is_heavy), is_near_tail)| {
-                // let is_heavy = nodes[idx].kmer_weight > ave;
-                // let is_near_tail = is_near_tail[idx];
-                sup | (is_near_tail & is_heavy)
-            })
+            .map(|((sup, is_heavy), is_near_tail)| sup | (is_near_tail & is_heavy))
             .collect();
         let size = is_supported.iter().filter(|&&e| e).count();
         let new_index: Vec<_> = {
@@ -450,7 +458,7 @@ impl Factory {
             );
         if THR_ON {
             // y = x - 1 - epsilon
-            sum / denom - 1.05
+            sum / denom - THR
         } else {
             0.
         }
@@ -473,17 +481,23 @@ impl Factory {
             _ => unreachable!(),
         }
     }
-    fn get_idx_exp(
+    fn prob(x: f64, thr: f64) -> f64 {
+        ((4. * (x - thr)).exp() + 1.).recip()
+    }
+    fn get_idx_exp<R: Rng>(
         kmer: &[u8],
         counter: &mut HashMap<Vec<u8>, (f64, usize)>,
         nodes: &mut Vec<Kmer>,
-    ) -> usize {
+        thr: f64,
+        rng: &mut R,
+    ) -> Option<usize> {
         match counter.get_mut(kmer) {
-            Some(x) if x.1 != std::usize::MAX => x.1,
+            Some(x) if rng.gen_bool(Self::prob(x.0, thr)) => None,
+            Some(x) if x.1 != std::usize::MAX => Some(x.1),
             Some(x) => {
                 x.1 = nodes.len();
                 nodes.push(Kmer::new(kmer, x.0));
-                nodes.len() - 1
+                Some(nodes.len() - 1)
             }
             _ => unreachable!(),
         }
@@ -501,21 +515,18 @@ impl Factory {
         let to = Self::get_idx(after, counter, nodes, thr)?;
         Some((from, to))
     }
-    fn get_indices_exp(
+    fn get_indices_exp<R: Rng>(
         x: &[u8],
         counter: &mut HashMap<Vec<u8>, (f64, usize)>,
         nodes: &mut Vec<Kmer>,
         thr: f64,
         k: usize,
+        rng: &mut R,
     ) -> Option<(usize, usize)> {
         let (prev, next) = (&x[..k], &x[1..]);
-        if counter[prev].0 <= thr && counter[next].0 <= thr {
-            None
-        } else {
-            let from = Self::get_idx_exp(prev, counter, nodes);
-            let next = Self::get_idx_exp(next, counter, nodes);
-            Some((from, next))
-        }
+        let from = Self::get_idx_exp(prev, counter, nodes, thr, rng)?;
+        let next = Self::get_idx_exp(next, counter, nodes, thr, rng)?;
+        Some((from, next))
     }
 
     // Return topological sorted order. If there's a cycle,
@@ -632,7 +643,7 @@ impl DeBruijnGraphHiddenMarkovModel {
                           });
         }
         assert!(updates.iter().all(|e| e.del == 0.));
-        let d = 1. / Node::sum(&updates);
+        let d = Node::sum(&updates).recip();
         // Updates -> tilde
         updates.iter_mut().for_each(|e| *e = *e * d);
         // Update `Del` states.
@@ -647,32 +658,53 @@ impl DeBruijnGraphHiddenMarkovModel {
                 }
             }
         }
-        let c = 1. / Node::sum(&updates);
+        let c = Node::sum(&updates).recip();
         updates.iter_mut().for_each(|e| *e = *e * c);
         (c, d)
     }
+    // ln sum_i exp(x[i])
+    fn logsumexp(xs: &[f64]) -> f64 {
+        let max = xs
+            .iter()
+            .fold(std::f64::MIN, |x, &y| if x < y { y } else { x });
+        max + xs.iter().map(|x| (x - max).exp()).sum::<f64>().ln()
+    }
     fn initialize(&self, tip: &[u8], config: &Config) -> (f64, f64, Vec<Node>) {
         //debug!("Query:{}", String::from_utf8_lossy(tip));
-        let initial_prob: Vec<_> = self
-            .nodes
+        assert!(self.nodes.iter().any(|e| e.is_head));
+        let alignments: Vec<_> = self.nodes.iter().map(|e| e.calc_score(tip)).collect();
+        let initial_prob: Vec<_> = vec![(self.nodes.len() as f64).recip(); self.nodes.len()];
+        // let initial_prob: Vec<_> = alignments.iter().map(|e| (e.0 as f64).exp()).collect();
+        // let s = initial_prob.iter().sum::<f64>().recip();
+        // let initial_prob = initial_prob.into_iter().map(|e| e * s);
+
+        // let last = tip[tip.len() - 1];
+        // let double_dots: Vec<_> = self
+        //     .nodes
+        //     .iter()
+        //     .zip(initial_prob)
+        //     .map(|(node, init)| node.prob(last, config) * init)
+        //     .collect();
+        // let d = double_dots.iter().map(|e| e).sum::<f64>().recip();
+        // let minus_ln_d = -(d.ln());
+        // let tilde = double_dots.into_iter().map(|e| e * d);
+
+        let aln_scores: Vec<_> = alignments
             .iter()
-            .map(|e| (e.calc_score(tip) as f64).exp())
-            .collect();
-        let s = 1. / initial_prob.iter().sum::<f64>();
-        let initial_prob = initial_prob.into_iter().map(|e| e * s);
-        let last = tip[tip.len() - 1];
-        let double_dots: Vec<_> = self
-            .nodes
-            .iter()
+            .map(|&(_, mis, del, ins)| {
+                config.mismatch.ln() * (mis as f64)
+                    + config.p_del.ln() * (del as f64)
+                    + config.p_ins.ln() * (ins as f64)
+            })
             .zip(initial_prob)
-            .map(|(node, init)| node.prob(last, config) * init)
+            .map(|(x, y)| x + y.ln())
             .collect();
-        let d = 1. / double_dots.iter().map(|e| e).sum::<f64>();
-        let tilde = double_dots.into_iter().map(|e| e * d);
-        // let c = 1. / tilde.iter().sum::<f64>(); Actually, the below is true.
-        let c = 1.;
+        let minus_ln_d = Self::logsumexp(&aln_scores);
+        let tilde = aln_scores.into_iter().map(|x| (x - minus_ln_d).exp());
+
         let hat: Vec<_> = tilde.map(|init| Node::new(init, 0., 0.)).collect();
-        (c, d, hat)
+        let minus_ln_c = 0.;
+        (minus_ln_c, minus_ln_d, hat)
     }
     /// Return the total weight.
     pub fn weight(&self) -> f64 {
@@ -681,8 +713,8 @@ impl DeBruijnGraphHiddenMarkovModel {
     // This returns log p(obs|model) = \sum - log c_t.
     pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
         assert!(obs.len() > self.k);
-        let (c, d, mut prev) = self.initialize(&obs[..self.k], config);
-        let (mut cs, mut ds) = (-(c.ln()), -(d.ln()));
+        let (mut cs, mut ds, mut prev) = self.initialize(&obs[..self.k], config);
+        // let (mut cs, mut ds) = (-(c.ln()), -(d.ln()));
         let mut updated = vec![Node::new(0., 0., 0.); self.nodes.len()];
         for &base in &obs[self.k..] {
             updated.iter_mut().for_each(Node::clear);
@@ -856,6 +888,7 @@ struct Kmer {
     kmer_weight: f64,
     // Whether this is the end of unit.
     is_tail: bool,
+    is_head: bool,
 }
 
 impl std::fmt::Debug for Kmer {
@@ -867,6 +900,7 @@ impl std::fmt::Debug for Kmer {
         writeln!(f, "Transition:{:?}", self.transition)?;
         writeln!(f, "tot:{}", self.tot)?;
         writeln!(f, "is_tail:{}", self.is_tail)?;
+        writeln!(f, "is_head:{}", self.is_head)?;
         for (i, to) in self
             .edges
             .iter()
@@ -890,6 +924,7 @@ impl Kmer {
         let transition = [0f64; 4];
         let edges = [None; 4];
         let is_tail = false;
+        let is_head = false;
         Self {
             kmer,
             kmer_weight,
@@ -899,6 +934,7 @@ impl Kmer {
             edges,
             transition,
             is_tail,
+            is_head,
         }
     }
     fn finalize(&mut self) {
@@ -987,9 +1023,17 @@ impl Kmer {
         self.weight[i] += w;
         self.transition[i] += w;
     }
-    // return Score(self.kmer,tip)
-    fn calc_score(&self, tip: &[u8]) -> i32 {
-        tip.len() as i32 - edlib_sys::global_dist(&self.kmer, tip) as i32
+    // return (Score(self.kmer,tip), match, mism,del, ins)
+    fn calc_score(&self, tip: &[u8]) -> (u8, u8, u8, u8) {
+        let aln = edlib_sys::global(&self.kmer, tip);
+        aln.into_iter()
+            .fold((0, 0, 0, 0), |(mat, mis, del, ins), x| match x {
+                0 => (mat + 1, mis, del, ins),
+                1 => (mat, mis, del, ins + 1),
+                2 => (mat, mis, del + 1, ins),
+                3 => (mat, mis + 1, del, ins),
+                _ => unreachable!(),
+            })
     }
     // return P(idx|self)
     fn to(&self, idx: usize) -> f64 {
@@ -1383,19 +1427,26 @@ mod tests {
     #[test]
     fn single_error_test() {
         let bases = b"ACTG";
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1234565);
         // let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
-        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12121343932);
+        // let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12121343932);
         let template1: Vec<_> = (0..150)
             .filter_map(|_| bases.choose(&mut rng))
             .copied()
             .collect();
-        let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 0, 1);
         eprintln!("Insertion Error...");
+        let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 0, 1);
         check(&template1, &template2, &mut rng);
         let template2 = gen_sample::introduce_errors(&template1, &mut rng, 1, 0, 0);
         eprintln!("Substituion Error...");
         check(&template1, &template2, &mut rng);
         let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 1, 0);
+        // let template2 = gen_sample::introduce_errors(&template1[0..4], &mut rng, 0, 1, 0);
+        // let template2: Vec<_> = template2
+        //     .iter()
+        //     .chain(template1[4..].iter())
+        //     .copied()
+        //     .collect();
         eprintln!("Deletion Error...");
         check(&template1, &template2, &mut rng);
         assert!(false);
@@ -1433,7 +1484,7 @@ mod tests {
                     // d1 < d2
                     m1.forward(&q, &DEFAULT_CONFIG) > m2.forward(&q, &DEFAULT_CONFIG)
                 } else {
-                    let q = introduce_randomness(&t2, rng, &PROFILE);
+                    // let q = introduce_randomness(&t2, rng, &PROFILE);
                     // let d1: u32 = model1.iter().map(|e| edlib_sys::global_dist(&q, e)).sum();
                     // let d2: u32 = model2.iter().map(|e| edlib_sys::global_dist(&q, e)).sum();
                     // d1 > d2
@@ -1649,7 +1700,7 @@ mod tests {
                 model1
                     .nodes
                     .iter()
-                    .map(|e| (e.calc_score(&template[..k]) as f64).exp())
+                    .map(|e| e.calc_score(&template[..k]))
                     .count(),
             )
         });

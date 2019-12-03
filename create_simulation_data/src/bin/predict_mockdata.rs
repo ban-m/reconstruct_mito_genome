@@ -114,7 +114,7 @@ fn predict(
     ans: &HashMap<String, bool>,
 ) -> Option<Vec<(String, u8, usize, f64)>> {
     // let is_test: std::collections::HashSet<_> = tests.iter().map(|e| e.id().to_string()).collect();
-    let (is_original, data, border) = setup(training, tests, alignments, contig);
+    let (_is_original, data, border) = setup(training, tests, alignments, contig);
     let len = contig.get_last_unit(0)? as usize + 1;
     let answer: Vec<_> = data.iter().map(|e| ans[e.id()]).collect::<Vec<_>>();
     let lk = compute_likelihood(&data, &answer, len)
@@ -208,6 +208,7 @@ fn compute_likelihood(data: &[ERead], is_original: &[bool], len: usize) -> Vec<f
         .collect()
 }
 
+#[allow(dead_code)]
 fn compute_likelihood_diff(data: &[ERead], is_original: &[bool], len: usize) -> Vec<f64> {
     let chunks = construct_predictors_simple(data, is_original, len);
     is_original
@@ -233,6 +234,7 @@ fn compute_likelihood_diff(data: &[ERead], is_original: &[bool], len: usize) -> 
         .collect()
 }
 
+#[allow(dead_code)]
 fn rough_pred(init: &[bool], data: &[ERead], border: usize, len: usize) -> Vec<bool> {
     let mut chunks = construct_predictors_simple(&data[..border], &init[..border], len);
     // for (idx, &(ref o, ref m)) in chunks.iter().enumerate().step_by(4) {
@@ -329,6 +331,7 @@ fn mean_sd(xs: &[f64]) -> (f64, f64) {
     (ave, var.sqrt())
 }
 
+#[allow(dead_code)]
 fn make_prediction_simple(chunks: &[(Vec<&[u8]>, Vec<&[u8]>)], read: &ERead) -> bool {
     let predicts: Vec<_> = read
         .seq()
@@ -405,6 +408,7 @@ fn construct_predictors(data: &[ERead], weights: &[f64], len: usize, k: usize) -
         .collect()
 }
 
+#[allow(dead_code)]
 fn compute_lk_from(data: &[ERead], m0: &[DBGHMM], m1: &[DBGHMM], w0: f64, w1: f64) -> f64 {
     data.par_iter()
         .map(|read| {

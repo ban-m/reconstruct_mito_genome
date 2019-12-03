@@ -9,9 +9,9 @@ generalplot <- function(g,name){
 args <- commandArgs(trailingOnly = TRUE)
 filename <- args[1]
 outputname <- args[2]
-dataset <- read_tsv(filename) %>% gather(key = Type, value = Accuracy, -Dist, -Coverage)
-
-
+dataset <- read_tsv(filename) %>%
+    select(-HMM) %>% 
+    gather(key = Type, value = Accuracy, -Dist, -Coverage) 
 
 upperbound <- dataset %>% select(Dist, Coverage) %>%
     mutate(UpperBound = pmax(1-0.14**Dist,0.5))
@@ -30,10 +30,26 @@ g <- dataset %>%
     facet_wrap(.~Dist)
 generalplot(g,paste0(outputname,"_smooth"))
 
-
+dataset <- read_tsv(filename)
 g <-  dataset %>%
     mutate(ImpHMM = WHMM-HMM, ImpAln = WHMM-Aln) %>%
     filter(Dist > 0) %>%
     select(-WHMM, -HMM, -Aln) %>% 
     gather(key = Type, value = Improvement,-Dist,-Coverage ) %>%
     ggplot() + geom_smooth(aes(x = Coverage, y = Improvement, color = Type))  + facet_wrap(.~Dist)
+
+g <-  dataset %>%
+    mutate(Improvement = WHMM-Aln) %>%
+    filter(Dist > 0) %>%
+    select(-WHMM, -HMM, -Aln) %>% 
+    gather(key = Type, value = Improvement,-Dist,-Coverage ) %>%
+    ggplot() + geom_point(aes(x = Coverage, y = Improvement))  + facet_wrap(.~Dist)
+generalplot(g,paste0(outputname,"_improvement_point"))
+
+temp <- dataset %>% mutate(Improvement = WHMM - Aln) %>%
+    select(Improvement, Coverage) %>% 
+    nest(-Coverage) %>%
+    mutate(data = map(data,function(x) x %>% summarize(mean = mean(Improvement),
+                                                       sd = sd(Improvement),
+                                                       max = max(Improvement)))) %>% 
+    unnest()

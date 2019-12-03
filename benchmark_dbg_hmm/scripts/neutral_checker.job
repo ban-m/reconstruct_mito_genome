@@ -1,6 +1,6 @@
 #!/bin/bash
 #$ -S /bin/bash
-#$ -N LA
+#$ -N Neutral
 #$ -cwd
 #$ -pe smp 24
 #$ -e ./logfiles/neutral_checker.log
