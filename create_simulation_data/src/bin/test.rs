@@ -18,10 +18,18 @@ fn main() {
         .num_threads(24)
         .build_global()
         .unwrap();
+    let args: Vec<_> = std::env::args().collect();
+    let (test_num, coverage, prob) = if args.len() > 3 {
+        let tn = args[1].parse::<usize>().unwrap();
+        let cov = args[2].parse::<usize>().unwrap();
+        let prob = args[3].parse::<f64>().unwrap();
+        (tn, cov, prob)
+    } else {
+        (200, 0, 0.5)
+    };
     let chain_len = 20;
     let k = 6;
     let len = 150;
-    let test_num = 600;
     let p = &gen_sample::Profile {
         sub: 0.002,
         ins: 0.002,
@@ -29,9 +37,8 @@ fn main() {
     };
     use std::time::Instant;
     let seed = 11920981;
-    let coverage = 6;
     let s = Instant::now();
-    let (hmm, dist) = benchmark(seed, p, coverage, test_num, chain_len, k, len);
+    let (hmm, dist) = benchmark(seed, p, coverage, test_num, chain_len, k, len, prob);
     eprintln!("{:?}", Instant::now() - s);
     info!("Cov:{}", coverage);
     info!("Acc:{:.4}", hmm);
@@ -46,6 +53,7 @@ fn benchmark(
     chain_len: usize,
     k: usize,
     len: usize,
+    prob: f64,
 ) -> (f64, u32) {
     let seed = 1003437 + seed;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
@@ -66,9 +74,8 @@ fn benchmark(
         .zip(template2.iter())
         .enumerate()
         .for_each(|(idx, (t1, t2))| debug!("{}\t{}", idx, edlib_sys::global_dist(t1, t2)));
-    let prob_0 = 0.50;
     let (dataset, label, answer, border) =
-        generate_dataset(&template1, &template2, coverage, test_num, &mut rng, prob_0);
+        generate_dataset(&template1, &template2, coverage, test_num, &mut rng, prob);
     {
         let m0: Vec<_> = label
             .iter()

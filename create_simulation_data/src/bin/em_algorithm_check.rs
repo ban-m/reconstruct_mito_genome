@@ -14,7 +14,7 @@ use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
 fn main() {
     use env_logger::Env;
-    env_logger::Builder::from_env(Env::default().default_filter_or("em_algorithm_check=debug"))
+    env_logger::Builder::from_env(Env::default().default_filter_or("debug"))
         .init();
     rayon::ThreadPoolBuilder::new()
         .num_threads(24)
@@ -42,7 +42,7 @@ fn main() {
     for &cov in &coverage {
         for &test in &test_num {
             let res: Vec<_> = param
-                .par_iter()
+                .iter()
                 .filter_map(|&(seed, sk)| {
                     let (em_tp, em_tn, naive_tp, naive_tn, pos, neg) =
                         benchmark(seed, p, cov, test, chain_len, k, len, sk);

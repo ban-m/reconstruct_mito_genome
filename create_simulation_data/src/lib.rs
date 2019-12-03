@@ -451,10 +451,10 @@ pub fn em_solve(
     let mut gamma1: Vec<_> = label
         .iter()
         .map(|&e| if e == 1 { 1. } else { 0. })
-        .chain(weight.iter().map(|&e| if e { 0.6 } else { 0.6 }))
+        .chain(weight.iter().map(|&e| if e { 0.4 } else { 0.6 }))
         .collect();
-    let mut w0: f64 = gamma0.iter().sum::<f64>() / label.len() as f64;
-    let mut w1: f64 = gamma1.iter().sum::<f64>() / label.len() as f64;
+    let mut w0: f64 = gamma0.iter().sum::<f64>() / gamma0.len() as f64;
+    let mut w1: f64 = gamma1.iter().sum::<f64>() / gamma1.len() as f64;
     let mut model0: Vec<_> = construct_with_weights(data, &gamma0, k);
     let mut model1: Vec<_> = construct_with_weights(data, &gamma1, k);
     for (m0, m1) in model0.iter().zip(model1.iter()) {
@@ -471,6 +471,7 @@ pub fn em_solve(
                 gamma0.iter().sum::<f64>(),
                 gamma1.iter().sum::<f64>()
             );
+            eprintln!("W:{}\t{}", w0, w1);
             let next_lk = data
                 .par_iter()
                 .zip(gamma0.par_iter_mut())
@@ -548,8 +549,8 @@ pub fn em_solve_with(data: &[Vec<Vec<u8>>], label: &[u8], border: usize, k: usiz
     let mut model0: Vec<_> = construct_with_weights(data, &gamma0, k);
     let mut model1: Vec<_> = construct_with_weights(data, &gamma1, k);
     let mut lks: Vec<f64> = vec![];
-    let mut beta = 0.05;
-    let step = 1.5;
+    let mut beta = 0.18;
+    let step = 1.4;
     while beta < 1. {
         debug!("Beta:{:.4}", beta);
         for _ in 0..30 {

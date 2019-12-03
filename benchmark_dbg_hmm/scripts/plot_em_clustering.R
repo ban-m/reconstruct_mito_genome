@@ -20,6 +20,20 @@ generalplot(g, paste0(outputname,"_point"))
 
 g <- ds %>%
     ggplot() +
+    geom_histogram(mapping = aes(x =Accuracy, y = ..density.., fill = Type), position = "identity",alpha = 0.4) 
+generalplot(g, paste0(outputname,"_hist_no_dist"))
+
+g <- ds %>%
+    ggplot() +
+    geom_histogram(mapping = aes(x =Accuracy, y = ..density.., fill = Type), position = "identity",alpha = 0.4)  +
+    facet_wrap(Dist~.)
+generalplot(g, paste0(outputname,"_hist"))
+
+
+    
+
+g <- ds %>%
+    ggplot() +
     geom_smooth(mapping = aes(x = Test, y = Accuracy, color = Type)) + facet_wrap(Dist~.)
 generalplot(g, paste0(outputname,"_smooth"))
 
