@@ -332,14 +332,35 @@ impl Factory {
                 edges[idx].push(pseudo_node);
             }
         }
+        let is_supported_forward: Vec<_> = Self::cut_tip_inner(&edges, nodes.len() + 1, t);
+        edges.clear();
+        (0..pseudo_node + 1).for_each(|_| edges.push(vec![]));
+        let mut is_near_head: Vec<_> = nodes.iter().map(|e| e.is_head).collect();
+        for (idx, node) in nodes.iter().enumerate() {
+            for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
+                edges[to].push(idx);
+                is_near_head[to] |= nodes[idx].is_head;
+            }
+            if node.is_head {
+                edges[pseudo_node].push(idx);
+            }
+        }
+        let is_supported_backward = Self::cut_tip_inner(&edges, nodes.len() + 1, t);
         let ave = nodes.iter().map(|e| e.kmer_weight).sum::<f64>() / nodes.len() as f64;
         let is_heavy = nodes.iter().map(|n| n.kmer_weight > ave / 2.0);
-        let is_supported: Vec<_> = Self::cut_tip_inner(&edges, nodes.len() + 1, t)
+        let is_supported: Vec<_> = is_supported_forward
             .into_iter()
+            .zip(is_supported_backward)
             .zip(is_heavy)
             .zip(is_near_tail)
+            .zip(is_near_head)
             .take(pseudo_node)
-            .map(|((sup, is_heavy), is_near_tail)| sup | (is_near_tail & is_heavy))
+            .map(
+                |((((forward, backward), is_heavy), is_near_tail), is_near_head)| {
+                    (forward & backward) | (is_heavy & (is_near_tail | is_near_head))
+                },
+            )
+        // .map(|((forward, is_heavy), is_near_tail)| forward | (is_heavy & is_near_tail))
             .collect();
         let size = is_supported.iter().filter(|&&e| e).count();
         let new_index: Vec<_> = {
@@ -1484,7 +1505,7 @@ mod tests {
                     // d1 < d2
                     m1.forward(&q, &DEFAULT_CONFIG) > m2.forward(&q, &DEFAULT_CONFIG)
                 } else {
-                    // let q = introduce_randomness(&t2, rng, &PROFILE);
+                    let q = introduce_randomness(&t2, rng, &PROFILE);
                     // let d1: u32 = model1.iter().map(|e| edlib_sys::global_dist(&q, e)).sum();
                     // let d2: u32 = model2.iter().map(|e| edlib_sys::global_dist(&q, e)).sum();
                     // d1 > d2

@@ -10,26 +10,6 @@ use dbg_hmm::*;
 use test::Bencher;
 
 #[bench]
-fn overall(b: &mut Bencher) {
-    let bases = b"ACTG";
-    let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
-    let len = 150;
-    let num = 30;
-    let template: Vec<_> = (0..len)
-        .filter_map(|_| bases.choose(&mut rng))
-        .copied()
-        .collect();
-    let model1: Vec<Vec<_>> = (0..num)
-        .map(|_| introduce_randomness(&template, &mut rng))
-        .collect();
-    let k = 6;
-    b.iter(|| {
-        let model1 = DBGHMM::new(&model1, k);
-        test::black_box(model1.forward(&template, &DEFAULT_CONFIG))
-    });
-}
-
-#[bench]
 fn determine(b: &mut Bencher) {
     let bases = b"ACTG";
     let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
@@ -76,6 +56,44 @@ fn new2(b: &mut Bencher) {
     let k = 7;
     let mut f = Factory::new();
     b.iter(|| test::black_box(f.generate(&model1, k)));
+}
+
+#[bench]
+fn new3(b: &mut Bencher) {
+    let bases = b"ACTG";
+    let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+    let template: Vec<_> = (0..150)
+        .filter_map(|_| bases.choose(&mut rng))
+        .copied()
+        .collect();
+    let model1: Vec<Vec<_>> = (0..40)
+        .map(|_| introduce_randomness(&template, &mut rng))
+        .collect();
+    let model1: Vec<_> = model1.iter().map(|e| e.as_slice()).collect();
+    let k = 7;
+    let weight = vec![1.; model1.len()];
+    let mut f = Factory::new();
+    b.iter(|| test::black_box(f.generate_with_weight(&model1, &weight, k)));
+}
+
+#[bench]
+fn determine_weight(b: &mut Bencher) {
+    let bases = b"ACTG";
+    let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+    let template: Vec<_> = (0..150)
+        .filter_map(|_| bases.choose(&mut rng))
+        .copied()
+        .collect();
+    let model1: Vec<Vec<_>> = (0..40)
+        .map(|_| introduce_randomness(&template, &mut rng))
+        .collect();
+    let model1: Vec<_> = model1.iter().map(|e| e.as_slice()).collect();
+    let k = 6;
+    let weight = vec![1.; model1.len()];
+    let mut f = Factory::new();
+    let m = f.generate_with_weight(&model1, &weight, k);
+    let q = introduce_randomness(&template, &mut rng);
+    b.iter(|| test::black_box(m.forward(&q, &DEFAULT_CONFIG)));
 }
 
 enum Op {
