@@ -11,6 +11,7 @@ fn main() {
     let len = 150;
     let num_seq = 50;
     let mut rng: StdRng = SeedableRng::seed_from_u64(899_892);
+    //let mut rng: StdRng = SeedableRng::seed_from_u64(899_893);
     let template1: Vec<_> = generate_seq(&mut rng, len);
     let p = Profile {
         sub: 0.005,
@@ -41,8 +42,8 @@ fn main() {
         .map(|_| introduce_randomness(&template2, &mut rng, &PROFILE))
         .collect();
     let k = 6;
-    let m1 = DBGHMM::new(&data1,k);
-    let m2 = DBGHMM::new(&data2,k);
+    let m1 = DBGHMM::new(&data1, k);
+    let m2 = DBGHMM::new(&data2, k);
     for i in 0..10 {
         let q = if i % 2 == 0 {
             introduce_randomness(&template1, &mut rng, &PROFILE)
@@ -138,19 +139,23 @@ fn cross_validation(data1: &[Vec<u8>], data2: &[Vec<u8>]) -> Vec<(usize, f64, f6
             .iter()
             .enumerate()
             .filter(|&(idx, _)| idx != i)
-            .map(|(_, e)| e)
-            .cloned()
+            .map(|(_, e)| e.as_ref())
             .collect();
         let data2: Vec<_> = data2
             .iter()
             .enumerate()
             .filter(|&(idx, _)| idx != i)
-            .map(|(_, e)| e)
-            .cloned()
+            .map(|(_, e)| e.as_ref())
             .collect();
         let s = Instant::now();
-        let m1 = DBGHMM::new(&data1, k);
-        let m2 = DBGHMM::new(&data2, k);
+        let ds: Vec<_> = data1.iter().chain(data2.iter()).copied().collect();
+        let w1 = vec![vec![1.; len - 1], vec![0.; len - 1]].concat();
+        let w2 = vec![vec![0.; len - 1], vec![1.; len - 1]].concat();
+        let mut f = Factory::new();
+        let m1 = f.generate_with_weight(&ds, &w1, k);
+        let m2 = f.generate_with_weight(&ds, &w2, k);
+        // let m1 = DBGHMM::new_from_ref(&data1, k);
+        // let m2 = DBGHMM::new_from_ref(&data2, k);
         let s2 = Instant::now();
         let m1_for_1 = m1.forward(test1, &DEFAULT_CONFIG);
         let m1_for_2 = m1.forward(test2, &DEFAULT_CONFIG);

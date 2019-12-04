@@ -15,6 +15,8 @@ use rand::SeedableRng;
 mod find_breakpoint;
 use last_tiling::UNIT_SIZE;
 mod assignments;
+mod eread;
+
 
 pub fn decompose(
     read: Vec<fasta::Record>,

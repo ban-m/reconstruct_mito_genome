@@ -11,7 +11,6 @@ use create_simulation_data::*;
 use dbg_hmm::*;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
-use rayon::prelude::*;
 fn main() {
     use env_logger::Env;
     env_logger::Builder::from_env(Env::default().default_filter_or("debug"))

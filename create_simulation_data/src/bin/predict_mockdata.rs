@@ -63,9 +63,9 @@ fn main() -> std::io::Result<()> {
         .collect();
     debug!("Answer and Distance hashmaps are built");
     let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1893749823);
-    // let (training, testset): (Vec<_>, Vec<_>) = reads.into_iter().partition(|_| rng.gen_bool(0.2));
-    let (training, testset): (Vec<_>, Vec<_>) =
-        reads.into_iter().partition(|r| dist[r.id()] < len / 2);
+    let (training, testset): (Vec<_>, Vec<_>) = reads.into_iter().partition(|_| rng.gen_bool(0.2));
+    // let (training, testset): (Vec<_>, Vec<_>) =
+    //     reads.into_iter().partition(|r| dist[r.id()] < len / 2);
     debug!(
         "{} training reads and {} test reads dataset.",
         training.len(),
@@ -113,7 +113,6 @@ fn predict(
     contig: &Contigs,
     ans: &HashMap<String, bool>,
 ) -> Option<Vec<(String, u8, usize, f64)>> {
-    // let is_test: std::collections::HashSet<_> = tests.iter().map(|e| e.id().to_string()).collect();
     let (_is_original, data, border) = setup(training, tests, alignments, contig);
     let len = contig.get_last_unit(0)? as usize + 1;
     let answer: Vec<_> = data.iter().map(|e| ans[e.id()]).collect::<Vec<_>>();
@@ -129,8 +128,6 @@ fn predict(
         .chain((0..(data.len() - border)).map(|_| rng.gen_bool(0.5)))
         .collect();
     let em_pred = em_prediction(&pred, &data, border, len);
-    // let lks = compute_likelihood_diff(&data, &em_pred, len);
-    let lks = vec![0.; data.len()];
     let lk = compute_likelihood(&data, &em_pred, len)
         .into_iter()
         .skip(border)
@@ -139,9 +136,8 @@ fn predict(
     let result: Vec<_> = data
         .iter()
         .zip(em_pred.iter())
-        .zip(lks.into_iter())
         .skip(border)
-        .map(|((read, predict), lk)| {
+        .map(|(read, predict)| {
             let id = read.id().to_string();
             let pred = if *predict { 0u8 } else { 1u8 };
             let len = read.seq().iter().map(|e| e.bases().len()).sum::<usize>();
@@ -257,7 +253,7 @@ fn rough_pred(init: &[bool], data: &[ERead], border: usize, len: usize) -> Vec<b
 }
 
 fn em_prediction(init: &[bool], data: &[ERead], border: usize, len: usize) -> Vec<bool> {
-    let (mut gamma0, mut gamma1) = init_gammas(init, border, data.len(), 0);
+    let (mut gamma0, mut gamma1) = init_gammas(init, border, data.len());
     let mut w0: f64 = gamma0.iter().sum::<f64>() / init.len() as f64;
     let mut w1: f64 = gamma1.iter().sum::<f64>() / init.len() as f64;
     let mut model0: Vec<_> = construct_predictors(data, &gamma0, len, K);
@@ -297,8 +293,6 @@ fn em_prediction(init: &[bool], data: &[ERead], border: usize, len: usize) -> Ve
                 .sum::<f64>();
             w0 = gamma0.iter().sum::<f64>() / data.len() as f64;
             w1 = gamma1.iter().sum::<f64>() / data.len() as f64;
-            model0 = construct_predictors(&data, &gamma0, len, K);
-            model1 = construct_predictors(&data, &gamma1, len, K);
             let (m0, sd0) = mean_sd(&gamma0);
             let (m1, sd1) = mean_sd(&gamma0);
             debug!(
@@ -307,6 +301,9 @@ fn em_prediction(init: &[bool], data: &[ERead], border: usize, len: usize) -> Ve
             );
             info!("LK\t{:.4}\t{}", next_lk, i);
             debug!("w0:w1\t{:.3}\t{:.3}", w0, w1);
+            model0 = construct_predictors(&data, &gamma0, len, K);
+            model1 = construct_predictors(&data, &gamma1, len, K);
+            debug!("ConstNextModels:{},{}", model0.len(), model1.len());
             let min: f64 = lks
                 .iter()
                 .map(|&e| (e - next_lk).abs())

@@ -24,3 +24,9 @@ pub fn calc_logsum_vec(ls: &[f64], ws: &[f64]) -> f64 {
         .ln()
 }
 
+fn logsumexp(xs: &[f64]) -> f64 {
+    let max = xs
+        .iter()
+        .fold(std::f64::MIN, |x, &y| if x < y { y } else { x });
+    max + xs.iter().map(|x| (x - max).exp()).sum::<f64>().ln()
+}

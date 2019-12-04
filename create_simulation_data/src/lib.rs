@@ -367,8 +367,7 @@ pub fn align_solve(data: &[Vec<Vec<u8>>], label: &[u8], border: usize) -> Vec<u8
     assign.into_iter().skip(border).collect()
 }
 
-pub fn init_gammas(init: &[bool], border: usize, len: usize, s: usize) -> (Vec<f64>, Vec<f64>) {
-    let _s = 23_984_738 + s as u64;
+pub fn init_gammas(init: &[bool], border: usize, len: usize) -> (Vec<f64>, Vec<f64>) {
     let (mut gamma0, mut gamma1) = (vec![], vec![]);
     for i in 0..len {
         let p = if i < border && init[i] {
@@ -377,52 +376,13 @@ pub fn init_gammas(init: &[bool], border: usize, len: usize, s: usize) -> (Vec<f
             0.
         } else {
             let p = if init[i] { 0.6 } else { 0.4 };
-            p //+ rng.gen_range(-0.3, 0.3)
+            p
         };
         gamma0.push(p);
         gamma1.push(1. - p);
     }
     (gamma0, gamma1)
 }
-
-// {
-//     let gamma0: Vec<_> = label
-//         .iter()
-//         .chain(ans.iter())
-//         .map(|&e| if e == 0 { 1. } else { 0. })
-//         .collect();
-//     let gamma1: Vec<_> = label
-//         .iter()
-//         .chain(ans.iter())
-//         .map(|&e| if e == 1 { 1. } else { 0. })
-//         .collect();
-//     let w0: f64 = gamma0.iter().sum::<f64>() / data.len() as f64;
-//     let w1: f64 = gamma1.iter().sum::<f64>() / data.len() as f64;
-//     let model0: Vec<_> = construct_with_weights(data, &gamma0, k);
-//     let model1: Vec<_> = construct_with_weights(data, &gamma1, k);
-//     for (read, ans) in data.iter().zip(label.iter().chain(ans.iter())) {
-//         let log_m0 = read
-//             .iter()
-//             .enumerate()
-//             .map(|(i, s)| model0[i].forward(s, &DEFAULT_CONFIG))
-//             .sum::<f64>()
-//             + w0.ln();
-//         let log_m1 = read
-//             .iter()
-//             .enumerate()
-//             .map(|(i, s)| model1[i].forward(s, &DEFAULT_CONFIG))
-//             .sum::<f64>()
-//             + w1.ln();
-//         let w = logsumexp(log_m0, log_m1);
-//         let g0 = (log_m0 - w).exp();
-//         let g1 = (log_m1 - w).exp();
-//         let p = if log_m0 > log_m1 { 0 } else { 1 };
-//         debug!(
-//             "{}\t{}\t{:.0}\t{:.0}\t{:.4}\t{:.4}",
-//             ans, p, log_m0, log_m1, g0, g1
-//         );
-//     }
-// }
 
 /// Predict by EM algorithm. the length of return value is the number of test case.
 pub fn em_solve(
@@ -432,13 +392,6 @@ pub fn em_solve(
     k: usize,
     ans: &[u8],
 ) -> Vec<u8> {
-    // let init: Vec<_> = label
-    //     .iter()
-    //     .chain(align_solve(data, label, border).iter())
-    //     .copied()
-    //     .map(|e| e == 0)
-    //     .collect();
-    // let (mut gamma0, mut gamma1) = init_gammas(&init, border, data.len(), 0);
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64((border + data.len()) as u64);
     let weight: Vec<_> = (0..data.len() - border)
         .map(|_| rng.gen_bool(0.5))
@@ -543,7 +496,7 @@ pub fn em_solve_with(data: &[Vec<Vec<u8>>], label: &[u8], border: usize, k: usiz
         .copied()
         .map(|e| e == 0)
         .collect();
-    let (mut gamma0, mut gamma1) = init_gammas(&init, border, data.len(), 0);
+    let (mut gamma0, mut gamma1) = init_gammas(&init, border, data.len());
     let mut w0: f64 = gamma0.iter().sum::<f64>() / label.len() as f64;
     let mut w1: f64 = gamma1.iter().sum::<f64>() / label.len() as f64;
     let mut model0: Vec<_> = construct_with_weights(data, &gamma0, k);
