@@ -205,7 +205,16 @@ impl Factory {
             }
         }
         let weight = ws.iter().sum::<f64>();
-        let nodes = self.clean_up_nodes_exp(nodes, thr, &mut rng);
+        let nodes = match self.clean_up_nodes_exp(nodes, thr, &mut rng) {
+            Some(res) => res,
+            None => panic!(
+                "thr:{},weight:{},raw_kmers:{},wsdump:{:#?}",
+                thr,
+                weight,
+                self.inner.len(),
+                ws
+            ),
+        };
         self.clear();
         DBGHMM { nodes, k, weight }
     }
@@ -214,7 +223,12 @@ impl Factory {
         nodes.iter_mut().for_each(Kmer::finalize);
         nodes
     }
-    fn clean_up_nodes_exp<R: Rng>(&mut self, nodes: Vec<Kmer>, thr: f64, rng: &mut R) -> Vec<Kmer> {
+    fn clean_up_nodes_exp<R: Rng>(
+        &mut self,
+        nodes: Vec<Kmer>,
+        thr: f64,
+        rng: &mut R,
+    ) -> Option<Vec<Kmer>> {
         let mut buffer: Vec<_> = Vec::with_capacity(nodes.len());
         let nodes = self.cut_lightweight_loop(nodes, thr, rng, &mut buffer);
         assert!(buffer.is_empty());
@@ -225,15 +239,22 @@ impl Factory {
         } else {
             self.pick_largest_components(nodes, &mut buffer)
         };
-        let mut nodes = self.renaming_nodes(nodes);
+        let nodes = match nodes {
+            Some(res) => res,
+            None => {
+                error!("THR:{}", thr);
+                return None;
+            }
+        };
+        let mut nodes = self.renaming_nodes(nodes); 
         nodes.iter_mut().for_each(Kmer::finalize);
-        nodes
+        Some(nodes)
     }
     fn pick_largest_components(
         &mut self,
         mut nodes: Vec<Kmer>,
         buffer: &mut Vec<Kmer>,
-    ) -> Vec<Kmer> {
+    ) -> Option<Vec<Kmer>> {
         assert!(self.temp_index.is_empty());
         assert!(self.is_safe.is_empty());
         let mut fu = find_union::FindUnion::new(nodes.len());
@@ -254,7 +275,10 @@ impl Factory {
             .max_by_key(|&(_, size)| size);
         let (max_group, _) = match max_group_and_size {
             Some(res) => res,
-            None => panic!("No components:{:?}", nodes),
+            None => {
+                error!("No components:{:?}", nodes);
+                return None;
+            }
         };
         let mut index = 0;
         for i in 0..nodes.len() {
@@ -273,7 +297,7 @@ impl Factory {
         buffer.reverse();
         std::mem::swap(buffer, &mut nodes);
         self.temp_index.clear();
-        nodes
+        Some(nodes)
     }
     fn select_supported_node(edges: &[Vec<usize>], nodes: usize, is_safe: &[bool]) -> Vec<bool> {
         let mut is_supported = vec![false; nodes];

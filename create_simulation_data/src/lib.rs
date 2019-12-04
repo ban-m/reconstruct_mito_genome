@@ -209,6 +209,48 @@ pub fn calc_logsum_vec(ls: &[f64], ws: &[f64]) -> f64 {
 /// Generate dataset. Return Reads(Chunked), assignment(label for training data),
 /// answer(label for test data), and l(the length of training data).
 /// The data is ordered from training set followed by test set.
+pub fn generate_mul_data<T: Rng>(
+    templates: &[Vec<Vec<u8>>],
+    coverage: usize,
+    test_num: usize,
+    rng: &mut T,
+    probs: &[f64],
+) -> (Vec<Vec<Vec<u8>>>, Vec<u8>, Vec<u8>, usize) {
+    debug!("{}templates", templates.len());
+    let cluster_num = templates.len();
+    use rand::seq::SliceRandom;
+    let choices: Vec<_> = (0..cluster_num).collect();
+    let answer: Vec<_> = (0..test_num + coverage)
+        .filter_map(|i| {
+            if i < cluster_num {
+                Some(&choices[i % cluster_num])
+            } else {
+                choices.choose_weighted(rng, |&idx| probs[idx]).ok()
+            }
+        })
+        .copied()
+        .map(|e| e as u8)
+        .collect();
+    let mut gen = |t: &[Vec<u8>]| {
+        t.iter()
+            .map(|e| gen_sample::introduce_randomness(e, rng, &gen_sample::PROFILE))
+            .collect::<Vec<_>>()
+    };
+    debug!("Coverage:{}\ttest_num:{}", coverage, test_num);
+    let dataset: Vec<_> = answer
+        .iter()
+        .map(|&idx| gen(&templates[idx as usize]))
+        .collect();
+    let assignment: Vec<_> = answer.iter().take(coverage).copied().collect();
+    let answer: Vec<_> = answer.into_iter().skip(coverage).collect();
+    assert_eq!(dataset.len(), assignment.len() + answer.len());
+    let l = assignment.len();
+    (dataset, assignment, answer, l)
+}
+
+/// Generate dataset. Return Reads(Chunked), assignment(label for training data),
+/// answer(label for test data), and l(the length of training data).
+/// The data is ordered from training set followed by test set.
 pub fn generate_dataset<T: Rng>(
     template0: &[Vec<u8>],
     template1: &[Vec<u8>],
@@ -450,11 +492,6 @@ pub fn em_solve(
                     let w = logsumexp(log_m0, log_m1);
                     *g0 = (log_m0 - w).exp();
                     *g1 = (log_m1 - w).exp();
-                    // let p = if *g0 > *g1 { 0 } else { 1 };
-                    // debug!(
-                    //     "{}\t{}\t{:.3}\t{:.3}\t{:.1}\t{:.1}",
-                    //     ans, p, log_m0, log_m1, *g0, *g1
-                    // );
                     lk
                 })
                 .sum::<f64>();

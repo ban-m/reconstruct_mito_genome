@@ -3,8 +3,8 @@
 #$ -N MockGenomePred
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/mock_genome_workflow_02.log
-#$ -o ./logfiles/mock_genome_workflow_02.out
+#$ -e ./logfiles/mock_genome_workflow_half.log
+#$ -o ./logfiles/mock_genome_workflow_half.out
 #$ -V
 #$ -m e
 
@@ -25,5 +25,5 @@ CORES=24
 # ----- Prediction ------
 RUST_BACKTRACE=1 cargo run --release --bin predict_mockdata \
       -- ${READ} ${REFERENCE} ${OUTPUT}/last_db/alignments.tab\
-      > ${OUTPUT}/predictions_02.tsv
+      > ${OUTPUT}/predictions_half.tsv
 

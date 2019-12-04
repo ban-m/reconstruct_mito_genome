@@ -299,6 +299,7 @@ dependencies = [
  "dbg_hmm 0.1.0",
  "edlib_sys 0.1.0",
  "env_logger 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "last_decompose 0.1.0",
  "last_tiling 0.1.0",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -532,6 +533,23 @@ dependencies = [
  "getrandom 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.65 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "last_decompose"
+version = "0.1.0"
+dependencies = [
+ "bio_utils 0.1.0",
+ "dbg_hmm 0.1.0",
+ "edlib_sys 0.1.0",
+ "env_logger 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "last_tiling 0.1.0",
+ "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand_xoshiro 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rayon 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.101 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_json 1.0.41 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
