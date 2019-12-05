@@ -19,8 +19,11 @@ extern crate test;
 const PSEUDO_COUNT: bool = true;
 const THR_ON: bool = true;
 const THR: f64 = 2.;
+const WEIGHT_THR: f64 = 2.0;
+const LOW_LIKELIHOOD: f64 = -100000.;
 mod find_union;
 pub mod gen_sample;
+use packed_simd::f64x4 as f64s;
 use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
 use std::collections::HashMap;
@@ -205,6 +208,10 @@ impl Factory {
             }
         }
         let weight = ws.iter().sum::<f64>();
+        if weight < 1.0001 {
+            let nodes = vec![];
+            return DBGHMM { nodes, k, weight };
+        }
         let nodes = match self.clean_up_nodes_exp(nodes, thr, &mut rng) {
             Some(res) => res,
             None => panic!(
@@ -246,7 +253,7 @@ impl Factory {
                 return None;
             }
         };
-        let mut nodes = self.renaming_nodes(nodes); 
+        let mut nodes = self.renaming_nodes(nodes);
         nodes.iter_mut().for_each(Kmer::finalize);
         Some(nodes)
     }
@@ -674,7 +681,7 @@ impl DeBruijnGraphHiddenMarkovModel {
         f.generate_from_ref(dataset, k)
     }
     // Calc hat. Return (c,d)
-    #[cfg(not(target_feature = "avx"))]
+    #[cfg(not(target_feature = "sse"))]
     fn update(&self, updates: &mut [Node], prev: &[Node], base: u8, config: &Config) -> (f64, f64) {
         for (idx, (from, node)) in self
             .nodes
@@ -715,47 +722,75 @@ impl DeBruijnGraphHiddenMarkovModel {
         (c, d)
     }
 
-    #[cfg(target_feature = "avx")]
-    fn update(&self, updates: &mut [Node], prev: &[Node], base: u8, config: &Config) -> (f64, f64) {
-        let match_succeed = packed_simd::f64x4::new(
-            config.p_match,
-            1. - config.p_extend_del - config.p_del_to_ins,
-            1. - config.p_extend_ins,
-            0.,
-        );
-        let insertion_suc =
-            packed_simd::f64x4::new(config.p_ins, config.p_del_to_ins, config.p_extend_ins, 0.);
-        for (idx, (from, node)) in self
+    #[cfg(target_feature = "sse")]
+    fn is_non_zero(idx: usize, xs: &[f64]) -> bool {
+        xs[idx * 4..(idx + 1) * 4].iter().any(|&e| e > 0.00001)
+    }
+    #[cfg(target_feature = "sse")]
+    fn sum(xs: &[f64]) -> f64 {
+        let i = (xs.len() / f64s::lanes()) * f64s::lanes();
+        let (head, tail) = xs.split_at(i);
+        head.chunks_exact(f64s::lanes())
+            .map(f64s::from_slice_unaligned)
+            .sum::<f64s>()
+            .sum()
+            + tail.iter().sum::<f64>()
+    }
+    #[cfg(target_feature = "sse")]
+    fn mul(xs: &mut [f64], y: f64) {
+        let i = (xs.len() / f64s::lanes()) * f64s::lanes();
+        let (head, tail) = xs.split_at_mut(i);
+        let ys = f64s::splat(y);
+        head.chunks_exact_mut(f64s::lanes()).for_each(|xs| {
+            let packed = f64s::from_slice_unaligned(xs) * ys;
+            packed.write_to_slice_unaligned(xs);
+        });
+        tail.iter_mut().for_each(|e| *e *= y);
+    }
+    #[cfg(target_feature = "sse")]
+    fn update(&self, updates: &mut [f64], prev: &[f64], base: u8, config: &Config) -> (f64, f64) {
+        // Alignemnt:[mat,ins,del,0., mat,ins,del,0., mat,....,del, 0.,]
+        for (idx, from) in self
             .nodes
             .iter()
-            .zip(prev.iter())
             .enumerate()
-            .filter(|(_, (_, node))| !node.is_zero())
+            .filter(|&(idx, _)| Self::is_non_zero(idx, prev))
         {
-            let x = packed_simd::f64x4::new(node.mat, node.del, node.ins, 0.);
-            updates[idx].add_ins((x * insertion_suc).sum() * from.insertion(base));
-            let prob = (x * match_succeed).sum();
-            from.edges.iter().enumerate().for_each(|(i, e)| {
-                if let Some(to) = e {
-                    updates[*to].add_mat(prob * from.to(i) * self.nodes[*to].prob(base, config))
-                }
-            });
+            let node = 4 * idx;
+            let prob = prev[node] * config.p_match
+                + prev[node + 1] * (1. - config.p_extend_ins)
+                + prev[node + 2] * (1. - config.p_extend_del - config.p_del_to_ins);
+            let ins = prev[node] * config.p_ins
+                + prev[node + 1] * config.p_extend_ins
+                + prev[node + 2] * config.p_del_to_ins;
+            updates[node + 1] += ins * from.insertion(base);
+            from
+                .edges
+                .iter()
+                .enumerate()
+                .for_each(|(i,e)|
+                          // (from->to,base i edge)
+                          if let Some(to) = *e {
+                              updates[4*to]+= prob * from.to(i) * self.nodes[to].prob(base, config)
+                          });
         }
-        let d = Node::sum(&updates).recip();
-        updates.iter_mut().for_each(|e| *e = *e * d);
+        let d = Self::sum(updates).recip();
+        // Updates -> tilde
+        Self::mul(updates, d);
+        // Update `Del` states.
         for (idx, node) in self.nodes.iter().enumerate() {
-            if updates[idx].is_nonzero() {
-                let pushing_weight = updates[idx].push(&config);
-                for to in node.edges.iter() {
-                    match to {
-                        Some(to) => updates[*to].add_del(pushing_weight),
-                        None => {}
+            if Self::is_non_zero(idx, updates) {
+                let from = &updates[4 * idx..4 * (idx + 1)];
+                let pushing_weight: f64 = from[0] * config.p_del + from[2] * config.p_extend_del;
+                for to in node.edges.iter().map(|e| e.as_ref()) {
+                    if let Some(&to) = to {
+                        updates[4 * to + 2] += pushing_weight;
                     }
                 }
             }
         }
-        let c = Node::sum(&updates).recip();
-        updates.iter_mut().for_each(|e| *e = *e * c);
+        let c = Self::sum(&updates).recip();
+        Self::mul(updates, c);
         (c, d)
     }
     // ln sum_i exp(x[i])
@@ -781,7 +816,6 @@ impl DeBruijnGraphHiddenMarkovModel {
             .collect();
         let minus_ln_d = Self::logsumexp(&aln_scores);
         let tilde = aln_scores.into_iter().map(|x| (x - minus_ln_d).exp());
-
         let hat: Vec<_> = tilde.map(|init| Node::new(init, 0., 0.)).collect();
         let minus_ln_c = 0.;
         (minus_ln_c, minus_ln_d, hat)
@@ -791,13 +825,35 @@ impl DeBruijnGraphHiddenMarkovModel {
         self.weight
     }
     // This returns log p(obs|model) = \sum - log c_t.
+    #[cfg(not(target_feature = "sse"))]
     pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
         assert!(obs.len() > self.k);
+        if self.weight < WEIGHT_THR {
+            return LOW_LIKELIHOOD;
+        }
         let (mut cs, mut ds, mut prev) = self.initialize(&obs[..self.k], config);
         // let (mut cs, mut ds) = (-(c.ln()), -(d.ln()));
         let mut updated = vec![Node::new(0., 0., 0.); self.nodes.len()];
         for &base in &obs[self.k..] {
             updated.iter_mut().for_each(Node::clear);
+            let (c, d) = self.update(&mut updated, &prev, base, config);
+            cs -= c.ln();
+            ds -= d.ln();
+            std::mem::swap(&mut prev, &mut updated);
+        }
+        cs + ds
+    }
+    #[cfg(target_feature = "sse")]
+    pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
+        assert!(obs.len() > self.k);
+        if self.weight < WEIGHT_THR {
+            return LOW_LIKELIHOOD;
+        }
+        let (mut cs, mut ds, prev) = self.initialize(&obs[..self.k], config);
+        // Alignemnts: [mat, ins, del, 0, mat, ins, del, 0, ....]
+        let mut prev: Vec<f64> = prev.iter().flat_map(|e| vec![e.mat, 0., 0., 0.]).collect();
+        let mut updated = vec![0.; self.node_num() * 4];
+        for &base in &obs[self.k..] {
             let (c, d) = self.update(&mut updated, &prev, base, config);
             cs -= c.ln();
             ds -= d.ln();
@@ -841,15 +897,6 @@ impl std::ops::Mul<f64> for Node {
 }
 
 impl Node {
-    #[cfg(target_feature = "avx")]
-    fn sum(xs: &[Node]) -> f64 {
-        use packed_simd::f64x4 as f64s;
-        xs.iter()
-            .map(|e| f64s::new(e.mat, e.del, e.ins, 0.))
-            .sum::<f64s>()
-            .sum()
-    }
-    #[cfg(not(target_feature = "avx"))]
     fn sum(xs: &[Node]) -> f64 {
         xs.iter().map(Node::fold).sum::<f64>()
     }
@@ -876,7 +923,7 @@ impl Node {
         (self.mat * config.p_ins + self.ins * config.p_extend_ins + self.del * config.p_del_to_ins)
     }
     fn push(&self, config: &Config) -> f64 {
-        self.del * config.p_extend_del + self.mat * config.p_del
+        self.mat * config.p_del + self.del * config.p_extend_del
     }
     fn add_ins(&mut self, x: f64) {
         self.ins += x;

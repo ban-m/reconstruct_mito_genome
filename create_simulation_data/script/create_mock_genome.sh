@@ -16,7 +16,7 @@ LEN=300000
 cargo run --release --bin create_complex_structures -- ${LEN} ./data/complex/
 badread simulate \
         --reference ./data/complex/complex1.fa \
-        --quantity 100x --error_model pacbio \
+        --quantity 300x --error_model pacbio \
         --qscore_model pacbio --identity 85,95,3 \
         --junk_reads 0 --random_reads 0 --chimeras 0 \
         --length 15000,5000 > ./data/complex/read_complex1.fq
@@ -25,9 +25,9 @@ cat ./data/complex/read_complex1.fq | paste - - - - | cut -f 1,2 |\
 
 badread simulate \
         --reference ./data/complex/complex2.fa \
-        --quantity 100x --error_model pacbio \
+        --quantity 300x --error_model pacbio \
         --qscore_model pacbio --identity 85,95,3 \
         --junk_reads 0 --random_reads 0 --chimeras 0 \
-        --length 15000,5000 > ./data/complex/read_complex1.fq
+        --length 15000,5000 > ./data/complex/read_complex2.fq
 cat ./data/complex/read_complex2.fq | paste - - - - | cut -f 1,2 |\
     sed -e 's/@/>/g' | tr '\t' '\n' > ./data/complex/read_complex2.fa

@@ -62,7 +62,7 @@ fn main() -> std::io::Result<()> {
         })
         .collect();
     debug!("Answer and Distance hashmaps are built");
-    let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1893749823);
+    // let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1893749823);
     // let (training, testset): (Vec<_>, Vec<_>) = reads.into_iter().partition(|_| rng.gen_bool(0.2));
     let (training, testset): (Vec<_>, Vec<_>) =
         reads.into_iter().partition(|r| dist[r.id()] < len / 2);
@@ -121,7 +121,7 @@ fn predict(
         .skip(border)
         .sum::<f64>();
     info!("SUMMARY\tObjLK\tlog lk\t{:.2}", lk);
-    let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(231_243_989);
+    let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64((len * 20) as u64);
     let pred: Vec<_> = answer[..border]
         .iter()
         .copied()

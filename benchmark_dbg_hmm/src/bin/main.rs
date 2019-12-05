@@ -154,8 +154,6 @@ fn cross_validation(data1: &[Vec<u8>], data2: &[Vec<u8>]) -> Vec<(usize, f64, f6
         let mut f = Factory::new();
         let m1 = f.generate_with_weight(&ds, &w1, k);
         let m2 = f.generate_with_weight(&ds, &w2, k);
-        // let m1 = DBGHMM::new_from_ref(&data1, k);
-        // let m2 = DBGHMM::new_from_ref(&data2, k);
         let s2 = Instant::now();
         let m1_for_1 = m1.forward(test1, &DEFAULT_CONFIG);
         let m1_for_2 = m1.forward(test2, &DEFAULT_CONFIG);
@@ -165,7 +163,8 @@ fn cross_validation(data1: &[Vec<u8>], data2: &[Vec<u8>]) -> Vec<(usize, f64, f6
         res.push((2, m1_for_2, m2_for_2));
         let s3 = Instant::now();
         eprintln!("{:?}\t{:?}\t{:?} in tot", s2 - s, s3 - s2, s3 - s);
-        eprintln!("{}\t{}", m1, m2);
+        eprintln!("{:.4}\t{:.4}", m1_for_1, m2_for_2);
+        // eprintln!("{}\t{}", m1, m2);
     }
     res.sort_by_key(|e| e.0);
     res
