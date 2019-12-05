@@ -158,12 +158,6 @@ fn construct_initial_weights(label: &[u8], cluster_num: usize, data_size: usize)
     weights
 }
 
-/// Predict by EM algorithm. the length of return value is the number of test case.
-/// The first `label.len()` elements of the `data` should be already classified somehow and
-/// the answers should be stored in `label`.
-/// When you know the i-th read should not be in the j-th cluster, please add  `j` into `forbidden[i]`'s vector.
-/// `cluster_num`should be the number of the cluster.
-/// `contigs` should be a map from the index of contig -> number of units.
 pub fn clustering(
     data: &[ERead],
     label: &[u8],
@@ -172,6 +166,37 @@ pub fn clustering(
     cluster_num: usize,
     contigs: &[usize],
 ) -> Vec<u8> {
+    let border = label.len();
+    let gammas = soft_clustering(data, label, forbidden, k, cluster_num, contigs);
+    // Maybe we should use randomized choose.
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(4 * data.len() as u64);
+    let choices: Vec<usize> = (0..cluster_num).collect();
+    gammas
+        .iter()
+        .skip(border)
+        .map(|gamma| {
+            assert_eq!(gamma.len(), choices.len());
+            *choices
+                .choose_weighted(&mut rng, |&idx| gamma[idx])
+                .unwrap() as u8
+        })
+        .collect()
+}
+
+/// Predict by EM algorithm. the length of return value is the number of test case.
+/// The first `label.len()` elements of the `data` should be already classified somehow and
+/// the answers should be stored in `label`.
+/// When you know the i-th read should not be in the j-th cluster, please add  `j` into `forbidden[i]`'s vector.
+/// `cluster_num`should be the number of the cluster.
+/// `contigs` should be a map from the index of contig -> number of units.
+pub fn soft_clustering(
+    data: &[ERead],
+    label: &[u8],
+    forbidden: &[Vec<u8>],
+    k: usize,
+    cluster_num: usize,
+    contigs: &[usize],
+) -> Vec<Vec<f64>> {
     assert!(cluster_num > 1);
     let border = label.len();
     // gammas[i] = "the vector of each cluster for i-th read"
@@ -183,7 +208,7 @@ pub fn clustering(
         .collect();
     assert!((ws.iter().sum::<f64>() - 1.).abs() < 0.0001);
     assert_eq!(ws.len(), cluster_num);
-    // Cluster -> Contig -> Unit 
+    // Cluster -> Contig -> Unit
     let mut models: Vec<Vec<_>> = (0..cluster_num)
         .map(|cl| construct_with_weights(data, &gammas, k, contigs, cl))
         .collect();
@@ -241,19 +266,7 @@ pub fn clustering(
         }
         beta *= step;
     }
-    // Maybe we should use randomized choose.
-    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(4 * data.len() as u64);
-    let choices: Vec<usize> = (0..cluster_num).collect();
     gammas
-        .iter()
-        .skip(border)
-        .map(|gamma| {
-            assert_eq!(gamma.len(), choices.len());
-            *choices
-                .choose_weighted(&mut rng, |&idx| gamma[idx])
-                .unwrap() as u8
-        })
-        .collect()
 }
 
 fn compute_log_probs(models: &[Vec<Vec<DBGHMM>>], ws: &[f64], read: &ERead) -> Vec<f64> {
@@ -273,7 +286,7 @@ fn compute_log_probs(models: &[Vec<Vec<DBGHMM>>], ws: &[f64], read: &ERead) -> V
 /// Construct DBGHMMs for the `cl`-th cluster.
 pub fn construct_with_weights(
     ds: &[ERead],
-    gammas: &Vec<Vec<f64>>,
+    gammas: &[Vec<f64>],
     k: usize,
     len: &[usize],
     cl: usize,
@@ -334,4 +347,38 @@ fn likelihood_of_models(models: &[Vec<Vec<DBGHMM>>], data: &[ERead], ws: &[f64])
             utils::logsumexp(&log_ms)
         })
         .sum::<f64>()
+}
+/// Return the pair of clusters giving the highest gain with
+/// respect to likelihood.
+/// (cluster number, cluster number, likelihood gain when merging two clusters)
+/// The input sequence should be a "weighted" predictions.
+pub fn get_mergable_cluster(
+    data: &[ERead],
+    gammas: &[Vec<f64>],
+    k: usize,
+    cluster_num: usize,
+    contigs: &[usize],
+) -> (f64, u8, u8) {
+    let datasize = data.len() as f64;
+    let ws: Vec<f64> = gammas
+        .iter()
+        .map(|g| g.iter().sum::<f64>() / datasize)
+        .collect();
+    assert!((ws.iter().sum::<f64>() - 1.).abs() < 0.0001);
+    let models: Vec<Vec<_>> = (0..cluster_num)
+        .map(|cl| construct_with_weights(data, gammas, k, contigs, cl))
+        .collect();
+    let before = likelihood_of_models(&models, data, &ws);
+    let (mut max, mut cluster_a, mut cluster_b) = (std::f64::MIN, 0, 0);
+    for i in 0..cluster_num {
+        for j in i + 1..cluster_num {
+            let lk = 0.;
+            if max < lk {
+                cluster_a = i;
+                cluster_b = j;
+                max = lk;
+            }
+        }
+    }
+    (max - before, cluster_a as u8, cluster_b as u8)
 }
