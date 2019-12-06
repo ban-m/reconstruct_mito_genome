@@ -8,17 +8,17 @@ use std::io::BufWriter;
 const REP1: (usize, usize) = (4193, 199_390);
 const REP2: (usize, usize) = (56_409, 258_637);
 // 0.1%, 0.45%, 0.45%.
-const SUB: f64 = 0.001;
-const DEL: f64 = 0.0045;
-const IN: f64 = 0.0045;
+const SUB: f64 = 0.003;
+const DEL: f64 = 0.003;
+const IN: f64 = 0.003;
 
 fn main() -> std::io::Result<()> {
     let args: Vec<_> = std::env::args().collect();
     let input = &fasta::parse_into_vec(&args[1])?[0];
-    std::fs::create_dir_all("./data/")?;
+    std::fs::create_dir_all("./data/flip_repeats")?;
     let seq: Vec<_> = input.seq().iter().map(|e| e.to_ascii_uppercase()).collect();
     {
-        let wtr = File::create("./data/forward_repeat.fasta")?;
+        let wtr = File::create("./data/flip_repeats/forward_repeat.fasta")?;
         let mut wtr = fasta::Writer::new(BufWriter::new(wtr));
         let header = "depth=1.0 circular=true".to_string();
         wtr.write_record(&fasta::Record::with_data("original", &Some(header), &seq))?;
@@ -39,7 +39,7 @@ fn main() -> std::io::Result<()> {
         ))?;
     }
     {
-        let wtr = File::create("./data/reverse_repeat.fasta")?;
+        let wtr = File::create("./data/flip_repeats/reverse_repeat.fasta")?;
         let mut wtr = fasta::Writer::new(BufWriter::new(wtr));
         let header = "depth=1.0 circular=true".to_string();
         wtr.write_record(&fasta::Record::with_data("original", &Some(header), &seq))?;

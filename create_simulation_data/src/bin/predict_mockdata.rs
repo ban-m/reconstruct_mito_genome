@@ -6,10 +6,12 @@ extern crate rayon;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
+extern crate last_decompose;
 extern crate rand;
 extern crate rand_xoshiro;
 use bio_utils::fasta::Record;
 use create_simulation_data::*;
+use last_decompose::clustering;
 use last_tiling::Contigs;
 use last_tiling::LastTAB;
 use rand::{Rng, SeedableRng};
@@ -19,11 +21,9 @@ use std::collections::HashMap;
 use std::io::{BufWriter, Write};
 const K: usize = 6;
 // const MAX_CHAIN: usize = 10;
-use dbg_hmm::*;
+// use dbg_hmm::*;
 fn main() -> std::io::Result<()> {
-    env_logger::from_env(env_logger::Env::default().default_filter_or("predict_mockdata=debug"))
-        .init();
-    info!("PRED\tReadID\tG0\tG1");
+    env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let args: Vec<_> = std::env::args().collect();
     let reads: Vec<_> = bio_utils::fasta::parse_into_vec(&args[1])?
         .into_iter()
@@ -62,10 +62,14 @@ fn main() -> std::io::Result<()> {
         })
         .collect();
     debug!("Answer and Distance hashmaps are built");
-    // let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1893749823);
-    // let (training, testset): (Vec<_>, Vec<_>) = reads.into_iter().partition(|_| rng.gen_bool(0.2));
-    let (training, testset): (Vec<_>, Vec<_>) =
-        reads.into_iter().partition(|r| dist[r.id()] < len / 2);
+    let (training, testset): (Vec<_>, Vec<_>) = if args[4] == "random" {
+        debug!("Random mode");
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1893749823);
+        reads.into_iter().partition(|_| rng.gen_bool(0.2))
+    } else {
+        debug!("Half mode");
+        reads.into_iter().partition(|r| dist[r.id()] < len / 2)
+    };
     debug!(
         "{} training reads and {} test reads dataset.",
         training.len(),
@@ -75,19 +79,12 @@ fn main() -> std::io::Result<()> {
     debug!("Dump results");
     let stdout = std::io::stdout();
     let mut wtr = BufWriter::new(stdout.lock());
-    writeln!(
-        &mut wtr,
-        "ReadID\tAnswer\tPredict\tDistance\tLength\tLKDiff"
-    )?;
+    writeln!(&mut wtr, "ReadID\tAnswer\tPredict\tDistance")?;
     let (mut t_p, mut t_n, mut f_p, mut f_n) = (0, 0, 0, 0);
-    for (readid, predict, length, lk) in result {
+    for (readid, predict) in result {
         let answer = if answer[&readid] { 0 } else { 1 };
         let dist = dist[&readid];
-        writeln!(
-            &mut wtr,
-            "{}\t{}\t{}\t{}\t{}\t{}",
-            readid, answer, predict, dist, length, lk,
-        )?;
+        writeln!(&mut wtr, "{}\t{}\t{}\t{}", readid, answer, predict, dist,)?;
         match (predict, answer) {
             (0, 0) => t_p += 1,
             (0, 1) => f_n += 1,
@@ -102,7 +99,7 @@ fn main() -> std::io::Result<()> {
     let sens = t_p as f64 / (t_p + f_n) as f64;
     let spec = t_p as f64 / (t_p + f_p) as f64;
     info!("SUMMARY\tResult:{}\t{}\t{:.3}", sum, ok, acc);
-    info!("SUMMARY\tResult:{:.3}\t{:.3}", sens, spec);
+    info!("SUMMARY\tResult\tSens:Spec={:.3}:{:.3}", sens, spec);
     Ok(())
 }
 
@@ -112,38 +109,55 @@ fn predict(
     alignments: Vec<LastTAB>,
     contig: &Contigs,
     ans: &HashMap<String, bool>,
-) -> Option<Vec<(String, u8, usize, f64)>> {
+) -> Option<Vec<(String, u8)>> {
     let (_is_original, data, border) = setup(training, tests, alignments, contig);
-    let len = contig.get_last_unit(0)? as usize + 1;
     let answer: Vec<_> = data.iter().map(|e| ans[e.id()]).collect::<Vec<_>>();
-    let lk = compute_likelihood(&data, &answer, len)
-        .into_iter()
-        .skip(border)
-        .sum::<f64>();
-    info!("SUMMARY\tObjLK\tlog lk\t{:.2}", lk);
-    let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64((len * 20) as u64);
-    let pred: Vec<_> = answer[..border]
+    // let lk = compute_likelihood(&data, &answer, len)
+    //     .into_iter()
+    //     .skip(border)
+    //     .sum::<f64>();
+    // info!("SUMMARY\tObjLK\tlog lk\t{:.2}", lk);
+    // let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64((len * 20) as u64);
+    // let pred: Vec<_> = answer[..border]
+    //     .iter()
+    //     .copied()
+    //     .chain((0..(data.len() - border)).map(|_| rng.gen_bool(0.5)))
+    //     .collect();
+    let label: Vec<u8> = answer[..border]
         .iter()
-        .copied()
-        .chain((0..(data.len() - border)).map(|_| rng.gen_bool(0.5)))
+        .map(|&e| if e { 0 } else { 1 })
         .collect();
-    let em_pred = em_prediction(&pred, &data, border, len);
-    let lk = compute_likelihood(&data, &em_pred, len)
-        .into_iter()
-        .skip(border)
-        .sum::<f64>();
-    debug!("Final LK:{:.3}", lk);
-    let result: Vec<_> = data
+    let forbid: Vec<_> = data.iter().map(|_| vec![]).collect();
+    let contigs: Vec<_> = (0..contig.get_num_of_contigs())
+        .map(|e| contig.get_last_unit(e as u16).unwrap() as usize + 1)
+        .collect();
+    debug!("{:?}", contigs);
+    let result = clustering(&data, &label, &forbid, K, 2, &contigs);
+    let result: Vec<_> = data[border..]
         .iter()
-        .zip(em_pred.iter())
-        .skip(border)
-        .map(|(read, predict)| {
+        .zip(result)
+        .map(|(read, cluster)| {
             let id = read.id().to_string();
-            let pred = if *predict { 0u8 } else { 1u8 };
-            let len = read.seq().iter().map(|e| e.bases().len()).sum::<usize>();
-            (id, pred, len, lk)
+            (id, cluster)
         })
         .collect();
+    // let em_pred = em_prediction(&pred, &data, border, len);
+    // let lk = compute_likelihood(&data, &em_pred, len)
+    //     .into_iter()
+    //     .skip(border)
+    //     .sum::<f64>();
+    // debug!("Final LK:{:.3}", lk);
+    // let result: Vec<_> = data
+    //     .iter()
+    //     .zip(em_pred.iter())
+    //     .skip(border)
+    //     .map(|(read, predict)| {
+    //         let id = read.id().to_string();
+    //         let pred = if *predict { 0u8 } else { 1u8 };
+    //         let len = read.seq().iter().map(|e| e.bases().len()).sum::<usize>();
+    //         (id, pred, len, lk)
+    //     })
+    //     .collect();
     Some(result)
 }
 
@@ -152,7 +166,7 @@ fn setup(
     tests: Vec<Record>,
     alns: Vec<LastTAB>,
     contig: &Contigs,
-) -> (Vec<bool>, Vec<ERead>, usize) {
+) -> (Vec<bool>, Vec<last_decompose::ERead>, usize) {
     let is_original: Vec<_> = training
         .iter()
         .map(|read| {
@@ -177,7 +191,11 @@ fn setup(
     });
     let training_size = training.len();
     training.append(&mut tests);
-    let data: Vec<_> = training.into_iter().map(ERead::new).collect();
+    //let data: Vec<_> = training.into_iter().map(ERead::new).collect();
+    let data: Vec<_> = training
+        .into_iter()
+        .map(last_decompose::ERead::new)
+        .collect();
     (is_original, data, training_size)
 }
 
@@ -230,140 +248,138 @@ fn compute_likelihood_diff(data: &[ERead], is_original: &[bool], len: usize) -> 
         .collect()
 }
 
-#[allow(dead_code)]
-fn rough_pred(init: &[bool], data: &[ERead], border: usize, len: usize) -> Vec<bool> {
-    let mut chunks = construct_predictors_simple(&data[..border], &init[..border], len);
-    // for (idx, &(ref o, ref m)) in chunks.iter().enumerate().step_by(4) {
-    //     debug!("{}\t{}\t{}", idx, o.len(), m.len());
-    // }
-    let pred = data.iter().skip(border).map(|read| {
-        let predict = make_prediction_simple(&chunks, &read);
-        if predict {
-            for c in read.seq() {
-                chunks[c.unit as usize].0.push(c.bases());
-            }
-        } else {
-            for c in read.seq() {
-                chunks[c.unit as usize].1.push(c.bases());
-            }
-        }
-        predict
-    });
-    init[..border].iter().copied().chain(pred).collect()
-}
+// fn rough_pred(init: &[bool], data: &[ERead], border: usize, len: usize) -> Vec<bool> {
+//     let mut chunks = construct_predictors_simple(&data[..border], &init[..border], len);
+//     // for (idx, &(ref o, ref m)) in chunks.iter().enumerate().step_by(4) {
+//     //     debug!("{}\t{}\t{}", idx, o.len(), m.len());
+//     // }
+//     let pred = data.iter().skip(border).map(|read| {
+//         let predict = make_prediction_simple(&chunks, &read);
+//         if predict {
+//             for c in read.seq() {
+//                 chunks[c.unit as usize].0.push(c.bases());
+//             }
+//         } else {
+//             for c in read.seq() {
+//                 chunks[c.unit as usize].1.push(c.bases());
+//             }
+//         }
+//         predict
+//     });
+//     init[..border].iter().copied().chain(pred).collect()
+// }
 
-fn em_prediction(init: &[bool], data: &[ERead], border: usize, len: usize) -> Vec<bool> {
-    let (mut gamma0, mut gamma1) = init_gammas(init, border, data.len());
-    let mut w0: f64 = gamma0.iter().sum::<f64>() / init.len() as f64;
-    let mut w1: f64 = gamma1.iter().sum::<f64>() / init.len() as f64;
-    let mut model0: Vec<_> = construct_predictors(data, &gamma0, len, K);
-    let mut model1: Vec<_> = construct_predictors(data, &gamma1, len, K);
-    let mut beta = 0.02;
-    let step = 1.2;
-    while beta < 1. {
-        debug!("Beta:{:.4}", beta);
-        let mut lks: Vec<f64> = vec![];
-        for i in 0..=30 {
-            let next_lk = data
-                .par_iter()
-                .zip(gamma0.par_iter_mut())
-                .zip(gamma1.par_iter_mut())
-                .skip(border)
-                .map(|((read, g0), g1)| {
-                    let mut log_m0 = read
-                        .seq()
-                        .iter()
-                        .map(|s| model0[s.unit as usize].forward(s.bases(), &DEFAULT_CONFIG))
-                        .sum::<f64>()
-                        + w0.ln();
-                    let mut log_m1 = read
-                        .seq()
-                        .iter()
-                        .map(|s| model1[s.unit as usize].forward(s.bases(), &DEFAULT_CONFIG))
-                        .sum::<f64>()
-                        + w1.ln();
-                    let lk = logsumexp(log_m0, log_m1);
-                    log_m0 *= beta;
-                    log_m1 *= beta;
-                    let w = logsumexp(log_m0, log_m1);
-                    *g0 = (log_m0 - w).exp();
-                    *g1 = (log_m1 - w).exp();
-                    lk
-                })
-                .sum::<f64>();
-            w0 = gamma0.iter().sum::<f64>() / data.len() as f64;
-            w1 = gamma1.iter().sum::<f64>() / data.len() as f64;
-            let (m0, sd0) = mean_sd(&gamma0);
-            let (m1, sd1) = mean_sd(&gamma0);
-            debug!(
-                "MeanG0:SDG0:MeanG1:SDG1\t{:.2}\t{:.2}\t{:.2}\t{:.2}",
-                m0, sd0, m1, sd1
-            );
-            info!("LK\t{:.4}\t{}", next_lk, i);
-            debug!("w0:w1\t{:.3}\t{:.3}", w0, w1);
-            model0 = construct_predictors(&data, &gamma0, len, K);
-            model1 = construct_predictors(&data, &gamma1, len, K);
-            debug!("ConstNextModels:{},{}", model0.len(), model1.len());
-            let min: f64 = lks
-                .iter()
-                .map(|&e| (e - next_lk).abs())
-                .fold(1., |x, y| x.min(y));
-            if min < 0.001 {
-                break;
-            } else {
-                lks.push(next_lk);
-            }
-        }
-        beta *= step;
-    }
-    gamma0.iter().map(|&w| w > 0.5).collect()
-}
+// fn em_prediction(init: &[bool], data: &[ERead], border: usize, len: usize) -> Vec<bool> {
+//     let (mut gamma0, mut gamma1) = init_gammas(init, border, data.len());
+//     let mut w0: f64 = gamma0.iter().sum::<f64>() / init.len() as f64;
+//     let mut w1: f64 = gamma1.iter().sum::<f64>() / init.len() as f64;
+//     let mut model0: Vec<_> = construct_predictors(data, &gamma0, len, K);
+//     let mut model1: Vec<_> = construct_predictors(data, &gamma1, len, K);
+//     let mut beta = 0.02;
+//     let step = 1.2;
+//     while beta < 1. {
+//         debug!("Beta:{:.4}", beta);
+//         let mut lks: Vec<f64> = vec![];
+//         for i in 0..=30 {
+//             let next_lk = data
+//                 .par_iter()
+//                 .zip(gamma0.par_iter_mut())
+//                 .zip(gamma1.par_iter_mut())
+//                 .skip(border)
+//                 .map(|((read, g0), g1)| {
+//                     let mut log_m0 = read
+//                         .seq()
+//                         .iter()
+//                         .map(|s| model0[s.unit as usize].forward(s.bases(), &DEFAULT_CONFIG))
+//                         .sum::<f64>()
+//                         + w0.ln();
+//                     let mut log_m1 = read
+//                         .seq()
+//                         .iter()
+//                         .map(|s| model1[s.unit as usize].forward(s.bases(), &DEFAULT_CONFIG))
+//                         .sum::<f64>()
+//                         + w1.ln();
+//                     let lk = logsumexp(log_m0, log_m1);
+//                     log_m0 *= beta;
+//                     log_m1 *= beta;
+//                     let w = logsumexp(log_m0, log_m1);
+//                     *g0 = (log_m0 - w).exp();
+//                     *g1 = (log_m1 - w).exp();
+//                     lk
+//                 })
+//                 .sum::<f64>();
+//             w0 = gamma0.iter().sum::<f64>() / data.len() as f64;
+//             w1 = gamma1.iter().sum::<f64>() / data.len() as f64;
+//             let (m0, sd0) = mean_sd(&gamma0);
+//             let (m1, sd1) = mean_sd(&gamma0);
+//             debug!(
+//                 "MeanG0:SDG0:MeanG1:SDG1\t{:.2}\t{:.2}\t{:.2}\t{:.2}",
+//                 m0, sd0, m1, sd1
+//             );
+//             info!("LK\t{:.4}\t{}", next_lk, i);
+//             debug!("w0:w1\t{:.3}\t{:.3}", w0, w1);
+//             model0 = construct_predictors(&data, &gamma0, len, K);
+//             model1 = construct_predictors(&data, &gamma1, len, K);
+//             debug!("ConstNextModels:{},{}", model0.len(), model1.len());
+//             let min: f64 = lks
+//                 .iter()
+//                 .map(|&e| (e - next_lk).abs())
+//                 .fold(1., |x, y| x.min(y));
+//             if min < 0.001 {
+//                 break;
+//             } else {
+//                 lks.push(next_lk);
+//             }
+//         }
+//         beta *= step;
+//     }
+//     gamma0.iter().map(|&w| w > 0.5).collect()
+// }
 
-fn mean_sd(xs: &[f64]) -> (f64, f64) {
-    let sum = xs.iter().sum::<f64>();
-    let sumsq = xs.iter().map(|e| e * e).sum::<f64>();
-    let len = xs.len() as f64;
-    let ave = sum / len;
-    let var = sumsq / len - ave * ave;
-    (ave, var.sqrt())
-}
+// fn mean_sd(xs: &[f64]) -> (f64, f64) {
+//     let sum = xs.iter().sum::<f64>();
+//     let sumsq = xs.iter().map(|e| e * e).sum::<f64>();
+//     let len = xs.len() as f64;
+//     let ave = sum / len;
+//     let var = sumsq / len - ave * ave;
+//     (ave, var.sqrt())
+// }
 
-#[allow(dead_code)]
-fn make_prediction_simple(chunks: &[(Vec<&[u8]>, Vec<&[u8]>)], read: &ERead) -> bool {
-    let predicts: Vec<_> = read
-        .seq()
-        .par_iter()
-        .filter_map(|e| {
-            let u = e.unit as usize;
-            let (ref original, ref mutant) = &chunks[u];
-            if original.is_empty() || mutant.is_empty() {
-                None
-            } else {
-                // use edlib_sys::global_dist;
-                let q = e.bases();
-                let min = original.len().min(mutant.len());
-                let o = unit_predict(&q, &original[..min], K);
-                let m = unit_predict(&q, &mutant[..min], K);
-                // let o = original.iter().map(|e| global_dist(e, q)).min()?;
-                // let m = mutant.iter().map(|e| global_dist(e, q)).min()?;
-                Some((o, m))
-            }
-        })
-        .collect();
-    if predicts.is_empty() {
-        true
-    } else {
-        let (d1, d2) = predicts
-            .iter()
-            .fold((0., 0.), |(x, y), (a, b)| (x + a, y + b));
-        d1 > d2
-    }
-    // let p1_minus_p2 = predicts.iter().map(|(l1, l2)| l1 - l2).sum::<f64>();
-    // if predicts.is_empty() {
-    //     return (true, 0.);
-    // }
-    // (p1_minus_p2.is_sign_positive(), p1_minus_p2)
-}
+// fn make_prediction_simple(chunks: &[(Vec<&[u8]>, Vec<&[u8]>)], read: &ERead) -> bool {
+//     let predicts: Vec<_> = read
+//         .seq()
+//         .par_iter()
+//         .filter_map(|e| {
+//             let u = e.unit as usize;
+//             let (ref original, ref mutant) = &chunks[u];
+//             if original.is_empty() || mutant.is_empty() {
+//                 None
+//             } else {
+//                 // use edlib_sys::global_dist;
+//                 let q = e.bases();
+//                 let min = original.len().min(mutant.len());
+//                 let o = unit_predict(&q, &original[..min], K);
+//                 let m = unit_predict(&q, &mutant[..min], K);
+//                 // let o = original.iter().map(|e| global_dist(e, q)).min()?;
+//                 // let m = mutant.iter().map(|e| global_dist(e, q)).min()?;
+//                 Some((o, m))
+//             }
+//         })
+//         .collect();
+//     if predicts.is_empty() {
+//         true
+//     } else {
+//         let (d1, d2) = predicts
+//             .iter()
+//             .fold((0., 0.), |(x, y), (a, b)| (x + a, y + b));
+//         d1 > d2
+//     }
+// let p1_minus_p2 = predicts.iter().map(|(l1, l2)| l1 - l2).sum::<f64>();
+// if predicts.is_empty() {
+//     return (true, 0.);
+// }
+// (p1_minus_p2.is_sign_positive(), p1_minus_p2)
+//}
 
 fn construct_predictors_simple<'a>(
     data: &'a [ERead],
@@ -385,36 +401,36 @@ fn construct_predictors_simple<'a>(
     chunks
 }
 
-fn construct_predictors(data: &[ERead], weights: &[f64], len: usize, k: usize) -> Vec<DBGHMM> {
-    let mut buf: Vec<Vec<&[u8]>> = vec![vec![]; len];
-    let mut ws: Vec<Vec<f64>> = vec![vec![]; len];
-    for (read, &w) in data
-        .iter()
-        .zip(weights.iter())
-        .filter(|(_, &w)| w > 0.00001)
-    {
-        for c in read.seq().iter() {
-            buf[c.unit as usize].push(c.bases());
-            ws[c.unit as usize].push(w);
-        }
-    }
-    let mut f = dbg_hmm::Factory::new();
-    buf.into_iter()
-        .zip(ws.into_iter())
-        .map(|(cs, ws)| f.generate_with_weight(&cs, &ws, k))
-        .collect()
-}
+// fn construct_predictors(data: &[ERead], weights: &[f64], len: usize, k: usize) -> Vec<DBGHMM> {
+//     let mut buf: Vec<Vec<&[u8]>> = vec![vec![]; len];
+//     let mut ws: Vec<Vec<f64>> = vec![vec![]; len];
+//     for (read, &w) in data
+//         .iter()
+//         .zip(weights.iter())
+//         .filter(|(_, &w)| w > 0.00001)
+//     {
+//         for c in read.seq().iter() {
+//             buf[c.unit as usize].push(c.bases());
+//             ws[c.unit as usize].push(w);
+//         }
+//     }
+//     debug!("Constructing models...");
+//     let mut f = dbg_hmm::Factory::new();
+//     buf.into_iter()
+//         .zip(ws.into_iter())
+//         .map(|(cs, ws)| f.generate_with_weight(&cs, &ws, k))
+//         .collect()
+// }
 
-#[allow(dead_code)]
-fn compute_lk_from(data: &[ERead], m0: &[DBGHMM], m1: &[DBGHMM], w0: f64, w1: f64) -> f64 {
-    data.par_iter()
-        .map(|read| {
-            let (m0, m1) = read.seq().iter().fold((0., 0.), |(mut l0, mut l1), c| {
-                l0 += m0[c.unit as usize].forward(c.bases(), &DEFAULT_CONFIG);
-                l1 += m1[c.unit as usize].forward(c.bases(), &DEFAULT_CONFIG);
-                (l0, l1)
-            });
-            calc_logsum(m0, m1, w0, w1)
-        })
-        .sum::<f64>()
-}
+// fn compute_lk_from(data: &[ERead], m0: &[DBGHMM], m1: &[DBGHMM], w0: f64, w1: f64) -> f64 {
+//     data.par_iter()
+//         .map(|read| {
+//             let (m0, m1) = read.seq().iter().fold((0., 0.), |(mut l0, mut l1), c| {
+//                 l0 += m0[c.unit as usize].forward(c.bases(), &DEFAULT_CONFIG);
+//                 l1 += m1[c.unit as usize].forward(c.bases(), &DEFAULT_CONFIG);
+//                 (l0, l1)
+//             });
+//             calc_logsum(m0, m1, w0, w1)
+//         })
+//         .sum::<f64>()
+// }

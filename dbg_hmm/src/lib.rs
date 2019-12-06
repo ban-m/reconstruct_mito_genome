@@ -102,6 +102,12 @@ impl Factory {
         self.is_safe.clear();
         self.edges.clear();
     }
+    fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+            && self.is_safe.is_empty()
+            && self.temp_index.is_empty()
+            && self.edges.is_empty()
+    }
     pub fn generate(&mut self, dataset: &[Vec<u8>], k: usize) -> DBGHMM {
         // let counter = &mut self.inner;
         dataset.iter().for_each(|seq| {
@@ -172,6 +178,7 @@ impl Factory {
         DBGHMM { nodes, k, weight }
     }
     pub fn generate_with_weight(&mut self, dataset: &[&[u8]], ws: &[f64], k: usize) -> DBGHMM {
+        assert!(self.is_empty());
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(dataset.len() as u64);
         assert_eq!(dataset.len(), ws.len());
         let ep = 0.0001;
@@ -212,6 +219,7 @@ impl Factory {
             let nodes = vec![];
             return DBGHMM { nodes, k, weight };
         }
+
         let nodes = match self.clean_up_nodes_exp(nodes, thr, &mut rng) {
             Some(res) => res,
             None => panic!(
@@ -832,7 +840,6 @@ impl DeBruijnGraphHiddenMarkovModel {
             return LOW_LIKELIHOOD;
         }
         let (mut cs, mut ds, mut prev) = self.initialize(&obs[..self.k], config);
-        // let (mut cs, mut ds) = (-(c.ln()), -(d.ln()));
         let mut updated = vec![Node::new(0., 0., 0.); self.nodes.len()];
         for &base in &obs[self.k..] {
             updated.iter_mut().for_each(Node::clear);
@@ -841,6 +848,7 @@ impl DeBruijnGraphHiddenMarkovModel {
             ds -= d.ln();
             std::mem::swap(&mut prev, &mut updated);
         }
+        assert!(cs + ds < 0.);
         cs + ds
     }
     #[cfg(target_feature = "sse")]
@@ -854,11 +862,13 @@ impl DeBruijnGraphHiddenMarkovModel {
         let mut prev: Vec<f64> = prev.iter().flat_map(|e| vec![e.mat, 0., 0., 0.]).collect();
         let mut updated = vec![0.; self.node_num() * 4];
         for &base in &obs[self.k..] {
+            updated.iter_mut().for_each(|e| *e = 0.);
             let (c, d) = self.update(&mut updated, &prev, base, config);
             cs -= c.ln();
             ds -= d.ln();
             std::mem::swap(&mut prev, &mut updated);
         }
+        assert!(cs + ds < 0.);
         cs + ds
     }
     pub fn node_num(&self) -> usize {
@@ -1427,6 +1437,7 @@ mod tests {
         let likelihood2 = model2.forward(&template, &DEFAULT_CONFIG);
         assert!(likelihood1 > likelihood2, "{},{}", likelihood1, likelihood2);
     }
+    #[cfg(not(target_feature = "sse"))]
     #[test]
     fn random_check_weight() {
         let bases = b"ACTG";

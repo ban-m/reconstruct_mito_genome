@@ -96,7 +96,7 @@ pub fn encoding(
     // Distribute alignments to each reads.
     // bucket[i] is the alignment for fasta[i].
     let buckets = distribute(fasta, alns);
-    debug!("There are {} buckets.", buckets.len());
+    // debug!("There are {} buckets.", buckets.len());
     let buckets: Vec<_> = buckets.into_iter().zip(fasta.iter()).collect();
     buckets
         .into_iter()
@@ -116,10 +116,10 @@ fn into_encoding(
     seq: &fasta::Record,
     defs: &Contigs,
 ) -> EncodedRead {
-    debug!("Encoding {} alignments", bucket.len());
-    debug!("Read:{},{}len", seq.id(), seq.seq().len());
+    // debug!("Encoding {} alignments", bucket.len());
+    // debug!("Read:{},{}len", seq.id(), seq.seq().len());
     let bucket = filter_contained_alignment(bucket, defs);
-    debug!("Filter contained. Remain {} alignments", bucket.len());
+    // debug!("Filter contained. Remain {} alignments", bucket.len());
     // for aln in &bucket {
     //     debug!(
     //         "{}-{}({}:{}-{})",
@@ -148,7 +148,7 @@ fn into_encoding(
     let last = target;
     let (encodes, start, end) = aln_to_encode(last, last.seq2_end_from_forward(), defs, bases);
     let c = defs.get_id(&last.seq1_name()).unwrap();
-    debug!("Start from {} in read", start);
+    // debug!("Start from {} in read", start);
     let (start, encodes) = pop_encodes_until(start, start_pos, encodes);
     if start_pos < start {
         let cs = (c.min(prev_contig_id), c.max(prev_contig_id));
@@ -156,7 +156,7 @@ fn into_encoding(
         read.push(gapunit);
     }
     read.extend(encodes);
-    debug!("SP:{}->{}", start_pos, end.max(start_pos));
+    // debug!("SP:{}->{}", start_pos, end.max(start_pos));
     start_pos = end.max(start_pos);
     if start_pos < bases.len() {
         let gapunit = ChunkedUnit::Gap(GapUnit::new(&bases[start_pos..], Some((c, c))));
@@ -188,7 +188,7 @@ fn encoding_single_alignment(
     };
     // If there are overlapping, there would be some "doubly encoded" regions.
     let (start, mut encodes) = pop_encodes_until(start, start_pos, encodes);
-    debug!("Start from {} in read", start);
+    // debug!("Start from {} in read", start);
     let mut units = vec![];
     if start_pos < start {
         let cs = defs
@@ -198,7 +198,7 @@ fn encoding_single_alignment(
         units.push(gapunit);
     }
     units.append(&mut encodes);
-    debug!("SP:{}->{}", start_pos, end.max(start_pos));
+    // debug!("SP:{}->{}", start_pos, end.max(start_pos));
     (end.max(start_pos), units)
 }
 

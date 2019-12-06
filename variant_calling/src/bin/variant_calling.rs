@@ -15,7 +15,7 @@ fn main() -> std::io::Result<()> {
         .filter_map(|e| e.ok())
         .collect();
     let mismatch_prob: f64 = args[2].parse().unwrap();
-    let alns: Vec<_> = maf.into_iter().map(Aln::new).collect();
+    let alns: Vec<_> = maf.into_iter().filter_map(Aln::new).collect();
     let mut pileups: Vec<_> = (0..1_000_000).map(PileUp::new).collect();
     debug!("Converted {} alignments into minimal mode", alns.len());
     debug!("Register each alignment into pileups");
@@ -58,7 +58,7 @@ fn main() -> std::io::Result<()> {
         let mut temp = vec![];
         (start..end).into_iter().for_each(|i1| {
             let &(ref v1, base1) = &variants[i1];
-            variants[i1+1..end].iter().for_each(|&(ref v2,base2)|{
+            variants[i1 + 1..end].iter().for_each(|&(ref v2, base2)| {
                 if aln.does_share(v1, v2) {
                     let is_minor1 = aln.is_minor(v1, base1);
                     let is_minor2 = aln.is_minor(v2, base2);
@@ -189,7 +189,10 @@ struct Aln {
 
 const BASES: [u8; 5] = *b"ACGT-";
 impl Aln {
-    fn new(aln: bio_utils::maf::Record) -> Self {
+    fn new(aln: bio_utils::maf::Record) -> Option<Self> {
+        if aln.score()? < 1_000. {
+            return None;
+        };
         let start = aln.sequence()[0].start() as usize;
         let non_gap = b"ACGT";
         let seq = aln.sequence()[0]
@@ -205,7 +208,7 @@ impl Aln {
             })
             .map(|e| e.to_ascii_uppercase())
             .collect();
-        Self { seq, start }
+        Some(Self { seq, start })
     }
     fn does_share(&self, v1: &PileUp, v2: &PileUp) -> bool {
         // Include check.

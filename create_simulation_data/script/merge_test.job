@@ -1,0 +1,18 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N MargeTest
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/merge_test.log
+#$ -o ./logfiles/merge_test.out
+#$ -V
+#$ -m e
+set -ue
+COVERAGE=30
+CLUSTERS=6
+for seed in `seq 10 10 200`
+do
+    cargo run --release --bin merge_criteria --\
+          ${COVERAGE} ${CLUSTERS} ${seed} >> ./result/merge_test.txt
+done
+

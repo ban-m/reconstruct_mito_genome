@@ -18,17 +18,18 @@ fn main() {
         .build_global()
         .unwrap();
     let args: Vec<_> = std::env::args().collect();
-    let (test_num, coverage, probs, clusters) = if args.len() > 3 {
+    let (test_num, coverage, probs, clusters, seed) = if args.len() > 3 {
         let tn = args[1].parse::<usize>().unwrap();
         let cov = args[2].parse::<usize>().unwrap();
-        let prob: Vec<_> = args[3..]
+        let seed = args[3].parse::<u64>().unwrap();
+        let prob: Vec<_> = args[4..]
             .iter()
             .filter_map(|e| e.parse::<f64>().ok())
             .collect();
         let clusters = prob.len();
-        (tn, cov, prob, clusters)
+        (tn, cov, prob, clusters, seed)
     } else {
-        (200, 0, vec![2f64.recip(); 2], 2)
+        (200, 0, vec![2f64.recip(); 2], 2, 11920981)
     };
     let chain_len = 20;
     let k = 6;
@@ -39,28 +40,27 @@ fn main() {
         del: 0.002,
     };
     use std::time::Instant;
-    let seed = 11920981;
     let s = Instant::now();
     let (hmm, dists) = benchmark(
         seed, p, coverage, test_num, chain_len, k, len, &probs, clusters,
     );
     eprintln!("{:?}", Instant::now() - s);
-    info!("Cov:{}", coverage);
+    println!("TestNum:{}\tLabeled:{}", test_num, coverage);
     for (idx, preds) in hmm.into_iter().enumerate() {
         let tp = preds[idx];
         let tot = preds.iter().sum::<u32>();
-        eprint!("Predicted as {}:", idx);
+        print!("Predicted as {}:", idx);
         for ans in preds {
-            eprint!("{}\t", ans);
+            print!("{}\t", ans);
         }
-        eprintln!("Total:{:.4}", tp as f64 / tot as f64);
+        println!("Total:{:.4}", tp as f64 / tot as f64);
     }
     for (idx, ds) in dists.into_iter().enumerate() {
-        eprint!("Distance from {}:", idx);
+        print!("Distance from {}:", idx);
         for d in ds {
-            eprint!("{}\t", d);
+            print!("{}\t", d);
         }
-        eprintln!();
+        println!();
     }
 }
 

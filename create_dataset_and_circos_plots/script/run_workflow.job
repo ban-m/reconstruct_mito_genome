@@ -1,0 +1,100 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N workflow
+#$ -cwd
+#$ -pe smp 24
+#$ -o ./logfiles/workflow.out
+#$ -e ./logfiles/workflow.log
+#$ -V
+#$ -m e
+
+## ---- Variables ----
+##
+set -ue
+CORES=24
+READ=$1
+OUTPATH=$2
+REFERENCE=$3
+CONTIGS=${OUTPATH}/contigs.fasta
+
+
+## ---- Setup ----
+rm -rf ${OUTPATH}
+mkdir -p ${OUTPATH}
+ROOT=${PWD}
+
+## ---- Tiling ----
+
+### Alignment
+function lastalign () {
+    ### 1st arg: reference, 2nd: query 3: database name 4: output name
+    lastdb -P ${CORES} -R00 $3 $1
+    last-train -P ${CORES} $3 $2 > $3.matrix
+    lastal -f TAB -P ${CORES} -Q0 -p $3.matrix $3 $2 > $4.tab
+}
+
+
+
+### 0. Selecting reads ###
+
+cd ../mito_assembler/
+minimap2 -t 24 -x map-pb ${REFERENCE} ${READ} |\
+    cargo run --release --bin select_mito_reads -- ${READ} |\
+    cargo run --release --bin filter_low_quality |\
+    cargo run --release --bin clip_self_chimera > \
+          ${OUTPATH}/filtered_read.fasta
+READ=${OUTPATH}/filtered_read.fasta
+
+
+### 1.split reference contigs into "collapsed" mode. ### 
+mkdir -p ${OUTPATH}/last_db
+cd ${OUTPATH}/last_db
+
+## Map reads into reference.
+lastalign ${REFERENCE} ${REFERENCE} reference self
+lastalign ${REFERENCE} ${READ} reference initial
+cd ${ROOT}
+cd ../mito_assembler/
+cargo run --release --bin split_repeat \
+      -- ${REFERENCE} ${OUTPATH}/last_db/self.tab \
+      > ${CONTIGS}
+
+## Next, map all reads into collpsed contigs.
+cd ${OUTPATH}/last_db
+lastalign ${CONTIGS} ${CONTIGS} no_repeat no_repeat_self
+lastalign ${CONTIGS} ${READ} no_repeat no_repeat_reads
+cd ${ROOT}
+
+
+### 2. create circos plots and vizualize.
+mkdir -p ${OUTPATH}/circos
+LASTTAB=${OUTPATH}/last_db/initial.tab
+SELF_LASTTAB=${OUTPATH}/last_db/self.tab
+cd ../last_tiling
+
+# ---- Outputs -----
+cargo run --release --bin annotate_dotplot -- ${REFERENCE} ${SELF_LASTTAB} \
+      > ${OUTPATH}/circos/repeats.json
+cargo run --release --bin encode \
+      -- ${LASTTAB} ${REFERENCE} ${READ} ${OUTPATH}/circos/repeats.json \
+      ${OUTPATH}/circos/contig.json ${OUTPATH}/circos/reads.json 
+cargo run --release --bin convert_to_d3_data \
+      -- ${OUTPATH}/circos/contig.json ${OUTPATH}/circos/reads.json \
+      > ${OUTPATH}/circos/d3.json
+cat ./scripts/template.html | sed -e "s@/data/SED_@./@g" > ${OUTPATH}/circos/viewer.html
+
+
+
+LASTTAB=${OUTPATH}/last_db/no_repeat_reads.tab
+SELF_LASTTAB=${OUTPATH}/last_db/no_repeat_self.tab
+cargo run --release --bin annotate_dotplot -- ${CONTIGS} ${SELF_LASTTAB} \
+      > ${OUTPATH}/circos/wo_rep_repeats.json
+cargo run --release --bin encode \
+      -- ${LASTTAB} ${CONTIGS} ${READ} ${OUTPATH}/circos/wo_rep_repeats.json \
+      ${OUTPATH}/circos/wo_rep_contig.json ${OUTPATH}/circos/wo_rep_reads.json 
+cargo run --release --bin convert_to_d3_data \
+      -- ${OUTPATH}/circos/wo_rep_contig.json ${OUTPATH}/circos/wo_rep_reads.json \
+      > ${OUTPATH}/circos/wo_rep_d3.json
+cat ./scripts/template.html | \
+    sed -e "s@/data/SED@./wo_rep@g" > \
+        ${OUTPATH}/circos/wo_rep_viewer.html

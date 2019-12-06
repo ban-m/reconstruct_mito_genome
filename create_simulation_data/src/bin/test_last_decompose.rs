@@ -26,7 +26,7 @@ fn main() {
     } else {
         (200, 0, 0.5)
     };
-    let chain_len = 20;
+    let chain_len = 40;
     let k = 6;
     let len = 150;
     let p = &gen_sample::Profile {

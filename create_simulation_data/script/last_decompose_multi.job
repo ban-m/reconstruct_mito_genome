@@ -1,0 +1,19 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N DecMult
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/last_decompose_multi.log
+#$ -o ./logfiles/last_decompose_multi.out
+#$ -V
+#$ -m e
+set -ue
+TEST_NUM=300
+COVERAGE=12
+PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
+for seed in 10 20 30 40 50
+do
+    ./target/release/test_last_decompose_multiple \
+        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ./result/last_decompse_multi.txt
+done
+
