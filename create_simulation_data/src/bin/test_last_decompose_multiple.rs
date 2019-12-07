@@ -121,9 +121,13 @@ fn benchmark(
         debug!("ObjLK:{}", objlk);
     }
     let forbidden = vec![vec![]; data.len()];
-    let em_pred = clustering(&data, &label, &forbidden, k, clusters, &contigs);
+    let em_pred = clustering(&data, &label, &forbidden, k, clusters, &contigs, &answer);
     let mut result = vec![vec![0; clusters]; clusters];
-    for (ans, pred) in em_pred.into_iter().zip(answer) {
+    for i in 0..clusters {
+        let tot = answer.iter().filter(|&&e| e as usize == i).count();
+        debug!("Cluster {}:{}", i, tot);
+    }
+    for (pred, ans) in em_pred.into_iter().zip(answer) {
         result[pred as usize][ans as usize] += 1;
     }
     (result, dists)

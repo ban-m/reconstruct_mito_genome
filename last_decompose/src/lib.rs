@@ -26,7 +26,10 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
-
+const A: f64 = -0.2446704;
+const B: f64 = 3.6172581;
+// const A: f64 = -0.25;
+// const B: f64 = 3.0;
 pub fn decompose(
     read: Vec<fasta::Record>,
     alignments: Vec<LastTAB>,
@@ -76,6 +79,93 @@ pub fn decompose(
     result
 }
 
+use std::collections::HashMap;
+pub fn clustering_via_alignment(
+    reads: &[usize],
+    label: &[u8],
+    forbidden: &[Vec<u8>],
+    similarity: &[HashMap<usize, i64>],
+    cluster_num: usize,
+) -> Vec<u8> {
+    use rand::Rng;
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(reads.len() as u64);
+    let mut predictions: Vec<_> = reads
+        .iter()
+        .map(|_| rng.gen_range(0, cluster_num))
+        .map(|e| e as u8)
+        .collect();
+    for (idx, &l) in label.iter().enumerate() {
+        predictions[idx] = l;
+    }
+    let allowed: Vec<_> = reads
+        .iter()
+        .map(|&read| {
+            let mut al = vec![true; cluster_num];
+            for &f in &forbidden[read] {
+                al[f as usize] = false;
+            }
+            al
+        })
+        .collect();
+    let mut clusters: Vec<Vec<usize>> = (0..cluster_num)
+        .map(|cl| {
+            predictions
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, &assign)| if assign == cl as u8 { Some(idx) } else { None })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let mut is_updated = true;
+    let border = label.len();
+    while is_updated {
+        is_updated = predictions
+            .par_iter_mut()
+            .zip(reads.par_iter())
+            .skip(border)
+            .map(|(pred, &target)| {
+                let (assign, _) = clusters
+                    .iter()
+                    .zip(allowed[target].iter())
+                    .enumerate()
+                    .filter_map(
+                        |(i, (cl, &is_allowed))| {
+                            if is_allowed {
+                                Some((i, cl))
+                            } else {
+                                None
+                            }
+                        },
+                    )
+                    .map(|(idx, cluster)| {
+                        let max_sim = cluster
+                            .iter()
+                            .map(|query| similarity[target][query])
+                            .max()
+                            .unwrap_or(-1);
+                        (idx, max_sim)
+                    })
+                    .max_by_key(|e| e.1)
+                    .unwrap_or((0, -1));
+                let assign = assign as u8;
+                let is_updated = assign != *pred;
+                *pred = assign;
+                is_updated
+            })
+            .reduce(|| false, |p, q| p | q);
+        clusters = (0..cluster_num)
+            .map(|cl| {
+                predictions
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, &assign)| if assign == cl as u8 { Some(idx) } else { None })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+    }
+    predictions
+}
+
 const NUM_OF_BALL: usize = 100;
 fn construct_initial_weights(
     label: &[u8],
@@ -119,44 +209,6 @@ fn construct_initial_weights(
     weights
 }
 
-// // Construct an initial weights.
-// // Index of read -> Weights for each cluster.
-// fn construct_initial_weights(label: &[u8], cluster_num: usize, data_size: usize) -> Vec<Vec<f64>> {
-//     let border = label.len();
-//     let uniform = Uniform::new(0, cluster_num as u8);
-//     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(data_size as u64);
-//     let init: Vec<u8> = uniform
-//         .sample_iter(&mut rng)
-//         .take(data_size - border)
-//         .collect();
-//     // For init[i] == i, the weight would be cluster_num + 1/2*cluster_num,
-//     // Otherwize, the weight would be 1/2*cluster_num;
-//     let denom = ((2 * cluster_num) as f64).recip();
-//     let weights: Vec<Vec<_>> = label
-//         .iter()
-//         .copied()
-//         .chain(init)
-//         .enumerate()
-//         .map(|(idx, i)| {
-//             if idx < border {
-//                 let mut ws = vec![0.; cluster_num];
-//                 ws[i as usize] = 1.;
-//                 ws
-//             } else {
-//                 let mut ws = vec![denom; cluster_num];
-//                 ws[i as usize] = (cluster_num as f64 + 1.) * denom;
-//                 ws
-//             }
-//         })
-//         .collect();
-//     assert_eq!(weights.len(), data_size);
-//     assert!(weights.iter().all(|e| e.len() == cluster_num));
-//     assert!(weights
-//         .iter()
-//         .all(|ws| (ws.iter().sum::<f64>() - 1.).abs() < 0.001));
-//     weights
-// }
-
 pub fn clustering(
     data: &[ERead],
     label: &[u8],
@@ -164,9 +216,10 @@ pub fn clustering(
     k: usize,
     cluster_num: usize,
     contigs: &[usize],
+    answer: &[u8],
 ) -> Vec<u8> {
     let border = label.len();
-    let gammas = soft_clustering(data, label, forbidden, k, cluster_num, contigs);
+    let gammas = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer);
     // Maybe we should use randomized choose.
     debug!("Prediction. Dump weights");
     for gamma in &gammas {
@@ -203,6 +256,7 @@ pub fn soft_clustering(
     k: usize,
     cluster_num: usize,
     contigs: &[usize],
+    answer: &[u8],
 ) -> Vec<Vec<f64>> {
     assert!(cluster_num > 1);
     let border = label.len();
@@ -221,17 +275,17 @@ pub fn soft_clustering(
         .collect();
     let mut beta = 0.02;
     let step = 1.2;
+    let mut lks: Vec<f64> = vec![];
     while beta < 1. {
-        for (contig, &units) in contigs.iter().enumerate() {
-            for unit in 0..units {
-                for cl in 0..cluster_num {
-                    debug!("{}\t{}\t{}\t{}", contig, unit, cl, models[cl][contig][unit]);
-                }
-            }
-        }
+        // for (contig, &units) in contigs.iter().enumerate() {
+        //     for unit in 0..units {
+        //         for cl in 0..cluster_num {
+        //             debug!("{}\t{}\t{}\t{}", contig, unit, cl, models[cl][contig][unit]);
+        //         }
+        //     }
+        // }
         debug!("Beta:{:.4}", beta);
-        let mut lks: Vec<f64> = vec![];
-        for i in 0..30 {
+        for i in 0..40 {
             for (idx, w) in ws.iter().enumerate() {
                 debug!("{}\t{:.4}", idx, w);
             }
@@ -246,10 +300,14 @@ pub fn soft_clustering(
                     let w = utils::logsumexp(&log_ms);
                     assert_eq!(gamma.len(), cluster_num);
                     assert_eq!(log_ms.len(), cluster_num);
+                    // gamma
+                    //     .iter_mut()
+                    //     .zip(log_ms.iter())
+                    //     .for_each(|(g, l)| *g = (l - w).exp());
                     gamma
                         .iter_mut()
                         .zip(log_ms.iter())
-                        .for_each(|(g, l)| *g = (l - w).exp());
+                        .for_each(|(g, l)| *g = (*g + (l - w).exp()) / 2.);
                     assert!((1. - gamma.iter().sum::<f64>()).abs() < 0.001);
                     lk
                 })
@@ -260,7 +318,15 @@ pub fn soft_clustering(
             models.iter_mut().enumerate().for_each(|(cluster, model)| {
                 *model = construct_with_weights(data, &gammas, k, contigs, cluster)
             });
+            assert_eq!(gammas.len(), answer.len() + label.len());
+            let correct = gammas
+                .iter()
+                .skip(border)
+                .zip(answer.iter())
+                .filter(|&(gamma, &ans)| gamma.iter().all(|&g| g <= gamma[ans as usize]))
+                .count();
             info!("LK\t{:.4}\t{}", next_lk, i);
+            info!("Correct\t{}\t{}", correct, answer.len());
             let min: f64 = lks
                 .iter()
                 .map(|&e| (e - next_lk).abs())
@@ -284,11 +350,19 @@ fn compute_log_probs(models: &[Vec<Vec<DBGHMM>>], ws: &[f64], read: &ERead) -> V
         .map(|(model, w)| {
             read.seq
                 .iter()
-                .map(|c| model[c.contig()][c.unit()].forward(c.bases(), &DEFAULT_CONFIG))
+                .map(|c| {
+                    let model = &model[c.contig()][c.unit()];
+                    let lk = model.forward(c.bases(), &DEFAULT_CONFIG);
+                    lk + offset(model.weight(), A, B)
+                })
                 .sum::<f64>()
                 + w.ln()
         })
         .collect()
+}
+
+fn offset(x: f64, a: f64, b: f64) -> f64 {
+    (x * a + b).exp()
 }
 
 /// Construct DBGHMMs for the `cl`-th cluster.

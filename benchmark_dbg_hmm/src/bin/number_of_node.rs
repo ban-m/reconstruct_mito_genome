@@ -23,7 +23,5 @@ fn main() {
         let w = vec![1.; i];
         let m = f.generate_with_weight(&ms, &w, k);
         println!("{}\t{}\t{}\t{}\tW", i, m.node_num(), m.edge_num(), m.weight());
-        // let m = f.generate_from_ref(&ms, k);
-        // println!("{}\t{}\t{}\t{}\tH", i, m.node_num(), m.edge_num(), m.weight());
     }
 }

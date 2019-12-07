@@ -2,41 +2,61 @@ extern crate dbg_hmm;
 extern crate edlib_sys;
 extern crate env_logger;
 extern crate rand;
-#[macro_use]
-extern crate log;
+extern crate rayon;
 use dbg_hmm::gen_sample::*;
 use dbg_hmm::*;
 use rand::{rngs::StdRng, SeedableRng};
+use rayon::prelude::*;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let len = 150;
     let num_seq = 50;
     let mut rng: StdRng = SeedableRng::seed_from_u64(121_892);
-    let p = &gen_sample::Profile {
-        sub: 0.002,
-        ins: 0.002,
-        del: 0.002,
-    };
-    let template: Vec<_> = generate_seq(&mut rng, len);
-    let diff = introduce_randomness(&template, &mut rng, p);
-    let data: Vec<Vec<_>> = (0..num_seq)
-        .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
-        .collect();
     let k = 6;
-    let mut f = Factory::new();
-    debug!("{}", edlib_sys::global_dist(&template, &diff));
-    println!("Coverage\tLikelihood\tType");
-    for i in 1..num_seq {
-        let m: Vec<_> = data[..i].iter().map(|e| e.as_slice()).collect();
-        let w = vec![1.; i];
-        let m = f.generate_with_weight(&m, &w, k);
-        for _ in 0..100 {
-            let q = introduce_randomness(&template, &mut rng, &PROFILE);
-            let lk = m.forward(&q, &DEFAULT_CONFIG);
-            println!("{}\t{:.4}\tTRUE", i, lk);
-            let q = introduce_randomness(&diff, &mut rng, &PROFILE);
-            let lk = m.forward(&q, &DEFAULT_CONFIG);
-            println!("{}\t{:.4}\tFALSE", i, lk);
-        }
+    println!("Seed\tCoverage\tLikelihoodRatio\tOrigignalLK");
+    let rep = 15;
+    let covs: Vec<_> = (1..num_seq).collect();
+    let result: Vec<_> = (0..rep)
+        .flat_map(|seed| {
+            let template: Vec<_> = generate_seq(&mut rng, len);
+            let data: Vec<Vec<_>> = (0..num_seq)
+                .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
+                .collect();
+            let tests: Vec<_> = (0..100)
+                .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
+                .collect();
+            let mut f = Factory::new();
+            let max = {
+                let data: Vec<Vec<_>> = (0..500)
+                    .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
+                    .collect();
+                let data: Vec<_> = data.iter().map(|e| e.as_slice()).collect();
+                let m = f.generate_with_weight(&data, &vec![1.; 500], k);
+                tests
+                    .iter()
+                    .map(|q| m.forward(&q, &DEFAULT_CONFIG))
+                    .sum::<f64>()
+                    / 100.0
+            };
+            let mut result = vec![];
+            for &cov in &covs {
+                let m: Vec<_> = data[..cov].iter().map(|e| e.as_slice()).collect();
+                let w = vec![1.; cov];
+                let m = f.generate_with_weight(&m, &w, k);
+                let offset = (-0.2446704 * cov as f64 + 3.6172581).exp();
+                let samples = tests
+                    .par_iter()
+                    .map(|q| {
+                        let lk = m.forward(&q, &DEFAULT_CONFIG); //  + offset;
+                        (seed, cov, max - lk, lk)
+                    })
+                    .collect::<Vec<_>>();
+                result.extend(samples);
+            }
+            result
+        })
+        .collect();
+    for (seed, cov, ratio, orig) in result {
+        println!("{}\t{}\t{}\t{}", seed, cov, ratio, orig);
     }
 }

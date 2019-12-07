@@ -21,6 +21,7 @@ const THR_ON: bool = true;
 const THR: f64 = 2.;
 const WEIGHT_THR: f64 = 2.0;
 const LOW_LIKELIHOOD: f64 = -100000.;
+const SCALE: f64 = 3.;
 mod find_union;
 pub mod gen_sample;
 use packed_simd::f64x4 as f64s;
@@ -144,6 +145,7 @@ impl Factory {
         DBGHMM { nodes, k, weight }
     }
     pub fn generate_from_ref(&mut self, dataset: &[&[u8]], k: usize) -> DBGHMM {
+        assert!(self.is_empty());
         dataset.iter().for_each(|seq| {
             seq.windows(k)
                 .for_each(|kmer| match self.inner.get_mut(kmer) {
@@ -216,10 +218,11 @@ impl Factory {
         }
         let weight = ws.iter().sum::<f64>();
         if weight < 1.0001 {
+            self.clear();
             let nodes = vec![];
             return DBGHMM { nodes, k, weight };
         }
-
+        let thr = nodes.iter().map(|e| e.tot).sum::<f64>() / nodes.len() as f64 - THR;
         let nodes = match self.clean_up_nodes_exp(nodes, thr, &mut rng) {
             Some(res) => res,
             None => panic!(
@@ -247,13 +250,17 @@ impl Factory {
         let mut buffer: Vec<_> = Vec::with_capacity(nodes.len());
         let nodes = self.cut_lightweight_loop(nodes, thr, rng, &mut buffer);
         assert!(buffer.is_empty());
-        let nodes = if thr > 0.999 {
-            let nodes = self.cut_tip(nodes, 2, &mut buffer);
-            assert!(buffer.is_empty());
-            self.pick_largest_components(nodes, &mut buffer)
-        } else {
-            self.pick_largest_components(nodes, &mut buffer)
-        };
+        // let nodes = if thr > 0.999 {
+        //     let nodes = self.cut_tip(nodes, 2, &mut buffer);
+        //     assert!(buffer.is_empty());
+        //     self.pick_largest_components(nodes, &mut buffer)
+        // } else {
+        //     self.pick_largest_components(nodes, &mut buffer)
+        // };
+        // eprintln!("THR:{}", thr);
+        let nodes = self.cut_tip(nodes, 2, &mut buffer);
+        assert!(buffer.is_empty());
+        let nodes = self.pick_largest_components(nodes, &mut buffer);
         let nodes = match nodes {
             Some(res) => res,
             None => {
@@ -335,7 +342,7 @@ impl Factory {
         self.temp_index.clear();
         for node in &nodes {
             self.temp_index
-                .push(!rng.gen_bool(Self::prob(node.kmer_weight, thr)) as usize)
+                .push(!rng.gen_bool(Self::prob(node.kmer_weight - thr)) as usize)
         }
         (0..nodes.len()).for_each(|_| self.is_safe.push(false));
         for (from, ref node) in nodes.iter().enumerate() {
@@ -519,14 +526,14 @@ impl Factory {
                 (0., 0.),
                 |(x, y), &(w, _)| if w >= 1. { (x + w, y + 1.) } else { (x, y) },
             );
+        let ave = sum / denom;
         if THR_ON {
             // y = x - 1 - epsilon
-            sum / denom - THR
+            ave - THR
         } else {
             0.
         }
     }
-
     fn get_idx(&mut self, kmer: &[u8], nodes: &mut Vec<Kmer>, thr: f64) -> Option<usize> {
         match self.inner.get_mut(kmer) {
             Some(x) if x.0 <= thr => None,
@@ -539,8 +546,12 @@ impl Factory {
             _ => unreachable!(),
         }
     }
-    fn prob(x: f64, thr: f64) -> f64 {
-        ((4. * (x - thr)).exp() + 1.).recip()
+    fn prob(x: f64) -> f64 {
+        // if x.is_sign_positive(){
+        //     0.
+        // }else{
+        ((SCALE * x).exp() + 1.).recip()
+        // }
     }
     fn get_idx_exp<R: Rng>(
         &mut self,
@@ -550,7 +561,7 @@ impl Factory {
         rng: &mut R,
     ) -> Option<usize> {
         match self.inner.get_mut(kmer) {
-            Some(x) if rng.gen_bool(Self::prob(x.0, thr)) => None,
+            Some(x) if rng.gen_bool(Self::prob(x.0 - thr)) => None,
             Some(x) if x.1 != std::usize::MAX => Some(x.1),
             Some(x) => {
                 x.1 = nodes.len();
@@ -1493,7 +1504,7 @@ mod tests {
         let bases = b"ACTG";
         let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12_122_432);
         let k = 6;
-        for num in 20..200 {
+        for num in 10..200 {
             let template1: Vec<_> = (0..150)
                 .filter_map(|_| bases.choose(&mut rng))
                 .copied()
@@ -1521,9 +1532,8 @@ mod tests {
             eprintln!("{}", num);
             for kmer in template1.windows(k).filter(|&kmer| kmers.contains(kmer)) {
                 assert!(
-                    model1.nodes.iter().any(|node| node.kmer == kmer),
-                    "{:?}",
-                    model1
+                    model1.nodes.iter().any(|node| node.kmer == kmer) // "{:?}",
+                                                                      // model1
                 );
             }
         }
@@ -1567,31 +1577,39 @@ mod tests {
     fn single_error_test() {
         let bases = b"ACTG";
         let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1234565);
-        // let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
-        // let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12121343932);
-        let template1: Vec<_> = (0..150)
-            .filter_map(|_| bases.choose(&mut rng))
-            .copied()
+        let coverage = 50;
+        let results: Vec<_> = (7..coverage)
+            .step_by(2)
+            .map(|cov| {
+                let template1: Vec<_> = (0..150)
+                    .filter_map(|_| bases.choose(&mut rng))
+                    .copied()
+                    .collect();
+                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 1, 0, 0);
+                let sub = check(&template1, &template2, &mut rng, cov);
+                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 1, 0);
+                let del = check(&template1, &template2, &mut rng, cov);
+                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 0, 1);
+                let ins = check(&template1, &template2, &mut rng, cov);
+                (cov, (sub, del, ins))
+            })
             .collect();
-        eprintln!("Insertion Error...");
-        let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 0, 1);
-        check(&template1, &template2, &mut rng);
-        let template2 = gen_sample::introduce_errors(&template1, &mut rng, 1, 0, 0);
-        eprintln!("Substituion Error...");
-        check(&template1, &template2, &mut rng);
-        let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 1, 0);
-        eprintln!("Deletion Error...");
-        check(&template1, &template2, &mut rng);
+        let (sub, del, ins) = results
+            .iter()
+            .fold((0, 0, 0), |(x, y, z), &(_, (a, b, c))| {
+                (x + a, y + b, z + c)
+            });
+        for (cov, res) in results {
+            eprintln!("Cov:{},Sub:{},Del:{},Ins:{}", cov, res.0, res.1, res.2);
+        }
+        eprintln!("Sub:{},Del:{},Ins:{}", sub, del, ins);
         assert!(false);
     }
-    fn check<R: rand::Rng>(t1: &[u8], t2: &[u8], rng: &mut R) {
-        let num = 20;
-        let model1: Vec<_> = (0..num)
-            //.map(|_| t1.to_vec())
+    fn check<R: rand::Rng>(t1: &[u8], t2: &[u8], rng: &mut R, cov: usize) -> usize {
+        let model1: Vec<_> = (0..cov)
             .map(|_| introduce_randomness(&t1, rng, &PROFILE))
             .collect();
-        let model2: Vec<_> = (0..num)
-            //.map(|_| t2.to_vec())
+        let model2: Vec<_> = (0..cov)
             .map(|_| introduce_randomness(&t2, rng, &PROFILE))
             .collect();
         let seqs: Vec<_> = model1
@@ -1599,15 +1617,13 @@ mod tests {
             .chain(model2.iter())
             .map(|e| e.as_slice())
             .collect();
-        let weight1 = vec![vec![1.; num], vec![0.; num]].concat();
-        let weight2 = vec![vec![0.; num], vec![1.; num]].concat();
+        let weight1 = vec![vec![1.; cov], vec![0.; cov]].concat();
+        let weight2 = vec![vec![0.; cov], vec![1.; cov]].concat();
         let k = 6;
         let mut f = Factory::new();
         let m1 = f.generate_with_weight(&seqs, &weight1, k);
         let m2 = f.generate_with_weight(&seqs, &weight2, k);
-        // let m1 = DBGHMM::new(&model1, k);
-        // let m2 = DBGHMM::new(&model2, k);
-        eprintln!("{}\t{}", m1, m2);
+        eprintln!("{}\t{}\t{}", cov, m1, m2);
         let correct = (0..100)
             .filter(|e| {
                 if e % 2 == 0 {
@@ -1625,8 +1641,7 @@ mod tests {
                 }
             })
             .count();
-        eprintln!("{}", correct);
-        assert!(50 < correct, "{}", correct);
+        correct
     }
 
     #[test]
