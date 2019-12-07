@@ -3,31 +3,31 @@
 #$ -N DecTwo
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/last_decompose.log
-#$ -o ./logfiles/last_decompose.out
+#$ -e ./logfiles/last_decompose_skew.log
+#$ -o ./logfiles/last_decompose_skew.out
 #$ -V
 #$ -m e
 set -ue
 
-OUTPUT=./result/last_decompose3.txt
-TEST_NUM=100
-COVERAGE=0
-PROBS="0.5 0.5"
-for seed in 10 20 30 40 50
-do
-    ./target/release/test_last_decompose_multiple \
-        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
-done
-
+OUTPUT=./result/last_decompose_skew.txt
 # TEST_NUM=100
 # COVERAGE=0
-# PROBS="0.2 0.8"
+# PROBS="0.5 0.5"
 # for seed in 10 20 30 40 50
 # do
 #     ./target/release/test_last_decompose_multiple \
 #         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
 # done
 
+TEST_NUM=100
+COVERAGE=0
+PROBS="0.2 0.8"
+for seed in 10 20 30 40 50
+do
+    ./target/release/test_last_decompose_multiple \
+        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
+done
+ 
 # TEST_NUM=100
 # COVERAGE=4
 # PROBS="0.2 0.8"

@@ -88,11 +88,7 @@ pub fn remove_repeats(alns: Vec<LastTAB>, defs: &Contigs, rep: &[RepeatPairs]) -
         .collect()
 }
 
-pub fn encoding(
-    fasta: &[fasta::Record],
-    defs: &Contigs,
-    alns: &[LastTAB],
-) -> Vec<EncodedRead> {
+pub fn encoding(fasta: &[fasta::Record], defs: &Contigs, alns: &[LastTAB]) -> Vec<EncodedRead> {
     // Distribute alignments to each reads.
     // bucket[i] is the alignment for fasta[i].
     let buckets = distribute(fasta, alns);
@@ -111,11 +107,7 @@ pub fn encoding(
         .collect()
 }
 
-fn into_encoding(
-    bucket: Vec<&LastTAB>,
-    seq: &fasta::Record,
-    defs: &Contigs,
-) -> EncodedRead {
+fn into_encoding(bucket: Vec<&LastTAB>, seq: &fasta::Record, defs: &Contigs) -> EncodedRead {
     // debug!("Encoding {} alignments", bucket.len());
     // debug!("Read:{},{}len", seq.id(), seq.seq().len());
     let bucket = filter_contained_alignment(bucket, defs);
@@ -260,7 +252,7 @@ fn aln_to_encode(aln: &LastTAB, stop: usize, def: &Contigs, seq: &[u8]) -> AlnTo
     //     aln.seq2_start_from_forward(),
     //     aln.seq2_end_from_forward()
     // );
-    // let ctgname = aln.seq1_name();
+    let ctgname = aln.seq1_name();
     // Flip reference rather than query.
     // let _refr = match aln.seq2_direction() {
     //     lasttab::Strand::Forward => def.get(ctgname).unwrap(),
@@ -432,7 +424,7 @@ fn filter_contained_alignment<'a>(
         .filter(|aln| {
             let e = aln.seq2_end_from_forward();
             let order = defs.get_id(aln.seq1_name()).unwrap();
-            if e <= end + 1{
+            if e <= end + 1 {
                 false
             } else {
                 end = e;

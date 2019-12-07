@@ -240,9 +240,13 @@ const selectRead = (read,unitlen) => {
     // Filter read as you like.
     const from = 0;
     const to = 1;
-    const set = new Set(read.units.filter(u => u.hasOwnProperty("Encode")).map(u => u.Encode[0]));
+    const set = new Set(read.units.filter(u => u.hasOwnProperty("Encode")).map(u => u.Encode[1]));
     const max_gap = Math.max(...read.units.filter(u => u.hasOwnProperty("Gap")).map(u => u.Gap));
     return true;
+    // if (set.has(1750) && set.has(334)){
+    //     console.log(read.name);
+    // }
+    // return set.has(1750) && set.has(334);
     // return set.has(4) && set.size == 1;
     // return set.has(from) && set.has(to) && read.units.length > 15 ;
     // return read.units.length < 140 && read.units.length > 75 && set.size > 1 && set.has(0) && set.has(1) && max_gap < 4000;

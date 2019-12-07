@@ -339,6 +339,29 @@ pub fn soft_clustering(
         }
         beta *= step;
     }
+    let logms: Vec<_> = data
+        .par_iter()
+        .map(|read| {
+            let xs = compute_log_probs(&models, &ws, read);
+            utils::logsumexp(&xs)
+        })
+        .zip(gammas.par_iter())
+        .skip(border)
+        .zip(answer.par_iter())
+        .map(|((lk, gammas), ans)| {
+            let (pred, _) = gammas
+                .iter()
+                .enumerate()
+                .fold(
+                    (0, std::f64::MIN),
+                    |(x, y), (a, &b)| if y < b { (a, b) } else { (x, y) },
+                );
+            (lk, pred, ans)
+        })
+        .collect();
+    for (lk, pred, ans) in logms {
+        debug!("PREDICTION\t{}\t{}\t{}", lk, pred, ans);
+    }
     gammas
 }
 

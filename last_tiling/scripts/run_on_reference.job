@@ -9,11 +9,11 @@
 set -ue
 ROOT=/grid/ban-m/arabidopsis_thaliana/sequel/assemble/pacbio_w_reference/
 READ=${ROOT}/filtered_read.fasta
-REFERENCE=${ROOT}/contigs.fasta
+REFERENCE=${ROOT}/mito.fa
 mkdir -p ./data/reference/
-SELF_LASTTAB=${ROOT}/last_db/no_repeat_self.tab
+SELF_LASTTAB=${ROOT}/last_db/self.tab
 PREFIX=./data/mine_to_reference
-LASTTAB=${ROOT}/last_db/no_repeat_reads.tab
+LASTTAB=${ROOT}/last_db/initial.tab
 
 cargo run --release --bin annotate_dotplot -- ${REFERENCE} ${SELF_LASTTAB} \
       > ${PREFIX}_repeats.json
