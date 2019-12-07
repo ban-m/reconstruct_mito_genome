@@ -747,24 +747,20 @@ impl DeBruijnGraphHiddenMarkovModel {
     }
     #[cfg(target_feature = "sse")]
     fn sum(xs: &[f64]) -> f64 {
-        let i = (xs.len() / f64s::lanes()) * f64s::lanes();
-        let (head, tail) = xs.split_at(i);
-        head.chunks_exact(f64s::lanes())
+        assert!(xs.len() % 4 == 0);
+        xs.chunks_exact(f64s::lanes())
             .map(f64s::from_slice_unaligned)
             .sum::<f64s>()
             .sum()
-            + tail.iter().sum::<f64>()
     }
     #[cfg(target_feature = "sse")]
     fn mul(xs: &mut [f64], y: f64) {
-        let i = (xs.len() / f64s::lanes()) * f64s::lanes();
-        let (head, tail) = xs.split_at_mut(i);
+        assert!(xs.len() % 4 == 0);
         let ys = f64s::splat(y);
-        head.chunks_exact_mut(f64s::lanes()).for_each(|xs| {
+        xs.chunks_exact_mut(f64s::lanes()).for_each(|xs| {
             let packed = f64s::from_slice_unaligned(xs) * ys;
             packed.write_to_slice_unaligned(xs);
         });
-        tail.iter_mut().for_each(|e| *e *= y);
     }
     #[cfg(target_feature = "sse")]
     fn update(&self, updates: &mut [f64], prev: &[f64], base: u8, config: &Config) -> (f64, f64) {
@@ -1185,6 +1181,7 @@ impl Kmer {
             })
     }
     // return P(idx|self)
+    #[inline]
     fn to(&self, idx: usize) -> f64 {
         self.transition[idx]
     }
