@@ -132,7 +132,10 @@ fn predict(
         .map(|e| contig.get_last_unit(e as u16).unwrap() as usize + 1)
         .collect();
     debug!("{:?}", contigs);
-    let result = clustering(&data, &label, &forbid, K, 2, &contigs);
+    let result = {
+        let answer: Vec<_> = answer.iter().map(|&e| if e { 0 } else { 1 }).collect();
+        clustering(&data, &label, &forbid, K, 2, &contigs,&answer)
+    };
     let result: Vec<_> = data[border..]
         .iter()
         .zip(result)

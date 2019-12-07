@@ -3,13 +3,13 @@
 #$ -N DecTwo
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/last_decompose_skew.log
-#$ -o ./logfiles/last_decompose_skew.out
+#$ -e ./logfiles/last_decompose_sgd.log
+#$ -o ./logfiles/last_decompose_sgd.out
 #$ -V
 #$ -m e
 set -ue
 
-OUTPUT=./result/last_decompose_skew.txt
+OUTPUT=./result/last_decompose_skew_sgd.txt
 # TEST_NUM=100
 # COVERAGE=0
 # PROBS="0.5 0.5"

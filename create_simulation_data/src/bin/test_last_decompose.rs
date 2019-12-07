@@ -91,7 +91,7 @@ fn benchmark(
         debug!("ObjLK:{}", objlk);
     }
     let forbidden = vec![vec![]; data.len()];
-    let em_pred = clustering(&data, &label, &forbidden, k, 2, &contigs);
+    let em_pred = clustering(&data, &label, &forbidden, k, 2, &contigs, &answer);
     let pos = answer.iter().filter(|&&e| e == 0).count();
     let neg = answer.len() - pos;
     let tp = em_pred

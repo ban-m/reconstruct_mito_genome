@@ -1,5 +1,6 @@
 //! This is a libray to tiling a fasta file into
 //! chunks of contigs(units).
+#[allow(unused_imports)]
 #[macro_use]
 extern crate log;
 extern crate env_logger;
@@ -252,7 +253,7 @@ fn aln_to_encode(aln: &LastTAB, stop: usize, def: &Contigs, seq: &[u8]) -> AlnTo
     //     aln.seq2_start_from_forward(),
     //     aln.seq2_end_from_forward()
     // );
-    let ctgname = aln.seq1_name();
+    // let ctgname = aln.seq1_name();
     // Flip reference rather than query.
     // let _refr = match aln.seq2_direction() {
     //     lasttab::Strand::Forward => def.get(ctgname).unwrap(),

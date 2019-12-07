@@ -28,8 +28,11 @@ use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 const A: f64 = -0.2446704;
 const B: f64 = 3.6172581;
-// const A: f64 = -0.25;
-// const B: f64 = 3.0;
+const INIT_BETA: f64 = 0.2;
+const BETA_STEP: f64 = 1.2;
+const LEARNING_RATE: f64 = 0.5;
+const LOOP_NUM: usize = 40;
+
 pub fn decompose(
     read: Vec<fasta::Record>,
     alignments: Vec<LastTAB>,
@@ -263,6 +266,7 @@ pub fn soft_clustering(
     // gammas[i] = "the vector of each cluster for i-th read"
     let mut gammas: Vec<Vec<f64>> =
         construct_initial_weights(label, forbidden, cluster_num, data.len());
+    // assert!((0..data.len()).all(|read| gammas[read].len() == velocities[read].len()));
     let datasize = data.len() as f64;
     let mut ws: Vec<f64> = (0..cluster_num)
         .map(|i| gammas.iter().map(|g| g[i]).sum::<f64>() / datasize)
@@ -273,8 +277,7 @@ pub fn soft_clustering(
     let mut models: Vec<Vec<_>> = (0..cluster_num)
         .map(|cl| construct_with_weights(data, &gammas, k, contigs, cl))
         .collect();
-    let mut beta = 0.02;
-    let step = 1.2;
+    let mut beta = INIT_BETA;
     let mut lks: Vec<f64> = vec![];
     while beta < 1. {
         // for (contig, &units) in contigs.iter().enumerate() {
@@ -285,13 +288,14 @@ pub fn soft_clustering(
         //     }
         // }
         debug!("Beta:{:.4}", beta);
-        for i in 0..40 {
+        for i in 0..LOOP_NUM {
             for (idx, w) in ws.iter().enumerate() {
                 debug!("{}\t{:.4}", idx, w);
             }
             let next_lk = data
                 .par_iter()
                 .zip(gammas.par_iter_mut())
+                // .zip(velocities.par_iter_mut())
                 .skip(border)
                 .map(|(read, gamma)| {
                     let mut log_ms = compute_log_probs(&models, &ws, &read);
@@ -300,14 +304,9 @@ pub fn soft_clustering(
                     let w = utils::logsumexp(&log_ms);
                     assert_eq!(gamma.len(), cluster_num);
                     assert_eq!(log_ms.len(), cluster_num);
-                    // gamma
-                    //     .iter_mut()
-                    //     .zip(log_ms.iter())
-                    //     .for_each(|(g, l)| *g = (l - w).exp());
-                    gamma
-                        .iter_mut()
-                        .zip(log_ms.iter())
-                        .for_each(|(g, l)| *g = (*g + (l - w).exp()) / 2.);
+                    gamma.iter_mut().zip(log_ms.iter()).for_each(|(g, l)| {
+                        *g = (1. - LEARNING_RATE) * *g + LEARNING_RATE * (l - w).exp();
+                    });
                     assert!((1. - gamma.iter().sum::<f64>()).abs() < 0.001);
                     lk
                 })
@@ -337,7 +336,7 @@ pub fn soft_clustering(
                 lks.push(next_lk);
             }
         }
-        beta *= step;
+        beta *= BETA_STEP;
     }
     let logms: Vec<_> = data
         .par_iter()
@@ -349,13 +348,14 @@ pub fn soft_clustering(
         .skip(border)
         .zip(answer.par_iter())
         .map(|((lk, gammas), ans)| {
-            let (pred, _) = gammas
-                .iter()
-                .enumerate()
-                .fold(
-                    (0, std::f64::MIN),
-                    |(x, y), (a, &b)| if y < b { (a, b) } else { (x, y) },
-                );
+            let (pred, _) =
+                gammas
+                    .iter()
+                    .enumerate()
+                    .fold(
+                        (0, std::f64::MIN),
+                        |(x, y), (a, &b)| if y < b { (a, b) } else { (x, y) },
+                    );
             (lk, pred, ans)
         })
         .collect();
