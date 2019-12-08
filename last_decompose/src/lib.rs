@@ -28,7 +28,7 @@ use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 const A: f64 = -0.2446704;
 const B: f64 = 3.6172581;
-const INIT_BETA: f64 = 0.2;
+const INIT_BETA: f64 = 0.02;
 const BETA_STEP: f64 = 1.2;
 const LEARNING_RATE: f64 = 0.5;
 const LOOP_NUM: usize = 40;
@@ -305,7 +305,7 @@ pub fn soft_clustering(
                     assert_eq!(gamma.len(), cluster_num);
                     assert_eq!(log_ms.len(), cluster_num);
                     gamma.iter_mut().zip(log_ms.iter()).for_each(|(g, l)| {
-                        *g = (1. - LEARNING_RATE) * *g + LEARNING_RATE * (l - w).exp();
+                        *g = *g * (1. - LEARNING_RATE) + (l - w).exp() * LEARNING_RATE
                     });
                     assert!((1. - gamma.iter().sum::<f64>()).abs() < 0.001);
                     lk
