@@ -24,15 +24,17 @@ pub use eread::*;
 // use rand::distributions::{Distribution, Uniform};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
+use rand::Rng;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 const A: f64 = -0.2446704;
 const B: f64 = 3.6172581;
 const INIT_BETA: f64 = 0.02;
-const BETA_STEP: f64 = 1.2;
+const BETA_STEP: f64 = 1.15;
 const LEARNING_RATE: f64 = 0.5;
 const LOOP_NUM: usize = 40;
-
+// const BATCH_SIZE: usize = 1024;
+const EP: f64 = 0.1;
 pub fn decompose(
     read: Vec<fasta::Record>,
     alignments: Vec<LastTAB>,
@@ -90,7 +92,6 @@ pub fn clustering_via_alignment(
     similarity: &[HashMap<usize, i64>],
     cluster_num: usize,
 ) -> Vec<u8> {
-    use rand::Rng;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(reads.len() as u64);
     let mut predictions: Vec<_> = reads
         .iter()
@@ -262,6 +263,9 @@ pub fn soft_clustering(
     answer: &[u8],
 ) -> Vec<Vec<f64>> {
     assert!(cluster_num > 1);
+    let seed = label.iter().sum::<u8>() as u64 + cluster_num as u64 + data.len() as u64;
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
+    let id = rng.gen::<u64>();
     let border = label.len();
     // gammas[i] = "the vector of each cluster for i-th read"
     let mut gammas: Vec<Vec<f64>> =
@@ -279,7 +283,8 @@ pub fn soft_clustering(
         .collect();
     let mut beta = INIT_BETA;
     let mut lks: Vec<f64> = vec![];
-    while beta < 1. {
+    // while beta < 1. {
+    loop {
         // for (contig, &units) in contigs.iter().enumerate() {
         //     for unit in 0..units {
         //         for cl in 0..cluster_num {
@@ -292,10 +297,37 @@ pub fn soft_clustering(
             for (idx, w) in ws.iter().enumerate() {
                 debug!("{}\t{:.4}", idx, w);
             }
+            // for _ in 0..loop_num {
+            //     data.par_iter()
+            //         .zip(gammas.par_iter_mut())
+            //         .zip(updates.par_iter())
+            //         .skip(border)
+            //         .filter(|&(_, &update)| update)
+            //         .for_each(|((read, gamma), _)| {
+            //             let mut log_ms = compute_log_probs(&models, &ws, &read);
+            //             log_ms.iter_mut().for_each(|log_m| *log_m = *log_m * beta);
+            //             let w = utils::logsumexp(&log_ms);
+            //             assert_eq!(gamma.len(), cluster_num);
+            //             assert_eq!(log_ms.len(), cluster_num);
+            //             gamma.iter_mut().zip(log_ms.iter()).for_each(|(g, l)| {
+            //                 *g = *g * (1. - LEARNING_RATE) + (l - w).exp() * LEARNING_RATE
+            //             });
+            //             assert!((1. - gamma.iter().sum::<f64>()).abs() < 0.001);
+            //         });
+            //     ws.iter_mut().enumerate().for_each(|(cluster, w)| {
+            //         *w = gammas.iter().map(|g| g[cluster]).sum::<f64>() / datasize
+            //     });
+            //     models.iter_mut().enumerate().for_each(|(cluster, model)| {
+            //         *model = construct_with_weights(data, &gammas, k, contigs, cluster)
+            //     });
+            //     updates
+            //         .iter_mut()
+            //         .for_each(|u| *u = rng.gen_bool(pick_prob));
+            // }
+            // let next_lk = likelihood_of_models(&models, data, &ws);
             let next_lk = data
                 .par_iter()
                 .zip(gammas.par_iter_mut())
-                // .zip(velocities.par_iter_mut())
                 .skip(border)
                 .map(|(read, gamma)| {
                     let mut log_ms = compute_log_probs(&models, &ws, &read);
@@ -330,13 +362,17 @@ pub fn soft_clustering(
                 .iter()
                 .map(|&e| (e - next_lk).abs())
                 .fold(1., |x, y| x.min(y));
-            if min < 0.001 {
+            if min < EP {
                 break;
             } else {
                 lks.push(next_lk);
             }
         }
-        beta *= BETA_STEP;
+        if beta >= 1.0 {
+            break;
+        } else {
+            beta = (beta * BETA_STEP).min(1.0);
+        }
     }
     let logms: Vec<_> = data
         .par_iter()
@@ -360,7 +396,7 @@ pub fn soft_clustering(
         })
         .collect();
     for (lk, pred, ans) in logms {
-        debug!("PREDICTION\t{}\t{}\t{}", lk, pred, ans);
+        debug!("PREDICTION\t{}\t{}\t{}\t{}", id, lk, pred, ans);
     }
     gammas
 }

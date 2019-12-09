@@ -9,28 +9,15 @@ generalplot <- function(g,name){
 
 
 dataset_diff <- read_tsv("./result/coverage_and_likelihood_diff.tsv")
-dataset <- read_tsv("./result/coverage_and_likelihood2.tsv")
+dataset <- read_tsv("./result/coverage_and_likelihood.tsv")
 
-g <- dataset_diff %>%
-    gather(key = Type, value = Likelihood, -Coverage) %>% 
-    filter(Likelihood > -200) %>%
-    ggplot() + geom_point(aes(x = Coverage, y = Likelihood, color = Type), alpha = 0.3)
-generalplot(g,"coverage_and_likelihood_point")
-
-g2 <- dataset %>% filter(Likelihood > -200) %>% 
-    ggplot() + geom_point(aes(x = Coverage, y = Likelihood, color = Type), alpha = 0.3)
-
-g2 <- dataset %>% filter(Coverage > 1) %>% 
-    ggplot() + geom_point(aes(x = Coverage, y = Likelihood), alpha = 0.3) +
-    facet_wrap(.~ Type)
-
-g <- dataset_diff %>%
-    gather(key = Type, value = Likelihood, -Coverage) %>% 
-    filter(Likelihood > -200) %>%
-    ggplot() + geom_smooth(aes(x = Coverage, y = Likelihood, color = Type)) 
-
-g2 <- dataset %>% filter(Likelihood > -200) %>% 
-    ggplot() + geom_point(aes(x = Coverage, y = Likelihood, color = Type))
+g2 <- dataset %>% filter(Coverage > 1) %>% filter(LikelihoodRatio < 100) %>% 
+    ggplot() + geom_point(aes(x = Coverage, y = LikelihoodRatio), alpha = 0.3)
+generalplot(g2,"coverage_and_likelihood_ratio_point")
+g2 <- dataset %>% filter(Coverage > 1) %>% filter(LikelihoodRatio < 100) %>% 
+    ggplot() +
+    geom_smooth(aes(x = Coverage, y = LikelihoodRatio, color = factor(Seed)), alpha = 0.3)
+generalplot(g2,"coverage_and_likelihood_ratio_smooth")
 
 
 summaries  <- dataset %>% filter(Coverage>1) %>%
@@ -39,27 +26,50 @@ summaries  <- dataset %>% filter(Coverage>1) %>%
     mutate(data = map(data,function(x) x %>% summarize(mean =mean(LikelihoodRatio)))) %>%
     unnest()
 
-g <- summaries %>% ggplot() + geom_point(aes(x= Coverage,y = mean)) + ## , color = factor(Seed))) +
-    stat_function(fun=function(x)exp(-0.22 * x  + 3.58))
-
-g <- dataset %>%
-    filter(Coverage>1) %>%
-    filter(LikelihoodRatio < 100) %>% 
-    ggplot() + geom_point(aes(x = Coverage, y = LikelihoodRatio,color = Seed))
-
 tempdataset  <- dataset %>% filter(Coverage>1) %>%
     filter(LikelihoodRatio < 100)
+
+linear_reg <- lm(log(LikelihoodRatio) ~ Coverage,data=tempdataset)
 objective_function <- function(x){
     a <- x[1]
     b <- x[2]
     tempdataset %>%  mutate(residual = (LikelihoodRatio - exp(a*Coverage+b)) ** 2) %>%
         pull(residual) %>% sum()
 }
+init_param <- c(linear_reg$coefficients[2], linear_reg$coefficients[1])
 result <- optim(par=c(-0.24,3.6),fn =  objective_function)
 
-g <- summaries %>% ggplot() + geom_point(aes(x= Coverage,y = mean)) + ## , color = factor(Seed))) +
+g <- dataset %>% filter(Coverage > 1 ) %>% filter(LikelihoodRatio < 100) %>% 
+    ggplot() + geom_point(aes(x= Coverage,y = LikelihoodRatio, color = factor(Seed))) +
     stat_function(fun=function(x)exp(result$par[1] * x  + result$par[2]))
+generalplot(g, "coverage_and_likelihood_ratio_with_regress")
 
+a <- result$par[1]
+b <- result$par[2]
+g <- dataset %>% filter(Coverage > 1 ) %>% filter(LikelihoodRatio < 100) %>%
+    mutate(LikelihoodRatio = LikelihoodRatio - exp(a*Coverage+b)) %>% 
+    ggplot() + geom_point(aes(x= Coverage,y = LikelihoodRatio, color = factor(Seed)))
+generalplot(g, "coverage_and_likelihood_ratio_sub_regress")
+g <- dataset %>% filter(Coverage > 1 ) %>% filter(LikelihoodRatio < 100) %>%
+    mutate(LikelihoodRatio = LikelihoodRatio - exp(a*Coverage+b)) %>% 
+    ggplot() + geom_smooth(aes(x= Coverage,y = LikelihoodRatio, color = factor(Seed)))
+generalplot(g, "coverage_and_likelihood_ratio_sub_regress_smooth")
+
+
+
+
+
+g <- dataset_diff %>%
+    gather(key = Type, value = Likelihood, -Coverage) %>% 
+    filter(Likelihood > -200) %>%
+    ggplot() + geom_point(aes(x = Coverage, y = Likelihood, color = Type), alpha = 0.3)
+generalplot(g,"coverage_and_likelihood_point")
+
+g <- dataset_diff %>%
+    gather(key = Type, value = Likelihood, -Coverage) %>% 
+    filter(Likelihood > -200) %>%
+    ggplot() + geom_smooth(aes(x = Coverage, y = Likelihood, color = Type))
+generalplot(g,"coverage_and_likelihood_smooth")
 
 
 
@@ -68,17 +78,10 @@ g3 <-  dataset_diff %>%
     ggplot() + geom_point(aes(x = Coverage, y = diff))
 generalplot(g,"coverage_and_likelihood_diff")
 
+
 g <- dataset_diff %>% nest(-Coverage) %>%
     mutate(data = map(data,function(x) x %>% filter(Correct - Wrong < 0) %>% count())) %>%
     unnest() %>%
     ggplot()  + geom_point(aes(x = Coverage, y = n ))
 
-
-
-
-g <- dataset %>% nest(-Coverage,-Type) %>%
-    mutate(data = map(data,function(x)summarize(x,mean = mean(Likelihood))))%>%
-    unnest() %>%
-    ggplot() + geom_point(aes(x = Coverage, y = mean,color = Type))
-generalplot(g,"coverage_and_likelihood_mean")
 
