@@ -3,14 +3,13 @@
 #$ -N DecTwo
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/last_decompose_sgd_mini_2.log
-#$ -o ./logfiles/last_decompose_sgd_mini_2.log
+#$ -e ./logfiles/last_decompose_sgd_pick.log
+#$ -o ./logfiles/last_decompose_sgd_pick.log
 #$ -V
 #$ -m e
 set -ue
 
-OUTPUT=./result/last_decompose_skew_sgd_mini.txt
-
+OUTPUT=./result/last_decompose_skew_sgd_pick.txt
 
 # TEST_NUM=100
 # COVERAGE=0
@@ -21,7 +20,8 @@ OUTPUT=./result/last_decompose_skew_sgd_mini.txt
 #         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
 # done
 
-./target/release/test_last_decompose_multiple 100 0 20 0.2 0.8 >> ${OUTPUT}
+# ./target/release/test_last_decompose_multiple 100 0 20 0.2 0.8 >> ${OUTPUT}
+./target/release/test_last_decompose_multiple 100 0 40 0.2 0.8 >> ${OUTPUT}
 
 # TEST_NUM=100
 # COVERAGE=0

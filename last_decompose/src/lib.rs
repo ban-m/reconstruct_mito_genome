@@ -36,7 +36,7 @@ const PICK_PROB_STEP: f64 = 1.2;
 const MINIMUM_PROB: f64 = 0.01;
 const LEARNING_RATE: f64 = 0.5;
 const LOOP_NUM: usize = 4;
-const EP: f64 = 0.001;
+const EP: f64 = 0.00000001;
 pub fn decompose(
     read: Vec<fasta::Record>,
     alignments: Vec<LastTAB>,
@@ -291,7 +291,6 @@ pub fn soft_clustering(
     let mut beta = INIT_BETA;
     loop {
         let mut pick_prob = INIT_PICK_PROB;
-        // let mut updates: Vec<_> = (0..data.len()).map(|_| rng.gen_bool(pick_prob)).collect();
         let mut updates = vec![false; data.len()];
         while pick_prob < 0.5 {
             debug!("Prob:{:.4}", pick_prob);
@@ -374,7 +373,8 @@ pub fn soft_clustering(
             }
             pick_prob *= PICK_PROB_STEP;
         }
-        let next_lk = likelihood_of_models(&models, &data, &ws);
+        // let next_lk = likelihood_of_models(&models, &data, &ws);
+        let next_lk = 0.;
         assert_eq!(weight_of_read.len(), answer.len() + label.len());
         {
             let correct = weight_of_read
