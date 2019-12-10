@@ -40,12 +40,16 @@ fn main() {
         del: 0.002,
     };
     use std::time::Instant;
+    println!("TestNum:{}\tLabeled:{}", test_num, coverage);
+    {
+        let probs: Vec<_> = probs.iter().map(|e| format!("{:3}", e)).collect();
+        eprintln!("Probs:[{}]", probs.join(","));
+    };
     let s = Instant::now();
     let (hmm, dists) = benchmark(
         seed, p, coverage, test_num, chain_len, k, len, &probs, clusters,
     );
     eprintln!("{:?}", Instant::now() - s);
-    println!("TestNum:{}\tLabeled:{}", test_num, coverage);
     for (idx, preds) in hmm.into_iter().enumerate() {
         let tp = preds[idx];
         let tot = preds.iter().sum::<u32>();
