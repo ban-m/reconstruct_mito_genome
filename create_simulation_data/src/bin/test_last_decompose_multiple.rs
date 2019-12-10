@@ -41,10 +41,6 @@ fn main() {
     };
     use std::time::Instant;
     println!("TestNum:{}\tLabeled:{}", test_num, coverage);
-    {
-        let probs: Vec<_> = probs.iter().map(|e| format!("{:3}", e)).collect();
-        eprintln!("Probs:[{}]", probs.join(","));
-    };
     let s = Instant::now();
     let (hmm, dists) = benchmark(
         seed, p, coverage, test_num, chain_len, k, len, &probs, clusters,
@@ -124,6 +120,10 @@ fn benchmark(
         let objlk = likelihood_of_assignments(&data, &answer, k, clusters, &contigs);
         debug!("ObjLK:{}", objlk);
     }
+    {
+        let probs: Vec<_> = probs.iter().map(|e| format!("{:3}", e)).collect();
+        debug!("Probs:[{}]", probs.join(","));
+    };
     let forbidden = vec![vec![]; data.len()];
     let em_pred = clustering(&data, &label, &forbidden, k, clusters, &contigs, &answer);
     let mut result = vec![vec![0; clusters]; clusters];
