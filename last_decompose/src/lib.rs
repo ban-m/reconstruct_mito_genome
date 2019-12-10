@@ -33,6 +33,7 @@ const INIT_BETA: f64 = 0.02;
 const BETA_STEP: f64 = 1.2;
 const INIT_PICK_PROB: f64 = 0.05;
 const PICK_PROB_STEP: f64 = 1.2;
+const MINIMUM_PROB: f64 = 0.01;
 const LEARNING_RATE: f64 = 0.5;
 const LOOP_NUM: usize = 4;
 const EP: f64 = 0.001;
@@ -296,26 +297,6 @@ pub fn soft_clustering(
             debug!("Prob:{:.4}", pick_prob);
             let loop_num = pick_prob.recip().floor() as usize * LOOP_NUM;
             for i in 0..loop_num {
-                let sum_of_entropy = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-                let denom = sum_of_entropy + 0.1 * datasize;
-                debug!("SoE\t{:.4}\t{:.4}\t{:.4}", sum_of_entropy, i, pick_prob);
-                if sum_of_entropy < EP {
-                    break;
-                }
-                let is_ng = !updates
-                    .iter_mut()
-                    .zip(weight_of_read.iter())
-                    .map(|(b, w)| {
-                        let frac = (entropy(w) + 0.1) / denom;
-                        let prob = (datasize * pick_prob * frac).min(1.);
-                        *b = rng.gen_bool(prob);
-                        *b
-                    })
-                    .fold(false, |p, q| p | q);
-                if is_ng {
-                    debug!("Failed to pick some elements. Go next iteration.");
-                    continue;
-                }
                 let ws_gradient = data
                     .par_iter()
                     .zip(weight_of_read.par_iter_mut())
@@ -371,6 +352,25 @@ pub fn soft_clustering(
                 models.iter_mut().enumerate().for_each(|(cluster, model)| {
                     *model = construct_with_weights(data, &weight_of_read, k, contigs, cluster)
                 });
+                let sum_of_entropy = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
+                debug!("SoE\t{:.4}\t{:.4}\t{:.4}", sum_of_entropy, i, pick_prob);
+                // if sum_of_entropy < EP {
+                //     break;
+                // }
+                let mut is_ok = false;
+                let denom = sum_of_entropy + MINIMUM_PROB * datasize;
+                while !is_ok {
+                    is_ok = updates
+                        .iter_mut()
+                        .zip(weight_of_read.iter())
+                        .map(|(b, w)| {
+                            let frac = (entropy(w) + MINIMUM_PROB) / denom;
+                            let prob = (datasize * pick_prob * frac).min(1.);
+                            *b = rng.gen_bool(prob);
+                            *b
+                        })
+                        .fold(false, |p, q| p | q);
+                }
             }
             pick_prob *= PICK_PROB_STEP;
         }
