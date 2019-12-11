@@ -21,8 +21,8 @@ OUTPUT=./result/last_decompose_skew_sgd_momentum.txt
 # done
 
 
-./target/release/test_last_decompose_multiple \
-    100 0 40 0.5 0.5 >> ${OUTPUT}
+# ./target/release/test_last_decompose_multiple \
+#     100 0 40 0.5 0.5 >> ${OUTPUT}
 ./target/release/test_last_decompose_multiple \
     100 0 40 0.2 0.8 >> ${OUTPUT}
 
@@ -45,6 +45,7 @@ OUTPUT=./result/last_decompose_skew_sgd_momentum.txt
 #         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
 # done
 
+# ./target/release/test_last_decompose_multiple 300 4 50 0.5 0.5 >> ${OUTPUT}
 # ./target/release/test_last_decompose_multiple 300 4 50 0.2 0.8 >> ${OUTPUT}
 
 # TEST_NUM=300

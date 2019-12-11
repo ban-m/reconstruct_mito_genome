@@ -250,24 +250,9 @@ impl Factory {
         let mut buffer: Vec<_> = Vec::with_capacity(nodes.len());
         let nodes = self.cut_lightweight_loop(nodes, thr, rng, &mut buffer);
         assert!(buffer.is_empty());
-        // let nodes = if thr > 0.999 {
-        //     let nodes = self.cut_tip(nodes, 2, &mut buffer);
-        //     assert!(buffer.is_empty());
-        //     self.pick_largest_components(nodes, &mut buffer)
-        // } else {
-        //     self.pick_largest_components(nodes, &mut buffer)
-        // };
-        // eprintln!("THR:{}", thr);
         let nodes = self.cut_tip(nodes, 2, &mut buffer);
         assert!(buffer.is_empty());
-        let nodes = self.pick_largest_components(nodes, &mut buffer);
-        let nodes = match nodes {
-            Some(res) => res,
-            None => {
-                error!("THR:{}", thr);
-                return None;
-            }
-        };
+        let nodes = self.pick_largest_components(nodes, &mut buffer)?;
         let mut nodes = self.renaming_nodes(nodes);
         nodes.iter_mut().for_each(Kmer::finalize);
         Some(nodes)

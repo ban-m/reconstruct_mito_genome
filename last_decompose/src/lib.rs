@@ -35,9 +35,8 @@ const INIT_PICK_PROB: f64 = 0.05;
 const PICK_PROB_STEP: f64 = 1.2;
 const MINIMUM_PROB: f64 = 0.01;
 const LEARNING_RATE: f64 = 0.5;
-const MOMENT: f64 = 0.98;
+const MOMENT: f64 = 0.98; // <- Putative good parameter. 0.9 and 0.99 are not so good. 0.01 and 0.5 are very bad. 0.95 is so-so.
 const LOOP_NUM: usize = 4;
-const EP: f64 = 0.00000001;
 pub fn decompose(
     read: Vec<fasta::Record>,
     alignments: Vec<LastTAB>,
@@ -173,6 +172,121 @@ pub fn clustering_via_alignment(
     predictions
 }
 
+struct ModelFactory<'a> {
+    // Contig -> Unit -> Seqs
+    chunks: Vec<Vec<Vec<&'a [u8]>>>,
+    weights: Vec<Vec<Vec<f64>>>,
+    // Contig -> Unit
+    factories: Vec<Vec<Factory>>,
+    k: usize,
+}
+
+impl<'a> ModelFactory<'a> {
+    fn new(contigs: &[usize], data: &'a [ERead], k: usize) -> Self {
+        let mut chunks: Vec<Vec<Vec<&[u8]>>> = contigs.iter().map(|&e| vec![vec![]; e]).collect();
+        let weights: Vec<Vec<Vec<f64>>> = contigs.iter().map(|&e| vec![vec![]; e]).collect();
+        for read in data.into_iter() {
+            for chunk in read.seq.iter() {
+                chunks[chunk.contig()][chunk.unit()].push(chunk.bases());
+            }
+        }
+        let factories: Vec<Vec<_>> = contigs
+            .iter()
+            .map(|&e| (0..e).map(|_| Factory::new()).collect())
+            .collect();
+        Self {
+            chunks,
+            weights,
+            factories,
+            k,
+        }
+    }
+    fn generate_model(&mut self, ws: &[Vec<f64>], reads: &[ERead], cl: usize) -> Vec<Vec<DBGHMM>> {
+        for contig in self.weights.iter() {
+            assert!(!contig.is_empty());
+            for unit in contig.iter() {
+                assert!(unit.is_empty(), "{:?}", unit);
+            }
+        }
+        for (read, w) in reads.into_iter().zip(ws) {
+            for chunk in read.seq.iter() {
+                self.weights[chunk.contig()][chunk.unit()].push(w[cl]);
+            }
+        }
+        let k = self.k;
+        assert_eq!(self.weights.len(), self.factories.len());
+        assert_eq!(self.weights.len(), self.chunks.len());
+        let res: Vec<Vec<_>> = self
+            .chunks
+            .iter()
+            .zip(self.weights.iter())
+            .zip(self.factories.iter_mut())
+            .map(|((chunks, weights), fs)| {
+                assert_eq!(chunks.len(), weights.len());
+                assert_eq!(chunks.len(), fs.len());
+                chunks
+                    .par_iter()
+                    .zip(weights.par_iter())
+                    .zip(fs.par_iter_mut())
+                    .map(|((cs, w), f)| f.generate_with_weight(&cs, &w, k))
+                    .collect()
+            })
+            .collect();
+        for contig in self.weights.iter_mut() {
+            for unit in contig.iter_mut() {
+                unit.clear();
+            }
+        }
+        res
+    }
+    fn update_model(
+        &mut self,
+        ws: &[Vec<f64>],
+        mask: &[bool],
+        reads: &[ERead],
+        cl: usize,
+        models: &mut [Vec<DBGHMM>],
+    ) {
+        for contig in self.weights.iter() {
+            assert!(!contig.is_empty());
+            for unit in contig.iter() {
+                assert!(unit.is_empty(), "{:?}", unit);
+            }
+        }
+        for ((read, w), &b) in reads.into_iter().zip(ws).zip(mask) {
+            let w = if b { w[cl] } else { w[cl] };
+            for chunk in read.seq.iter() {
+                self.weights[chunk.contig()][chunk.unit()].push(w);
+            }
+        }
+        let k = self.k;
+        assert_eq!(self.weights.len(), self.factories.len());
+        assert_eq!(self.weights.len(), self.chunks.len());
+        assert_eq!(self.weights.len(), models.len());
+        self.chunks
+            .iter()
+            .zip(self.weights.iter())
+            .zip(self.factories.iter_mut())
+            .zip(models.iter_mut())
+            .for_each(|(((chunks, weights), fs), ms)| {
+                assert_eq!(chunks.len(), weights.len());
+                assert_eq!(chunks.len(), fs.len());
+                assert_eq!(chunks.len(), ms.len());
+                chunks
+                    .par_iter()
+                    .zip(weights.par_iter())
+                    .zip(fs.par_iter_mut())
+                    .zip(ms.par_iter_mut())
+                    .for_each(|(((cs, w), f), m)| *m = f.generate_with_weight(&cs, &w, k))
+            });
+        for contig in self.weights.iter_mut() {
+            for unit in contig.iter_mut() {
+                unit.clear();
+            }
+        }
+    }
+}
+
 const NUM_OF_BALL: usize = 100;
 fn construct_initial_weights(
     label: &[u8],
@@ -236,16 +350,11 @@ pub fn clustering(
             .fold(String::new(), |x, y| x + &y);
         debug!("{}", weights);
     }
-    // let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(4 * data.len() as u64);
-    // let choices: Vec<usize> = (0..cluster_num).collect();
     gammas
         .iter()
         .skip(border)
         .map(|gamma| {
             assert_eq!(gamma.len(), cluster_num);
-            // *choices
-            //     .choose_weighted(&mut rng, |&idx| gamma[idx])
-            //     .unwrap() as u8
             let (cl, _max): (u8, f64) = gamma.iter().enumerate().fold(
                 (0, -1.),
                 |(i, m), (j, &w)| if m < w { (j as u8, w) } else { (i, m) },
@@ -292,51 +401,43 @@ pub fn soft_clustering(
         .collect();
     assert!((ws.iter().sum::<f64>() - 1.).abs() < 0.0001);
     assert_eq!(ws.len(), cluster_num);
-    // Cluster -> Contig -> Unit
-    let mut models: Vec<Vec<_>> = (0..cluster_num)
-        .map(|cl| construct_with_weights(data, &weight_of_read, k, contigs, cl))
+    // Cluster -> Contig -> Unit -> DBG/Vec<CUnit>
+    let mut mf = ModelFactory::new(contigs, data, k);
+    let mut models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
+        .map(|cl| mf.generate_model(&weight_of_read, data, cl))
         .collect();
-    let mut beta = INIT_BETA;
-    loop {
-        let mut pick_prob = INIT_PICK_PROB;
+    let betas = (0..)
+        .map(|i| INIT_BETA * BETA_STEP.powi(i))
+        .take_while(|&e| e < 1.0)
+        .chain(vec![1.]);
+    let pick_probs: Vec<_> = (0..)
+        .map(|i| INIT_PICK_PROB * PICK_PROB_STEP.powi(i))
+        .take_while(|&e| e < 0.5)
+        .map(|pick_prob| (pick_prob, pick_prob.recip().floor() as usize * LOOP_NUM))
+        .flat_map(|(pick_prob, num)| vec![pick_prob; num])
+        .collect();
+    for beta in betas {
         let mut updates = vec![false; data.len()];
-        while pick_prob < 0.5 {
-            let loop_num = pick_prob.recip().floor() as usize * LOOP_NUM;
-            for i in 0..loop_num {
-                minibatch_sgd_by(
-                    &mut weight_of_read,
-                    &mut gammas,
-                    &mut moments,
-                    &mut ws,
-                    border,
-                    data,
-                    &models,
-                    &updates,
-                    beta,
-                );
-                let sum_of_entropy = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-                models.iter_mut().enumerate().for_each(|(cluster, model)| {
-                    *model = construct_with_weights(data, &weight_of_read, k, contigs, cluster)
-                });
-                debug!("SoE\t{:.8}\t{:.4}\t{:.4}", sum_of_entropy, i, pick_prob);
-                let denom = sum_of_entropy + MINIMUM_PROB * datasize;
-                loop {
-                    let is_ok = updates
-                        .iter_mut()
-                        .zip(weight_of_read.iter())
-                        .map(|(b, w)| {
-                            let frac = (entropy(w) + MINIMUM_PROB) / denom;
-                            let prob = (datasize * pick_prob * frac).min(1.);
-                            *b = rng.gen_bool(prob);
-                            *b
-                        })
-                        .fold(false, |p, q| p | q);
-                    if is_ok {
-                        break;
-                    }
-                }
-            }
-            pick_prob *= PICK_PROB_STEP;
+        for &pick_prob in &pick_probs {
+            let s = std::time::Instant::now();
+            minibatch_sgd_by(
+                &mut weight_of_read,
+                &mut gammas,
+                &mut moments,
+                &mut ws,
+                border,
+                data,
+                &models,
+                &updates,
+                beta,
+            );
+            let s2 = std::time::Instant::now();
+            updates_flags(&mut updates, &weight_of_read, &mut rng, pick_prob);
+            models.iter_mut().enumerate().for_each(|(cluster, model)| {
+                mf.update_model(&weight_of_read, &updates, data, cluster, model);
+            });
+            let s3 = std::time::Instant::now();
+            debug!("Update:{:?}, Reconstruct:{:?}", s2 - s, s3 - s2);
         }
         assert_eq!(weight_of_read.len(), answer.len() + label.len());
         {
@@ -346,18 +447,40 @@ pub fn soft_clustering(
                 .zip(answer.iter())
                 .filter(|&(weights, &ans)| weights.iter().all(|&g| g <= weights[ans as usize]))
                 .count();
-            info!("Correct\t{}\t{}", correct, answer.len());
             let acc = correct as f64 / answer.len() as f64;
             let pi: Vec<_> = ws.iter().map(|e| format!("{:.4}", e)).collect();
-            info!("LK\t{:.4}\t{}\t{}\t{}", 0., pi.join("\t"), beta, acc);
-        }
-        if beta >= 1.0 {
-            break;
-        } else {
-            beta = (beta * BETA_STEP).min(1.0);
+            let pi = pi.join("\t");
+            info!("LK\t{:.4}\t{}\t{}\t{}\t{}", 0., pi, beta, correct, acc);
         }
     }
     weight_of_read
+}
+
+fn updates_flags<R: Rng>(
+    updates: &mut [bool],
+    weight_of_read: &[Vec<f64>],
+    rng: &mut R,
+    pick_prob: f64,
+) {
+    let datasize = weight_of_read.len() as f64;
+    let sum_of_entropy = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
+    debug!("SoE\t{:.8}\t{:.4}", sum_of_entropy, pick_prob);
+    let denom = sum_of_entropy + MINIMUM_PROB * datasize;
+    loop {
+        let is_ok = updates
+            .iter_mut()
+            .zip(weight_of_read.iter())
+            .map(|(b, w)| {
+                let frac = (entropy(w) + MINIMUM_PROB) / denom;
+                let prob = (datasize * pick_prob * frac).min(1.);
+                *b = rng.gen_bool(prob);
+                *b
+            })
+            .fold(false, |p, q| p | q);
+        if is_ok {
+            break;
+        }
+    }
 }
 
 fn minibatch_sgd_by(
@@ -475,8 +598,8 @@ pub fn construct_with_weights(
         }
     }
     chunks
-        .into_iter()
-        .zip(weights.into_iter())
+        .into_par_iter()
+        .zip(weights.into_par_iter())
         .map(|(chunks, weights)| {
             let mut f = Factory::new();
             chunks
