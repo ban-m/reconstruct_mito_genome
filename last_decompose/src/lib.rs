@@ -235,16 +235,21 @@ pub fn clustering(
             .fold(String::new(), |x, y| x + &y);
         debug!("{}", weights);
     }
-    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(4 * data.len() as u64);
-    let choices: Vec<usize> = (0..cluster_num).collect();
+    // let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(4 * data.len() as u64);
+    // let choices: Vec<usize> = (0..cluster_num).collect();
     gammas
         .iter()
         .skip(border)
         .map(|gamma| {
-            assert_eq!(gamma.len(), choices.len());
-            *choices
-                .choose_weighted(&mut rng, |&idx| gamma[idx])
-                .unwrap() as u8
+            assert_eq!(gamma.len(), cluster_num);
+            // *choices
+            //     .choose_weighted(&mut rng, |&idx| gamma[idx])
+            //     .unwrap() as u8
+            let (cl, _max): (u8, f64) = gamma.iter().enumerate().fold(
+                (0, -1.),
+                |(i, m), (j, &w)| if m < w { (j as u8, w) } else { (i, m) },
+            );
+            cl
         })
         .collect()
 }
@@ -278,6 +283,7 @@ pub fn soft_clustering(
     // weight_of_read[i] = "the vector of each cluster for i-th read"
     let mut weight_of_read: Vec<Vec<f64>> =
         construct_initial_weights(label, forbidden, cluster_num, data.len());
+    let mut gammas: Vec<Vec<_>> = vec![vec![0.; cluster_num]; data.len()];
     let datasize = data.len() as f64;
     let mut ws: Vec<f64> = (0..cluster_num)
         .map(|i| weight_of_read.iter().map(|g| g[i]).sum::<f64>() / datasize)
@@ -299,36 +305,34 @@ pub fn soft_clustering(
                 let ws_gradient = data
                     .par_iter()
                     .zip(weight_of_read.par_iter_mut())
+                    .zip(gammas.par_iter_mut())
                     .zip(updates.par_iter())
                     .skip(border)
                     .filter(|&(_, &b)| b)
-                    .map(|((read, weights), _)| {
-                        let mut gammas = compute_log_probs(&models, &ws, &read)
-                            .iter()
-                            .map(|e| e * beta)
-                            .fold(Vec::with_capacity(cluster_num), |mut xs, x| {
-                                xs.push(x);
-                                xs
-                            });
-                        let w = utils::logsumexp(&gammas);
-                        gammas.iter_mut().for_each(|l| *l = (*l - w).exp());
-                        weights.iter_mut().zip(gammas.iter()).for_each(|(w, &g)| {
+                    .map(|(((read, weights), gamma), _)| {
+                        compute_log_probs(&models, &ws, &read, gamma);
+                        gamma.iter_mut().for_each(|g| *g = *g * beta);
+                        let w = utils::logsumexp(&gamma);
+                        gamma.iter_mut().for_each(|l| *l = (*l - w).exp());
+                        weights.iter_mut().zip(gamma.iter()).for_each(|(w, &g)| {
                             let gradient = g - *w;
                             *w += LEARNING_RATE * gradient;
                         });
-                        assert!((1. - gammas.iter().sum::<f64>()).abs() < 0.001);
+                        assert!((1. - gamma.iter().sum::<f64>()).abs() < 0.001);
                         assert!((1. - weights.iter().sum::<f64>()).abs() < 0.001);
-                        assert_eq!(gammas.len(), cluster_num);
-                        gammas
+                        assert_eq!(gamma.len(), cluster_num);
+                        gamma
                             .iter_mut()
                             .zip(ws.iter())
                             .for_each(|(g, &w)| *g = *g - w);
-                        gammas
+                        gamma
                     })
                     .fold(
                         || vec![0.; cluster_num],
                         |mut xs, ys| {
-                            xs.iter_mut().zip(ys.into_iter()).for_each(|(x, y)| *x += y);
+                            xs.iter_mut()
+                                .zip(ys.into_iter())
+                                .for_each(|(x, y)| *x += *y);
                             xs
                         },
                     )
@@ -352,7 +356,7 @@ pub fn soft_clustering(
                     *model = construct_with_weights(data, &weight_of_read, k, contigs, cluster)
                 });
                 let sum_of_entropy = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-                debug!("SoE\t{:.4}\t{:.4}\t{:.4}", sum_of_entropy, i, pick_prob);
+                debug!("SoE\t{:.8}\t{:.4}\t{:.4}", sum_of_entropy, i, pick_prob);
                 // if sum_of_entropy < EP {
                 //     break;
                 // }
@@ -389,6 +393,70 @@ pub fn soft_clustering(
             info!("LK\t{:.4}\t{}\t{}\t{}", next_lk, pi.join("\t"), beta, acc);
         }
         if beta >= 1.0 {
+            let pick_prob = 0.5;
+            let mut soe = datasize * (cluster_num as f64).ln();
+            for _ in 0..100 {
+                let sum_of_entropy = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
+                if (sum_of_entropy - soe).abs() < EP {
+                    break;
+                } else {
+                    soe = sum_of_entropy;
+                }
+                let denom = sum_of_entropy + MINIMUM_PROB * datasize;
+                updates
+                    .iter_mut()
+                    .zip(weight_of_read.iter())
+                    .for_each(|(b, w)| {
+                        let frac = (entropy(w) + MINIMUM_PROB) / denom;
+                        let prob = (datasize * pick_prob * frac).min(1.);
+                        *b = rng.gen_bool(prob);
+                    });
+                let ws_gradient = data
+                    .par_iter()
+                    .zip(weight_of_read.par_iter_mut())
+                    .zip(gammas.par_iter_mut())
+                    .zip(updates.par_iter())
+                    .skip(border)
+                    .filter(|&(_, &b)| b)
+                    .map(|(((read, weights), gamma), _)| {
+                        compute_log_probs(&models, &ws, &read, gamma);
+                        gamma.iter_mut().for_each(|g| *g = *g * beta);
+                        let w = utils::logsumexp(&gamma);
+                        gamma.iter_mut().for_each(|l| *l = (*l - w).exp());
+                        weights.iter_mut().zip(gamma.iter()).for_each(|(w, &g)| {
+                            let gradient = g - *w;
+                            *w += LEARNING_RATE * gradient;
+                        });
+                        gamma
+                            .iter_mut()
+                            .zip(ws.iter())
+                            .for_each(|(g, &w)| *g = *g - w);
+                        gamma
+                    })
+                    .fold(
+                        || vec![0.; cluster_num],
+                        |mut xs, ys| {
+                            xs.iter_mut()
+                                .zip(ys.into_iter())
+                                .for_each(|(x, y)| *x += *y);
+                            xs
+                        },
+                    )
+                    .reduce(
+                        || vec![0.; cluster_num],
+                        |mut xs, ys| {
+                            xs.iter_mut().zip(ys.into_iter()).for_each(|(x, y)| *x += y);
+                            xs
+                        },
+                    );
+                ws.iter_mut().zip(ws_gradient).for_each(|(w, gradient)| {
+                    let gradient = gradient / datasize;
+                    *w += gradient * LEARNING_RATE;
+                });
+                models.iter_mut().enumerate().for_each(|(cluster, model)| {
+                    *model = construct_with_weights(data, &weight_of_read, k, contigs, cluster)
+                });
+            }
             break;
         } else {
             beta = (beta * BETA_STEP).min(1.0);
@@ -397,13 +465,16 @@ pub fn soft_clustering(
     weight_of_read
 }
 
-fn compute_log_probs(models: &[Vec<Vec<DBGHMM>>], ws: &[f64], read: &ERead) -> Vec<f64> {
+fn compute_log_probs(models: &[Vec<Vec<DBGHMM>>], ws: &[f64], read: &ERead, gammas: &mut Vec<f64>) {
     assert_eq!(models.len(), ws.len());
+    assert_eq!(models.len(), gammas.len());
     models
         .iter()
         .zip(ws.iter())
-        .map(|(model, w)| {
-            read.seq
+        .zip(gammas.iter_mut())
+        .for_each(|((model, w), g)| {
+            *g = read
+                .seq
                 .iter()
                 .map(|c| {
                     let model = &model[c.contig()][c.unit()];
@@ -412,8 +483,7 @@ fn compute_log_probs(models: &[Vec<Vec<DBGHMM>>], ws: &[f64], read: &ERead) -> V
                 })
                 .sum::<f64>()
                 + w.ln()
-        })
-        .collect()
+        });
 }
 
 fn offset(x: f64, a: f64, b: f64) -> f64 {
@@ -478,10 +548,13 @@ pub fn likelihood_of_assignments(
 }
 
 fn likelihood_of_models(models: &[Vec<Vec<DBGHMM>>], data: &[ERead], ws: &[f64]) -> f64 {
+    let cluster_num = models.len();
+    let mut gammas: Vec<_> = vec![vec![0.; cluster_num]; data.len()];
     data.par_iter()
-        .map(|read| {
-            let log_ms = compute_log_probs(&models, &ws, &read);
-            utils::logsumexp(&log_ms)
+        .zip(gammas.par_iter_mut())
+        .map(|(read, gs)| {
+            compute_log_probs(&models, &ws, &read, gs);
+            utils::logsumexp(&gs)
         })
         .sum::<f64>()
 }

@@ -3,14 +3,24 @@
 #$ -N DecMult
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/last_decompose_multi_sgd.log
-#$ -o ./logfiles/last_decompose_multi_sgd.out
+#$ -e ./logfiles/last_decompose_multi_sgd_pick.log
+#$ -o ./logfiles/last_decompose_multi_sgd_pick.out
 #$ -V
 #$ -m e
 set -ue
+OUTPUT=./result/last_decompse_multi_sgd_pick.txt
 TEST_NUM=300
 COVERAGE=12
 PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
+for seed in 10 20
+do
+    ./target/release/test_last_decompose_multiple \
+        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ./result/last_decompse_multi_sgd.txt
+done
+
+TEST_NUM=300
+COVERAGE=12
+PROBS="0.4 0.1 0.1 0.1 0.2 0.1"
 for seed in 10 20 30 40 50
 do
     ./target/release/test_last_decompose_multiple \
