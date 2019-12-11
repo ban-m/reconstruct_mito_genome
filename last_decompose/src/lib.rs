@@ -299,71 +299,26 @@ pub fn soft_clustering(
         let mut pick_prob = INIT_PICK_PROB;
         let mut updates = vec![false; data.len()];
         while pick_prob < 0.5 {
-            debug!("Prob:{:.4}", pick_prob);
             let loop_num = pick_prob.recip().floor() as usize * LOOP_NUM;
             for i in 0..loop_num {
-                let ws_gradient = data
-                    .par_iter()
-                    .zip(weight_of_read.par_iter_mut())
-                    .zip(gammas.par_iter_mut())
-                    .zip(updates.par_iter())
-                    .skip(border)
-                    .filter(|&(_, &b)| b)
-                    .map(|(((read, weights), gamma), _)| {
-                        compute_log_probs(&models, &ws, &read, gamma);
-                        gamma.iter_mut().for_each(|g| *g = *g * beta);
-                        let w = utils::logsumexp(&gamma);
-                        gamma.iter_mut().for_each(|l| *l = (*l - w).exp());
-                        weights.iter_mut().zip(gamma.iter()).for_each(|(w, &g)| {
-                            let gradient = g - *w;
-                            *w += LEARNING_RATE * gradient;
-                        });
-                        assert!((1. - gamma.iter().sum::<f64>()).abs() < 0.001);
-                        assert!((1. - weights.iter().sum::<f64>()).abs() < 0.001);
-                        assert_eq!(gamma.len(), cluster_num);
-                        gamma
-                            .iter_mut()
-                            .zip(ws.iter())
-                            .for_each(|(g, &w)| *g = *g - w);
-                        gamma
-                    })
-                    .fold(
-                        || vec![0.; cluster_num],
-                        |mut xs, ys| {
-                            xs.iter_mut()
-                                .zip(ys.into_iter())
-                                .for_each(|(x, y)| *x += *y);
-                            xs
-                        },
-                    )
-                    .reduce(
-                        || vec![0.; cluster_num],
-                        |mut xs, ys| {
-                            xs.iter_mut().zip(ys.into_iter()).for_each(|(x, y)| *x += y);
-                            xs
-                        },
-                    );
-                assert_eq!(ws_gradient.len(), cluster_num);
-                assert!(ws_gradient.iter().sum::<f64>().abs() < 0.0001);
-                ws.iter_mut().zip(ws_gradient).for_each(|(w, gradient)| {
-                    let gradient = gradient / datasize;
-                    debug!("PI move:{:.4}", gradient * LEARNING_RATE);
-                    *w += gradient * LEARNING_RATE;
-                });
-                assert_eq!(ws.len(), cluster_num);
-                assert!((1. - ws.iter().sum::<f64>()).abs() < 0.001);
+                minibatch_sgd_by(
+                    &mut weight_of_read,
+                    &mut gammas,
+                    &mut ws,
+                    border,
+                    data,
+                    &models,
+                    &updates,
+                    beta,
+                );
+                let sum_of_entropy = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
                 models.iter_mut().enumerate().for_each(|(cluster, model)| {
                     *model = construct_with_weights(data, &weight_of_read, k, contigs, cluster)
                 });
-                let sum_of_entropy = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
                 debug!("SoE\t{:.8}\t{:.4}\t{:.4}", sum_of_entropy, i, pick_prob);
-                // if sum_of_entropy < EP {
-                //     break;
-                // }
-                let mut is_ok = false;
                 let denom = sum_of_entropy + MINIMUM_PROB * datasize;
-                while !is_ok {
-                    is_ok = updates
+                loop {
+                    let is_ok = updates
                         .iter_mut()
                         .zip(weight_of_read.iter())
                         .map(|(b, w)| {
@@ -373,12 +328,13 @@ pub fn soft_clustering(
                             *b
                         })
                         .fold(false, |p, q| p | q);
+                    if is_ok {
+                        break;
+                    }
                 }
             }
             pick_prob *= PICK_PROB_STEP;
         }
-        // let next_lk = likelihood_of_models(&models, &data, &ws);
-        let next_lk = 0.;
         assert_eq!(weight_of_read.len(), answer.len() + label.len());
         {
             let correct = weight_of_read
@@ -390,7 +346,7 @@ pub fn soft_clustering(
             info!("Correct\t{}\t{}", correct, answer.len());
             let acc = correct as f64 / answer.len() as f64;
             let pi: Vec<_> = ws.iter().map(|e| format!("{:.4}", e)).collect();
-            info!("LK\t{:.4}\t{}\t{}\t{}", next_lk, pi.join("\t"), beta, acc);
+            info!("LK\t{:.4}\t{}\t{}\t{}", 0., pi.join("\t"), beta, acc);
         }
         if beta >= 1.0 {
             break;
@@ -399,6 +355,69 @@ pub fn soft_clustering(
         }
     }
     weight_of_read
+}
+
+fn minibatch_sgd_by(
+    weight_of_read: &mut [Vec<f64>],
+    gammas: &mut [Vec<f64>],
+    ws: &mut [f64],
+    border: usize,
+    data: &[ERead],
+    models: &[Vec<Vec<DBGHMM>>],
+    updates: &[bool],
+    beta: f64,
+) {
+    let cluster_num = models.len();
+    let datasisze = data.len() as f64;
+    let ws_gradient = data
+        .par_iter()
+        .zip(weight_of_read.par_iter_mut())
+        .zip(gammas.par_iter_mut())
+        .zip(updates.par_iter())
+        .skip(border)
+        .filter(|&(_, &b)| b)
+        .map(|(((read, weights), gamma), _)| {
+            compute_log_probs(&models, &ws, &read, gamma);
+            gamma.iter_mut().for_each(|g| *g = *g * beta);
+            let w = utils::logsumexp(&gamma);
+            gamma.iter_mut().for_each(|l| *l = (*l - w).exp());
+            weights.iter_mut().zip(gamma.iter()).for_each(|(w, &g)| {
+                let gradient = g - *w;
+                *w += LEARNING_RATE * gradient;
+            });
+            assert!((1. - gamma.iter().sum::<f64>()).abs() < 0.001);
+            assert!((1. - weights.iter().sum::<f64>()).abs() < 0.001);
+            assert_eq!(gamma.len(), cluster_num);
+            gamma
+                .iter_mut()
+                .zip(ws.iter())
+                .for_each(|(g, &w)| *g = *g - w);
+            gamma
+        })
+        .fold(
+            || vec![0.; cluster_num],
+            |mut xs, ys| {
+                xs.iter_mut()
+                    .zip(ys.into_iter())
+                    .for_each(|(x, y)| *x += *y);
+                xs
+            },
+        )
+        .reduce(
+            || vec![0.; cluster_num],
+            |mut xs, ys| {
+                xs.iter_mut().zip(ys.into_iter()).for_each(|(x, y)| *x += y);
+                xs
+            },
+        );
+    assert_eq!(ws_gradient.len(), cluster_num);
+    assert!(ws_gradient.iter().sum::<f64>().abs() < 0.0001);
+    ws.iter_mut().zip(ws_gradient).for_each(|(w, gradient)| {
+        let gradient = gradient / datasize;
+        *w += gradient * LEARNING_RATE;
+    });
+    assert_eq!(ws.len(), cluster_num);
+    assert!((1. - ws.iter().sum::<f64>()).abs() < 0.001);
 }
 
 fn compute_log_probs(models: &[Vec<Vec<DBGHMM>>], ws: &[f64], read: &ERead, gammas: &mut Vec<f64>) {
