@@ -35,6 +35,7 @@ const INIT_PICK_PROB: f64 = 0.05;
 const PICK_PROB_STEP: f64 = 1.2;
 const MINIMUM_PROB: f64 = 0.01;
 const LEARNING_RATE: f64 = 0.5;
+const MOMENT: f64 = 0.98;
 const LOOP_NUM: usize = 4;
 const EP: f64 = 0.00000001;
 pub fn decompose(
@@ -284,6 +285,7 @@ pub fn soft_clustering(
     let mut weight_of_read: Vec<Vec<f64>> =
         construct_initial_weights(label, forbidden, cluster_num, data.len());
     let mut gammas: Vec<Vec<_>> = vec![vec![0.; cluster_num]; data.len()];
+    let mut moments: Vec<Vec<_>> = vec![vec![1. / cluster_num as f64; cluster_num]; data.len()];
     let datasize = data.len() as f64;
     let mut ws: Vec<f64> = (0..cluster_num)
         .map(|i| weight_of_read.iter().map(|g| g[i]).sum::<f64>() / datasize)
@@ -304,6 +306,7 @@ pub fn soft_clustering(
                 minibatch_sgd_by(
                     &mut weight_of_read,
                     &mut gammas,
+                    &mut moments,
                     &mut ws,
                     border,
                     data,
@@ -360,6 +363,7 @@ pub fn soft_clustering(
 fn minibatch_sgd_by(
     weight_of_read: &mut [Vec<f64>],
     gammas: &mut [Vec<f64>],
+    moments: &mut [Vec<f64>],
     ws: &mut [f64],
     border: usize,
     data: &[ERead],
@@ -368,30 +372,38 @@ fn minibatch_sgd_by(
     beta: f64,
 ) {
     let cluster_num = models.len();
-    let datasisze = data.len() as f64;
+    let datasize = data.len() as f64;
     let ws_gradient = data
         .par_iter()
         .zip(weight_of_read.par_iter_mut())
         .zip(gammas.par_iter_mut())
+        .zip(moments.par_iter_mut())
         .zip(updates.par_iter())
         .skip(border)
         .filter(|&(_, &b)| b)
-        .map(|(((read, weights), gamma), _)| {
+        .map(|((((read, weights), gamma), moment), _)| {
             compute_log_probs(&models, &ws, &read, gamma);
             gamma.iter_mut().for_each(|g| *g = *g * beta);
             let w = utils::logsumexp(&gamma);
             gamma.iter_mut().for_each(|l| *l = (*l - w).exp());
-            weights.iter_mut().zip(gamma.iter()).for_each(|(w, &g)| {
-                let gradient = g - *w;
+            assert!((1. - gamma.iter().sum::<f64>()).abs() < 0.001);
+            moment.iter_mut().zip(gamma.iter()).for_each(|(m, &g)| {
+                let gradient = g - *m;
+                *m += MOMENT * gradient;
+            });
+            assert!((1. - moment.iter().sum::<f64>()).abs() < 0.001);
+            weights.iter_mut().zip(moment.iter()).for_each(|(w, &m)| {
+                let gradient = m - *w;
                 *w += LEARNING_RATE * gradient;
             });
-            assert!((1. - gamma.iter().sum::<f64>()).abs() < 0.001);
             assert!((1. - weights.iter().sum::<f64>()).abs() < 0.001);
             assert_eq!(gamma.len(), cluster_num);
+            // Convert gamma into moment of PI.
             gamma
                 .iter_mut()
                 .zip(ws.iter())
-                .for_each(|(g, &w)| *g = *g - w);
+                .zip(moment.iter())
+                .for_each(|((g, &w), &m)| *g = m - w);
             gamma
         })
         .fold(
