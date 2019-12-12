@@ -3,8 +3,8 @@
 #$ -N DecTwo
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/last_decompose_sgd.log
-#$ -o ./logfiles/last_decompose_sgd.log
+#$ -e ./logfiles/last_decompose_sgd_g.log
+#$ -o ./logfiles/last_decompose_sgd_g.log
 #$ -V
 #$ -m e
 set -ue
@@ -23,8 +23,8 @@ echo "-----start-----" >> ${OUTPUT}
 
 # ./target/release/test_last_decompose_multiple \
 #     100 0 40 0.5 0.5 >> ${OUTPUT} 2> ./logfiles/last_decompose_sgd_11.log
-./target/release/test_last_decompose_multiple \
-    100 0 40 0.2 0.8 >> ${OUTPUT} 2> ./logfiles/last_decompose_sgd_14.log 
+# ./target/release/test_last_decompose_multiple \
+#     100 0 40 0.2 0.8 >> ${OUTPUT} 2> ./logfiles/last_decompose_sgd_14.log 
 
 # TEST_NUM=100
 # COVERAGE=0
@@ -45,7 +45,7 @@ echo "-----start-----" >> ${OUTPUT}
 # done
 
 # ./target/release/test_last_decompose_multiple 300 4 50 0.5 0.5 >> ${OUTPUT}
-# ./target/release/test_last_decompose_multiple 300 4 50 0.2 0.8 >> ${OUTPUT}
+./target/release/test_last_decompose_multiple 300 4 50 0.2 0.8 >> ${OUTPUT}
 
 # TEST_NUM=300
 # COVERAGE=4

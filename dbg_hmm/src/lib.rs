@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 #![feature(test)]
 //! A tiny implementation for de Bruijn graph with Hidden Markov model.
 //! Currently, this implementation is minimal. In other words, it exposes only one struct with just two methods:
@@ -84,15 +85,12 @@ impl std::fmt::Display for DBGHMM {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default)]
 pub struct Factory {
     inner: HashMap<Vec<u8>, (f64, usize)>,
     is_safe: Vec<bool>,
     temp_index: Vec<usize>,
     edges: Vec<Vec<usize>>,
-    fu: find_union::FindUnion,
-    dfs_stack: Vec<usize>,
-    dfs_flags: Vec<u8>,
 }
 
 impl Factory {
@@ -104,18 +102,12 @@ impl Factory {
         self.temp_index.clear();
         self.is_safe.clear();
         self.edges.clear();
-        self.fu.clear();
-        self.dfs_flags.clear();
-        self.dfs_stack.clear();
     }
     fn is_empty(&self) -> bool {
         self.inner.is_empty()
             && self.is_safe.is_empty()
             && self.temp_index.is_empty()
             && self.edges.is_empty()
-            && self.fu.is_empty()
-            && self.dfs_stack.is_empty()
-            && self.dfs_flags.is_empty()
     }
     pub fn generate(&mut self, dataset: &[Vec<u8>], k: usize) -> DBGHMM {
         // let counter = &mut self.inner;
@@ -272,18 +264,17 @@ impl Factory {
     ) -> Option<Vec<Kmer>> {
         assert!(self.temp_index.is_empty());
         assert!(self.is_safe.is_empty());
-        assert!(self.fu.is_empty());
-        self.fu.refresh(nodes.len());
+        let mut fu = find_union::FindUnion::new(nodes.len());
         for (from, n) in nodes.iter().enumerate() {
             for &to in n.edges.iter().filter_map(|e| e.as_ref()) {
-                self.fu.unite(from, to);
+                fu.unite(from, to);
             }
         }
         let max_group_and_size = (0..nodes.len())
             .filter_map(|e| {
-                let parent = self.fu.find(e).unwrap();
+                let parent = fu.find(e).unwrap();
                 if parent == e {
-                    self.fu.size(e).map(|s| (e, s))
+                    fu.size(e).map(|s| (e, s))
                 } else {
                     None
                 }
@@ -299,13 +290,13 @@ impl Factory {
         let mut index = 0;
         for i in 0..nodes.len() {
             self.temp_index.push(index);
-            index += (self.fu.find(i).unwrap() == max_group) as usize;
+            index += (fu.find(i).unwrap() == max_group) as usize;
         }
         let mut index = nodes.len();
         while let Some(mut node) = nodes.pop() {
             index -= 1;
-            if self.fu.find(index).unwrap() == max_group {
-                node.remove_if_not(&mut self.fu, max_group);
+            if fu.find(index).unwrap() == max_group {
+                node.remove_if_not(&mut fu, max_group);
                 node.rename_by(&self.temp_index);
                 buffer.push(node);
             }
@@ -313,8 +304,17 @@ impl Factory {
         buffer.reverse();
         std::mem::swap(buffer, &mut nodes);
         self.temp_index.clear();
-        self.fu.clear();
         Some(nodes)
+    }
+    fn select_supported_node(edges: &[Vec<usize>], nodes: usize, is_safe: &[bool]) -> Vec<bool> {
+        let mut is_supported = vec![false; nodes];
+        for (from, edges) in edges.iter().enumerate() {
+            for &to in edges.iter() {
+                is_supported[to] |= is_safe[from];
+                is_supported[from] |= is_safe[to];
+            }
+        }
+        is_supported
     }
     fn cut_lightweight_loop<R: Rng>(
         &mut self,
@@ -363,9 +363,6 @@ impl Factory {
     fn cut_tip(&mut self, mut nodes: Vec<Kmer>, t: usize, buffer: &mut Vec<Kmer>) -> Vec<Kmer> {
         assert!(self.is_safe.is_empty());
         assert!(self.edges.is_empty());
-        assert!(self.temp_index.is_empty());
-        assert!(self.dfs_stack.is_empty());
-        assert!(self.dfs_flags.is_empty());
         let pseudo_node = nodes.len();
         (0..nodes.len() + 1).for_each(|_| self.edges.push(vec![]));
         nodes.iter().for_each(|e| self.is_safe.push(e.is_tail));
@@ -403,7 +400,7 @@ impl Factory {
             .into_iter()
             .zip(is_supported_backward)
             .zip(self.is_safe.iter_mut())
-            .for_each(|((forward, backward), is_safe)| *is_safe |= forward & backward);
+            .for_each(|((forward, backward), is_safe)| *is_safe = (forward & backward) | *is_safe);
         assert!(self.temp_index.is_empty());
         let mut idx = 0;
         for &b in &self.is_safe {
@@ -425,8 +422,6 @@ impl Factory {
         self.is_safe.clear();
         self.temp_index.clear();
         self.edges.clear();
-        self.dfs_stack.clear();
-        self.dfs_flags.clear();
         buffer.clear();
         nodes
     }
@@ -436,10 +431,11 @@ impl Factory {
         let edges = &self.edges;
         let t = t as i32;
         let dist_to_root = Self::dist_to_root(edges, nodes);
-        let bad_list = (0..nodes)
+        let bad_list: Vec<_> = (0..nodes)
             .filter(|&e| edges[e].len() > 1)
             .flat_map(|e| edges[e].iter().filter(|&&to| dist_to_root[to] <= t))
-            .copied();
+            .copied()
+            .collect();
         // If arrived, true.
         let mut is_arrived: Vec<bool> = vec![false; nodes];
         for i in bad_list {
@@ -500,17 +496,6 @@ impl Factory {
             }
         }
         dist_to_root
-    }
-    #[allow(dead_code)]
-    fn select_supported_node(edges: &[Vec<usize>], nodes: usize, is_safe: &[bool]) -> Vec<bool> {
-        let mut is_supported = vec![false; nodes];
-        for (from, edges) in edges.iter().enumerate() {
-            for &to in edges.iter() {
-                is_supported[to] |= is_safe[from];
-                is_supported[from] |= is_safe[to];
-            }
-        }
-        is_supported
     }
     fn calc_thr(&self) -> f64 {
         let ave = self.inner.values().map(|e| e.0).sum::<f64>() / self.inner.len() as f64;
@@ -681,17 +666,11 @@ impl Factory {
         let is_safe = vec![];
         let temp_index = vec![];
         let edges = vec![];
-        let fu = find_union::FindUnion::new(0);
-        let dfs_stack = vec![];
-        let dfs_flags = vec![];
         Self {
             inner,
             is_safe,
             temp_index,
             edges,
-            fu,
-            dfs_stack,
-            dfs_flags,
         }
     }
 }
@@ -746,6 +725,7 @@ impl DeBruijnGraphHiddenMarkovModel {
         updates.iter_mut().for_each(|e| *e = *e * c);
         (c, d)
     }
+
     #[cfg(target_feature = "sse")]
     fn is_non_zero(idx: usize, xs: &[f64]) -> bool {
         xs[idx * 4..(idx + 1) * 4].iter().any(|&e| e > 0.00001)
@@ -918,7 +898,6 @@ impl std::ops::Mul<f64> for Node {
     }
 }
 
-#[allow(dead_code)]
 impl Node {
     fn sum(xs: &[Node]) -> f64 {
         xs.iter().map(Node::fold).sum::<f64>()
