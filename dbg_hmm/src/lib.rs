@@ -85,12 +85,13 @@ impl std::fmt::Display for DBGHMM {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone)]
 pub struct Factory {
     inner: HashMap<Vec<u8>, (f64, usize)>,
     is_safe: Vec<bool>,
     temp_index: Vec<usize>,
     edges: Vec<Vec<usize>>,
+    fu: find_union::FindUnion,
 }
 
 impl Factory {
@@ -102,12 +103,14 @@ impl Factory {
         self.temp_index.clear();
         self.is_safe.clear();
         self.edges.clear();
+        self.fu.clear();
     }
     fn is_empty(&self) -> bool {
         self.inner.is_empty()
             && self.is_safe.is_empty()
             && self.temp_index.is_empty()
             && self.edges.is_empty()
+            && self.fu.is_empty()
     }
     pub fn generate(&mut self, dataset: &[Vec<u8>], k: usize) -> DBGHMM {
         // let counter = &mut self.inner;
@@ -264,17 +267,18 @@ impl Factory {
     ) -> Option<Vec<Kmer>> {
         assert!(self.temp_index.is_empty());
         assert!(self.is_safe.is_empty());
-        let mut fu = find_union::FindUnion::new(nodes.len());
+        assert!(self.fu.is_empty());
+        self.fu.refresh(nodes.len());
         for (from, n) in nodes.iter().enumerate() {
             for &to in n.edges.iter().filter_map(|e| e.as_ref()) {
-                fu.unite(from, to);
+                self.fu.unite(from, to);
             }
         }
         let max_group_and_size = (0..nodes.len())
             .filter_map(|e| {
-                let parent = fu.find(e).unwrap();
+                let parent = self.fu.find(e).unwrap();
                 if parent == e {
-                    fu.size(e).map(|s| (e, s))
+                    self.fu.size(e).map(|s| (e, s))
                 } else {
                     None
                 }
@@ -290,13 +294,13 @@ impl Factory {
         let mut index = 0;
         for i in 0..nodes.len() {
             self.temp_index.push(index);
-            index += (fu.find(i).unwrap() == max_group) as usize;
+            index += (self.fu.find(i).unwrap() == max_group) as usize;
         }
         let mut index = nodes.len();
         while let Some(mut node) = nodes.pop() {
             index -= 1;
-            if fu.find(index).unwrap() == max_group {
-                node.remove_if_not(&mut fu, max_group);
+            if self.fu.find(index).unwrap() == max_group {
+                node.remove_if_not(&mut self.fu, max_group);
                 node.rename_by(&self.temp_index);
                 buffer.push(node);
             }
@@ -304,6 +308,7 @@ impl Factory {
         buffer.reverse();
         std::mem::swap(buffer, &mut nodes);
         self.temp_index.clear();
+        self.fu.clear();
         Some(nodes)
     }
     fn select_supported_node(edges: &[Vec<usize>], nodes: usize, is_safe: &[bool]) -> Vec<bool> {
@@ -666,11 +671,13 @@ impl Factory {
         let is_safe = vec![];
         let temp_index = vec![];
         let edges = vec![];
+        let fu = find_union::FindUnion::new(0);
         Self {
             inner,
             is_safe,
             temp_index,
             edges,
+            fu,
         }
     }
 }

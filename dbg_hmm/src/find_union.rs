@@ -1,4 +1,4 @@
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct FindUnion {
     /// The vector of parents. If parents[i] = j, the j-th node represnets
     /// the component which i-th node redides.
@@ -12,6 +12,7 @@ pub struct FindUnion {
 }
 
 impl FindUnion {
+    /// Create a new instance of FindUnion tree.
     pub fn new(size: usize) -> Self {
         let parents = (0..size).collect();
         let sizes = (0..size).map(|_| Some(1)).collect();
@@ -20,6 +21,26 @@ impl FindUnion {
             parents,
             sizes,
             length,
+        }
+    }
+    /// Clear the contents of the instance.
+    pub fn clear(&mut self) {
+        self.parents.clear();
+        self.sizes.clear();
+        self.length = 0;
+    }
+    /// Check if the contents is empty.
+    pub fn is_empty(&self) -> bool {
+        (self.length == 0) && self.parents.is_empty() && self.sizes.is_empty()
+    }
+    /// Recreate the instance. Note that it would erase all the exiting contents of this instance.
+    pub fn refresh(&mut self, size: usize) {
+        self.clear();
+        assert!(self.is_empty());
+        self.length = size;
+        for i in 0..size {
+            self.parents.push(i);
+            self.sizes.push(Some(1))
         }
     }
     /// Find the representative of nodes [index].

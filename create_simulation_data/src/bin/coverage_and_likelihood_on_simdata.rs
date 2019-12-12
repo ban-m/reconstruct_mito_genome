@@ -45,13 +45,14 @@ fn coverage_and_likelihood(
     let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(reads.len() as u64);
     (0..)
         .map(|e| e as f64 * 0.05)
-        .take_while(|&p| p < 1.0)
+        .take_while(|&p| p < 0.9)
         .flat_map(|pick_prob| {
             let rep_num = pick_prob.recip() as usize;
             (0..rep_num)
                 .flat_map(|_| {
                     let (train, test): (Vec<_>, Vec<_>) =
                         data.iter().cloned().partition(|_| rng.gen_bool(pick_prob));
+                    let test: Vec<_> = test.into_iter().filter(|_| rng.gen_bool(0.1)).collect();
                     cov_and_lk(&train, &test, contig)
                 })
                 .collect::<Vec<_>>()
