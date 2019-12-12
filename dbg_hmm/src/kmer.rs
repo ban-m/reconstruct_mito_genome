@@ -104,10 +104,10 @@ impl Kmer {
         }
     }
     // Remove all the edges to unsuppoeted nodes.
-    pub fn remove_if_not_supported(&mut self, is_supported: &[bool]) {
+    pub fn remove_if_not_supported(&mut self, is_supported: &[u8]) {
         for i in 0..4 {
             if let Some(res) = self.edges[i] {
-                if !is_supported[res] {
+                if is_supported[res] != 1{
                     self.edges[i] = None;
                     self.tot -= self.transition[i];
                     self.weight[i] -= self.transition[i];

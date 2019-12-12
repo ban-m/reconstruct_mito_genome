@@ -238,11 +238,6 @@ mod tests {
         del: 0.065,
         ins: 0.065,
     };
-    const PAC_BIO: Profile = Profile {
-        sub: 0.03,
-        del: 0.04,
-        ins: 0.07,
-    };
     #[test]
     fn forward_check() {
         //env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
