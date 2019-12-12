@@ -29,7 +29,7 @@ use rand_xoshiro::Xoshiro256StarStar;
 const A: f64 = -0.245;
 const B: f64 = 3.6;
 const INIT_BETA: f64 = 0.02;
-const BETA_STEP: f64 = 1.2;
+const BETA_STEP: f64 = 1.3;
 const MAX_BETA: f64 = 1.;
 const INIT_PICK_PROB: f64 = 0.02;
 const PICK_PROB_STEP: f64 = 1.05;
@@ -410,18 +410,17 @@ pub fn soft_clustering(
         .map(|i| INIT_PICK_PROB * PICK_PROB_STEP.powi(i))
         .take_while(|&e| e < MAX_PICK_PROB)
         .map(|pick_prob| (pick_prob, pick_prob.recip().floor() as usize * LOOP_NUM))
-        .flat_map(|(pick_prob, num)| {
-            debug!("Loop\t{}\t{:.4}", num, pick_prob);
-            vec![pick_prob; num]
-        })
+        .flat_map(|(pick_prob, num)| vec![pick_prob; num])
         .collect();
     let mut updates = vec![false; data.len()];
     for beta in betas {
         for &pick_prob in &pick_probs {
+            let s = std::time::Instant::now();
             updates_flags(&mut updates, &weight_of_read, &mut rng, pick_prob, beta);
             models.iter_mut().enumerate().for_each(|(cluster, model)| {
                 mf.update_model(&weight_of_read, &updates, data, cluster, model);
             });
+            let s2 = std::time::Instant::now();
             minibatch_sgd_by(
                 &mut weight_of_read,
                 &mut gammas,
@@ -433,30 +432,11 @@ pub fn soft_clustering(
                 &updates,
                 beta,
             );
+            let s3 = std::time::Instant::now();
+            debug!("Time\t{}\t{}", (s2 - s).as_millis(), (s3 - s2).as_millis());
         }
         report(&weight_of_read, border, answer, &ws, &models, data, beta);
     }
-    // let mut soe = 100;
-    // let pick_prob = 0.01;
-    // while soe > 0.001 {
-    //     updates_flags(&mut updates, &weight_of_read, &mut rng, pick_prob, beta);
-    //     models.iter_mut().enumerate().for_each(|(cluster, model)| {
-    //         mf.update_model(&weight_of_read, &updates, data, cluster, model);
-    //     });
-    //     minibatch_sgd_by(
-    //         &mut weight_of_read,
-    //         &mut gammas,
-    //         &mut moments,
-    //         &mut ws,
-    //         border,
-    //         data,
-    //         &models,
-    //         &updates,
-    //         beta,
-    //     );
-    //     soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-    // }
-    // report(&weight_of_read, border, answer, &ws, &models, data, beta);
     weight_of_read
 }
 
