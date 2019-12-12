@@ -27,16 +27,20 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
-const A: f64 = -0.2446704;
-const B: f64 = 3.6172581;
+// const A: f64 = -0.2446704;
+// const B: f64 = 3.6172581;
+const A: f64 = -0.245;
+const B: f64 = 3.6;
 const INIT_BETA: f64 = 0.02;
 const BETA_STEP: f64 = 1.2;
+const MAX_BETA: f64 = 1.;
 const INIT_PICK_PROB: f64 = 0.05;
 const PICK_PROB_STEP: f64 = 1.2;
+const MAX_PICK_PROB: f64 = 0.5;
 const MINIMUM_PROB: f64 = 0.01;
 const LEARNING_RATE: f64 = 0.5;
 const MOMENT: f64 = 0.98; // <- Putative good parameter. 0.9 and 0.99 are not so good. 0.01 and 0.5 are very bad. 0.95 is so-so.
-const LOOP_NUM: usize = 4;
+const LOOP_NUM: usize = 5;
 pub fn decompose(
     read: Vec<fasta::Record>,
     alignments: Vec<LastTAB>,
@@ -242,7 +246,7 @@ impl<'a> ModelFactory<'a> {
     fn update_model(
         &mut self,
         ws: &[Vec<f64>],
-        mask: &[bool],
+        _mask: &[bool],
         reads: &[ERead],
         cl: usize,
         models: &mut [Vec<DBGHMM>],
@@ -253,8 +257,8 @@ impl<'a> ModelFactory<'a> {
                 assert!(unit.is_empty(), "{:?}", unit);
             }
         }
-        for ((read, w), &b) in reads.into_iter().zip(ws).zip(mask) {
-            let w = if b { w[cl] } else { w[cl] };
+        for (read, w) in reads.into_iter().zip(ws) {
+            let w = w[cl];
             for chunk in read.seq.iter() {
                 self.weights[chunk.contig()][chunk.unit()].push(w);
             }
@@ -340,22 +344,22 @@ pub fn clustering(
     answer: &[u8],
 ) -> Vec<u8> {
     let border = label.len();
-    let gammas = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer);
+    let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer);
     // Maybe we should use randomized choose.
     debug!("Prediction. Dump weights");
-    for gamma in &gammas {
-        let weights: String = gamma
+    for (weight, ans) in weights.iter().zip(answer) {
+        let weights: String = weight
             .iter()
             .map(|e| format!("{:.3},", e))
             .fold(String::new(), |x, y| x + &y);
-        debug!("{}", weights);
+        debug!("{}\t{}", weights, ans);
     }
-    gammas
+    weights
         .iter()
         .skip(border)
-        .map(|gamma| {
-            assert_eq!(gamma.len(), cluster_num);
-            let (cl, _max): (u8, f64) = gamma.iter().enumerate().fold(
+        .map(|weight| {
+            assert_eq!(weight.len(), cluster_num);
+            let (cl, _max): (u8, f64) = weight.iter().enumerate().fold(
                 (0, -1.),
                 |(i, m), (j, &w)| if m < w { (j as u8, w) } else { (i, m) },
             );
@@ -408,18 +412,21 @@ pub fn soft_clustering(
         .collect();
     let betas = (0..)
         .map(|i| INIT_BETA * BETA_STEP.powi(i))
-        .take_while(|&e| e < 1.0)
+        .take_while(|&e| e < MAX_BETA)
         .chain(vec![1.]);
     let pick_probs: Vec<_> = (0..)
         .map(|i| INIT_PICK_PROB * PICK_PROB_STEP.powi(i))
-        .take_while(|&e| e < 0.5)
+        .take_while(|&e| e < MAX_PICK_PROB)
         .map(|pick_prob| (pick_prob, pick_prob.recip().floor() as usize * LOOP_NUM))
         .flat_map(|(pick_prob, num)| vec![pick_prob; num])
         .collect();
     for beta in betas {
         let mut updates = vec![false; data.len()];
         for &pick_prob in &pick_probs {
-            let s = std::time::Instant::now();
+            updates_flags(&mut updates, &weight_of_read, &mut rng, pick_prob);
+            models.iter_mut().enumerate().for_each(|(cluster, model)| {
+                mf.update_model(&weight_of_read, &updates, data, cluster, model);
+            });
             minibatch_sgd_by(
                 &mut weight_of_read,
                 &mut gammas,
@@ -431,13 +438,6 @@ pub fn soft_clustering(
                 &updates,
                 beta,
             );
-            let s2 = std::time::Instant::now();
-            updates_flags(&mut updates, &weight_of_read, &mut rng, pick_prob);
-            models.iter_mut().enumerate().for_each(|(cluster, model)| {
-                mf.update_model(&weight_of_read, &updates, data, cluster, model);
-            });
-            let s3 = std::time::Instant::now();
-            debug!("Update:{:?}, Reconstruct:{:?}", s2 - s, s3 - s2);
         }
         assert_eq!(weight_of_read.len(), answer.len() + label.len());
         {
@@ -450,7 +450,11 @@ pub fn soft_clustering(
             let acc = correct as f64 / answer.len() as f64;
             let pi: Vec<_> = ws.iter().map(|e| format!("{:.4}", e)).collect();
             let pi = pi.join("\t");
-            info!("LK\t{:.4}\t{}\t{}\t{}\t{}", 0., pi, beta, correct, acc);
+            let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
+            info!(
+                "Summary\t{:.4}\t{}\t{:.4}\t{}\t{}",
+                soe, pi, beta, correct, acc
+            );
         }
     }
     weight_of_read

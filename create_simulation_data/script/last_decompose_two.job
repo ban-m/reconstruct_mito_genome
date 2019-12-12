@@ -3,13 +3,13 @@
 #$ -N DecTwo
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/last_decompose_sgd_momentum.log
-#$ -o ./logfiles/last_decompose_sgd_momentum.log
+#$ -e ./logfiles/last_decompose_sgd_trimmed.log
+#$ -o ./logfiles/last_decompose_sgd_trimmed.log
 #$ -V
 #$ -m e
 set -ue
 
-OUTPUT=./result/last_decompose_skew_sgd_momentum.txt
+OUTPUT=./result/last_decompose_skew_sgd_trimmed.txt
 
 # TEST_NUM=100
 # COVERAGE=0
