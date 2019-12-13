@@ -66,13 +66,14 @@ fn new3(b: &mut Bencher) {
         .filter_map(|_| bases.choose(&mut rng))
         .copied()
         .collect();
-    let model1: Vec<Vec<_>> = (0..40)
+    let model1: Vec<Vec<_>> = (0..100)
         .map(|_| introduce_randomness(&template, &mut rng))
         .collect();
     let model1: Vec<_> = model1.iter().map(|e| e.as_slice()).collect();
-    let k = 7;
+    let k = 6;
     let weight = vec![1.; model1.len()];
     let mut f = Factory::new();
+    f.generate_with_weight(&model1, &weight, k);
     b.iter(|| test::black_box(f.generate_with_weight(&model1, &weight, k)));
 }
 

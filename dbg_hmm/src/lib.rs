@@ -31,6 +31,7 @@ use packed_simd::f64x4 as f64s;
 pub type DBGHMM = DeBruijnGraphHiddenMarkovModel;
 mod factory;
 pub use factory::Factory;
+mod base_table;
 
 #[derive(Debug, Clone, Default)]
 pub struct DeBruijnGraphHiddenMarkovModel {
