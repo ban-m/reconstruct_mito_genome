@@ -29,7 +29,6 @@ use rand_xoshiro::Xoshiro256StarStar;
 const A: f64 = -0.245;
 const B: f64 = 3.6;
 const INIT_BETA: f64 = 0.02;
-// Actual step is 1 + 100 * BETA_STEP/maximum coverage.
 const BETA_STEP: f64 = 1.3;
 const MAX_BETA: f64 = 1.;
 const INIT_PICK_PROB: f64 = 0.02;
@@ -37,8 +36,9 @@ const PICK_PROB_STEP: f64 = 1.05;
 const MAX_PICK_PROB: f64 = 0.05;
 const MINIMUM_PROB: f64 = 0.001;
 const LEARNING_RATE: f64 = 0.2;
-const MOMENT: f64 = 0.1;
+const MOMENT: f64 = 0.2;
 const LOOP_NUM: usize = 4;
+const SOE_THR: f64 = 10.;
 pub fn decompose(
     read: Vec<fasta::Record>,
     alignments: Vec<LastTAB>,
@@ -361,7 +361,7 @@ pub fn clustering(
 }
 
 fn entropy(xs: &[f64]) -> f64 {
-    assert!(xs.iter().all(|&x| x <= 1.000_000_1 && 0. <= x));
+    assert!(xs.iter().all(|&x| x <= 1.000_000_1 && 0. <= x), "{:?}", xs);
     xs.iter()
         .map(|&x| if x < 0.0001 { 0. } else { -x * x.ln() })
         .sum::<f64>()
@@ -417,12 +417,10 @@ pub fn soft_clustering(
         .map(|cl| mf.generate_model(&weight_of_read, data, cl))
         .collect();
     let max_coverage = get_max_coverage(data, contigs);
-    // let beta_step = 1. + (BETA_STEP-1.) * 2. / (max_coverage as f64).log10();
-    // debug!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
-    let init_beta = INIT_BETA * 100.0 / max_coverage as f64;
-    debug!("MAX Coverage:{}, Beta init:{:.4}", max_coverage, init_beta);
+    let beta_step = 1. + (BETA_STEP - 1.) * 2. / (max_coverage as f64).log10();
+    debug!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
     let betas = (0..)
-        .map(|i| init_beta * BETA_STEP.powi(i))
+        .map(|i| INIT_BETA * beta_step.powi(i))
         .take_while(|&e| e < MAX_BETA)
         .chain(vec![1.]);
     let pick_probs: Vec<_> = (0..)
@@ -433,7 +431,7 @@ pub fn soft_clustering(
         .collect();
     let mut updates = vec![false; data.len()];
     for beta in betas {
-        let lr = LEARNING_RATE * beta / init_beta;
+        let lr = LEARNING_RATE * INIT_BETA / beta;
         for &pick_prob in &pick_probs {
             updates_flags(&mut updates, &weight_of_read, &mut rng, pick_prob, beta);
             models.iter_mut().enumerate().for_each(|(cluster, model)| {
@@ -454,6 +452,33 @@ pub fn soft_clustering(
         }
         let wr = &weight_of_read;
         report(&wr, border, answer, &ws, &models, data, beta, lr);
+    }
+    let mut soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
+    let mut soe_diff = 10000.;
+    let lr = LEARNING_RATE * INIT_BETA;
+    while soe_diff < SOE_THR {
+        let pick_prob = INIT_PICK_PROB;
+        updates_flags(&mut updates, &weight_of_read, &mut rng, pick_prob, 1.);
+        models.iter_mut().enumerate().for_each(|(cluster, model)| {
+            mf.update_model(&weight_of_read, &updates, data, cluster, model);
+        });
+        minibatch_sgd_by(
+            &mut weight_of_read,
+            &mut gammas,
+            &mut moments,
+            &mut ws,
+            border,
+            data,
+            &models,
+            &updates,
+            1.,
+            lr,
+        );
+        let wr = &weight_of_read;
+        report(&wr, border, answer, &ws, &models, data, 1., lr);
+        let n_soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
+        soe_diff = soe - n_soe;
+        soe = n_soe;
     }
     weight_of_read
 }

@@ -65,7 +65,10 @@ fn main() -> std::io::Result<()> {
     let (training, testset): (Vec<_>, Vec<_>) = if args[4] == "random" {
         debug!("Random mode");
         let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1893749823);
-        reads.into_iter().partition(|_| rng.gen_bool(0.2))
+        let (training, testset): (Vec<_>, Vec<_>) =
+            reads.into_iter().partition(|_| rng.gen_bool(0.2));
+        let testset: Vec<_> = testset.into_iter().filter(|_| rng.gen_bool(0.3)).collect();
+        (training, testset)
     } else {
         debug!("Half mode");
         reads.into_iter().partition(|r| dist[r.id()] < len / 2)
@@ -134,7 +137,7 @@ fn predict(
     debug!("{:?}", contigs);
     let result = {
         let answer: Vec<_> = answer.iter().map(|&e| if e { 0 } else { 1 }).collect();
-        clustering(&data, &label, &forbid, K, 2, &contigs,&answer)
+        clustering(&data, &label, &forbid, K, 2, &contigs, &answer)
     };
     let result: Vec<_> = data[border..]
         .iter()

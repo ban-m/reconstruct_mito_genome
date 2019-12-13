@@ -28,7 +28,7 @@ ROOT=${PWD}
 ### Alignment
 function lastalign () {
     ### 1st arg: reference, 2nd: query 3: database name 4: output name
-    lastdb -P ${CORES} -R00 $3 $1
+    lastdb -P ${CORES} -c $3 $1
     last-train -P ${CORES} $3 $2 > $3.matrix
     lastal -f TAB -P ${CORES} -Q0 -p $3.matrix $3 $2 > $4.tab
 }
@@ -38,11 +38,11 @@ function lastalign () {
 ### 0. Selecting reads ###
 
 cd ../mito_assembler/
+cargo build --release
 minimap2 -t 24 -x map-pb ${REFERENCE} ${READ} |\
-    cargo run --release --bin select_mito_reads -- ${READ} |\
-    cargo run --release --bin filter_low_quality |\
-    cargo run --release --bin clip_self_chimera > \
-          ${OUTPATH}/filtered_read.fasta
+    ./target/release/select_mito_reads ${READ} |\
+    ./target/release/filter_low_quality |\
+    ./target/release/clip_self_chimera > ${OUTPATH}/filtered_read.fasta
 READ=${OUTPATH}/filtered_read.fasta
 
 
@@ -82,7 +82,6 @@ cargo run --release --bin convert_to_d3_data \
       -- ${OUTPATH}/circos/contig.json ${OUTPATH}/circos/reads.json \
       > ${OUTPATH}/circos/d3.json
 cat ./scripts/template.html | sed -e "s@/data/SED_@./@g" > ${OUTPATH}/circos/viewer.html
-
 
 
 LASTTAB=${OUTPATH}/last_db/no_repeat_reads.tab

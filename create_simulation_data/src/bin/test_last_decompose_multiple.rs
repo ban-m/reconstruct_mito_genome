@@ -45,7 +45,7 @@ fn main() {
     let (hmm, dists) = benchmark(
         seed, p, coverage, test_num, chain_len, k, len, &probs, clusters,
     );
-    eprintln!("{:?}", Instant::now() - s);
+    eprintln!("Elapsed {:?}", Instant::now() - s);
     for (idx, preds) in hmm.into_iter().enumerate() {
         let tp = preds[idx];
         let tot = preds.iter().sum::<u32>();

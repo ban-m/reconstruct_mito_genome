@@ -2,6 +2,7 @@ const width = 1000;
 const height = 1000;
 // Margin in radian
 const theta_margin = 0.15;
+// const theta_margin = 0;
 const gap_position = 0.05;
 // the height of a contigs.
 const contig_thick = 10; 

@@ -8,7 +8,7 @@ extern crate serde_json;
 use env_logger::Env;
 use std::io::Write;
 fn main() -> std::io::Result<()> {
-    env_logger::from_env(Env::default().default_filter_or("info")).init();
+    env_logger::from_env(Env::default().default_filter_or("debug")).init();
     let args: Vec<_> = std::env::args().collect();
     info!("Start");
     let alignments = last_tiling::parse_tab_file(&args[1])?;
@@ -21,7 +21,7 @@ fn main() -> std::io::Result<()> {
     info!("Repeats:{:?}", repeats.len());
     // let alignments = last_tiling::remove_repeats(alignments, &contigs, &repeats);
     // info!("Filter repeat:{}", alignments.len());
-    let encoded_reads = last_tiling::encoding(&fasta, &contigs, &alignments);
+    let encoded_reads = last_tiling::encoding_w_repeat(&fasta, &contigs, &alignments, &repeats);
     info!("Encoded:\t{}", encoded_reads.len());
     let mut wtr = std::fs::File::create(&args[5])?;
     wtr.write_all(serde_json::ser::to_string_pretty(&contigs)?.as_bytes())?;

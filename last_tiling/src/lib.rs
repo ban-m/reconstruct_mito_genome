@@ -26,7 +26,10 @@ use std::collections::HashMap;
 use std::path::Path;
 use unit::*;
 pub const UNIT_SIZE: usize = 150;
-
+// If an alignment is in a repetitive region,
+// we check whether the read also aligns at CHECK_POINT up stream.
+// If it does not, we discard that alignment. Otherwise, we keep it.
+const CHECK_POINT: usize = 550;
 /// Parse given aln files into repeats. It needs contig information such as index of a contig.
 pub fn into_repeats(alns: &[LastTAB], contig: &Contigs) -> Vec<RepeatPairs> {
     const THR: usize = 1_000;
@@ -106,6 +109,82 @@ pub fn encoding(fasta: &[fasta::Record], defs: &Contigs, alns: &[LastTAB]) -> Ve
             }
         })
         .collect()
+}
+
+pub fn encoding_w_repeat(
+    fasta: &[fasta::Record],
+    defs: &Contigs,
+    alns: &[LastTAB],
+    repeat: &[RepeatPairs],
+) -> Vec<EncodedRead> {
+    // Distribute alignments to each reads.
+    // bucket[i] is the alignment for fasta[i].
+    let buckets = distribute(fasta, alns);
+    // debug!("There are {} buckets.", buckets.len());
+    let buckets: Vec<_> = buckets.into_iter().zip(fasta.iter()).collect();
+    buckets
+        .into_iter()
+        .map(|(bucket, seq)| {
+            let bucket = trim_aln_in_repetitive(bucket, repeat);
+            if bucket.is_empty() {
+                let read = vec![ChunkedUnit::Gap(GapUnit::new(seq.seq(), None))];
+                EncodedRead::from(seq.id().to_string(), read)
+            } else {
+                into_encoding(bucket, seq, defs)
+            }
+        })
+        .collect()
+}
+
+fn trim_aln_in_repetitive<'a>(
+    bucket: Vec<&'a LastTAB>,
+    repeat: &[RepeatPairs],
+) -> Vec<&'a LastTAB> {
+    bucket
+        .iter()
+        .filter_map(|aln| match is_in_repeat(aln, repeat) {
+            None => Some(aln),
+            Some(rep) if has_flanking(rep, &bucket) => Some(aln),
+            Some(_) => None,
+        })
+        .copied()
+        .collect()
+}
+use repeat::Repeat;
+fn is_in_repeat<'a>(aln: &LastTAB, repeat: &'a [RepeatPairs]) -> Option<&'a Repeat> {
+    let margin = 200;
+    let (start, end) = (aln.seq1_start_from_forward(), aln.seq1_end_from_forward());
+    let contig = aln.seq1_name();
+    //debug!("Checking {}-{}", start, end);
+    repeat
+        .iter()
+        .filter_map(|rs| {
+            rs.inner()
+                .iter()
+                .filter(|r| {
+                    let r_start = r.start().max(margin) - margin;
+                    let r_end = r.end() + margin;
+                    let b = r.name() == contig && r_start <= start && end <= r_end;
+                    b
+                })
+                .nth(0)
+        })
+        .nth(0)
+}
+
+fn has_flanking(rep: &Repeat, bucket: &[&LastTAB]) -> bool {
+    let check_start = rep.start().max(CHECK_POINT) - CHECK_POINT;
+    let check2_start = check_start.max(CHECK_POINT) - CHECK_POINT;
+    let count = bucket
+        .iter()
+        .filter(|aln| {
+            let (start, end) = (aln.seq1_start_from_forward(), aln.seq1_end_from_forward());
+            let c1 = start < check_start && check_start < end;
+            let c2 = start < check2_start && check2_start < end;
+            c1 || c2
+        })
+        .count();
+    count != 0
 }
 
 fn into_encoding(bucket: Vec<&LastTAB>, seq: &fasta::Record, defs: &Contigs) -> EncodedRead {

@@ -10,7 +10,7 @@
 set -ue
 OUTPUT=./result/last_decompose_sgd.txt
 
-cargo build --release
+# cargo build --release
 
 echo "-----start-----" >> ${OUTPUT}
 # TEST_NUM=100
