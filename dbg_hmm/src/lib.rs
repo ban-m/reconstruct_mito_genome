@@ -18,7 +18,7 @@ const PSEUDO_COUNT: bool = true;
 const THR_ON: bool = true;
 const THR: f64 = 2.;
 const WEIGHT_THR: f64 = 2.0;
-const LOW_LIKELIHOOD: f64 = -100000.;
+const LOW_LIKELIHOOD: f64 = -100_000.;
 const SCALE: f64 = 3.;
 mod find_union;
 pub mod gen_sample;

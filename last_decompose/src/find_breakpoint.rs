@@ -294,7 +294,7 @@ impl ReadClassify for ContigPair {
         let (c1_min, c1_max) = get_max_min_unit(r, self.contig1.contig);
         let (c2_min, c2_max) = get_max_min_unit(r, self.contig2.contig);
         [c1_s - c1_max, c1_e - c1_min, c2_s - c2_max, c2_e - c2_min]
-            .into_iter()
+            .iter()
             .copied()
             .map(i32::abs)
             .min()
@@ -666,12 +666,12 @@ fn critical_regions_between(
             let f: HashSet<&EncodedRead> = from_count[s as usize..t as usize]
                 .iter()
                 .flat_map(|e| e.iter())
-                .map(|&e| e)
+                .copied()
                 .collect();
             let g: HashSet<&EncodedRead> = to_count[x as usize..y as usize]
                 .iter()
                 .flat_map(|e| e.iter())
-                .map(|&e| e)
+                .copied()
                 .collect();
             if g.intersection(&f).count() > READ_NUM {
                 regions.push(CriticalRegion::CP(ContigPair::new(c1, c2)));
@@ -739,7 +739,7 @@ fn critical_regions_repeat_junction(
 fn calculate_average_more_than(input: &[usize], average: i32) -> Vec<(usize, usize)> {
     // Calculate maximal region with average more than READ_NUM.
     // 1. Extract average.
-    let input: Vec<i32> = input.into_iter().map(|&e| e as i32 - average).collect();
+    let input: Vec<i32> = input.iter().map(|&e| e as i32 - average).collect();
     // 2. Cumsum. If c[i] < c[j], [i,j) would satisfy the condition.
     // Here, c[j] is the sum up to index j-1 !! Thus,  always c[0] == 0.
     // And, c[input.len()] is valid. This is because input[0..input.len()] should be valid.

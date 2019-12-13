@@ -18,10 +18,6 @@ pub const BADREAD_CONFIG: dbg_hmm::Config = dbg_hmm::Config {
     p_extend_ins: 0.0337,
     p_extend_del: 0.1787,
     p_del_to_ins: 0.0,
-    match_score: 1,
-    mism_score: -1,
-    del_score: -1,
-    ins_score: -1,
     base_freq: [0.25, 0.25, 0.25, 0.25],
 };
 

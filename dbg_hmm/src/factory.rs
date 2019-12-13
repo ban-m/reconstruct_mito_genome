@@ -1,9 +1,7 @@
 use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
-use std::collections::HashMap;
-
 use super::{find_union, Kmer, DBGHMM, SCALE, THR, THR_ON};
-
+use std::collections::HashMap;
 #[derive(Default)]
 pub struct Factory {
     inner: HashMap<Vec<u8>, (f64, usize)>,
@@ -295,7 +293,7 @@ impl Factory {
         assert!(self.is_safe.is_empty());
         assert!(self.edges.is_empty());
         let pseudo_node = nodes.len();
-        (0..nodes.len() + 1).for_each(|_| self.edges.push(vec![]));
+        (0..=nodes.len()).for_each(|_| self.edges.push(vec![]));
         nodes
             .iter()
             .for_each(|e| self.is_safe.push(e.is_tail as u8));
@@ -411,7 +409,7 @@ impl Factory {
         self.dfs_flag
             .iter()
             .zip(self.is_safe.iter_mut())
-            .for_each(|(&e, is_safe)| *is_safe = *is_safe | (flag * (1 - e)));
+            .for_each(|(&e, is_safe)| *is_safe |= flag * (1 - e));
         // let res: Vec<_> = self.dfs_flag.iter().map(|&e| e == 0).collect();
         self.dfs_flag.clear();
         assert!(self.dfs_stack.is_empty());
@@ -439,8 +437,8 @@ impl Factory {
                         self.dfs_stack.push(to);
                         continue 'dfs;
                     } else if self.dfs_flag[to] == 1 {
-                        // Loop detected.
-                        self.temp_index[node] = 100000;
+                        // Loop detected. Some big number.
+                        self.temp_index[node] = 100_000;
                     }
                 }
                 let last = self.dfs_stack.pop().unwrap();
@@ -622,7 +620,7 @@ impl Factory {
     }
 
     pub fn new() -> Self {
-        let inner = std::collections::HashMap::new();
+        let inner = HashMap::default();
         let is_safe = vec![];
         let temp_index = vec![];
         let edges = vec![];

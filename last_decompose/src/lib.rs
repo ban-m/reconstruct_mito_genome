@@ -29,7 +29,8 @@ use rand_xoshiro::Xoshiro256StarStar;
 const A: f64 = -0.245;
 const B: f64 = 3.6;
 const INIT_BETA: f64 = 0.02;
-const BETA_STEP: f64 = 1.3;
+// Actual step is 1 + 100 * BETA_STEP/maximum coverage.
+const BETA_STEP: f64 = 0.3;
 const MAX_BETA: f64 = 1.;
 const INIT_PICK_PROB: f64 = 0.02;
 const PICK_PROB_STEP: f64 = 1.05;
@@ -186,7 +187,7 @@ impl<'a> ModelFactory<'a> {
     fn new(contigs: &[usize], data: &'a [ERead], k: usize) -> Self {
         let mut chunks: Vec<Vec<Vec<&[u8]>>> = contigs.iter().map(|&e| vec![vec![]; e]).collect();
         let weights: Vec<Vec<Vec<f64>>> = contigs.iter().map(|&e| vec![vec![]; e]).collect();
-        for read in data.into_iter() {
+        for read in data.iter() {
             for chunk in read.seq.iter() {
                 chunks[chunk.contig()][chunk.unit()].push(chunk.bases());
             }
@@ -209,7 +210,7 @@ impl<'a> ModelFactory<'a> {
                 assert!(unit.is_empty(), "{:?}", unit);
             }
         }
-        for (read, w) in reads.into_iter().zip(ws) {
+        for (read, w) in reads.iter().zip(ws) {
             for chunk in read.seq.iter() {
                 self.weights[chunk.contig()][chunk.unit()].push(w[cl]);
             }
@@ -248,7 +249,7 @@ impl<'a> ModelFactory<'a> {
         cl: usize,
         models: &mut [Vec<DBGHMM>],
     ) {
-        for ((read, w), &b) in reads.into_iter().zip(ws).zip(mask) {
+        for ((read, w), &b) in reads.iter().zip(ws).zip(mask) {
             let w = (1 - b as u8) as f64 * w[cl];
             for chunk in read.seq.iter() {
                 self.weights[chunk.contig()][chunk.unit()].push(w);
@@ -360,10 +361,23 @@ pub fn clustering(
 }
 
 fn entropy(xs: &[f64]) -> f64 {
-    assert!(xs.iter().all(|&x| x <= 1.0000001 && 0. <= x));
+    assert!(xs.iter().all(|&x| x <= 1.000_000_1 && 0. <= x));
     xs.iter()
         .map(|&x| if x < 0.0001 { 0. } else { -x * x.ln() })
         .sum::<f64>()
+}
+
+fn get_max_coverage(data: &[ERead], contig: &[usize]) -> usize {
+    let mut cov: Vec<Vec<usize>> = contig.iter().map(|&len| vec![0; len]).collect();
+    for read in data {
+        for chunk in read.seq().iter() {
+            cov[chunk.contig() as usize][chunk.unit() as usize] += 1;
+        }
+    }
+    cov.into_iter()
+        .flat_map(|contig| contig.into_iter().max())
+        .max()
+        .unwrap()
 }
 
 /// Predict by EM algorithm. the length of return value is the number of test case.
@@ -402,8 +416,11 @@ pub fn soft_clustering(
     let mut models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
         .map(|cl| mf.generate_model(&weight_of_read, data, cl))
         .collect();
+    let max_coverage = get_max_coverage(data, contigs);
+    let beta_step = 1. + BETA_STEP * 2. / (max_coverage as f64).log10();
+    debug!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
     let betas = (0..)
-        .map(|i| INIT_BETA * BETA_STEP.powi(i))
+        .map(|i| INIT_BETA * beta_step.powi(i))
         .take_while(|&e| e < MAX_BETA)
         .chain(vec![1.]);
     let pick_probs: Vec<_> = (0..)
@@ -415,12 +432,10 @@ pub fn soft_clustering(
     let mut updates = vec![false; data.len()];
     for beta in betas {
         for &pick_prob in &pick_probs {
-            let s = std::time::Instant::now();
             updates_flags(&mut updates, &weight_of_read, &mut rng, pick_prob, beta);
             models.iter_mut().enumerate().for_each(|(cluster, model)| {
                 mf.update_model(&weight_of_read, &updates, data, cluster, model);
             });
-            let s2 = std::time::Instant::now();
             minibatch_sgd_by(
                 &mut weight_of_read,
                 &mut gammas,
@@ -432,8 +447,6 @@ pub fn soft_clustering(
                 &updates,
                 beta,
             );
-            let s3 = std::time::Instant::now();
-            debug!("Time\t{}\t{}", (s2 - s).as_millis(), (s3 - s2).as_millis());
         }
         report(&weight_of_read, border, answer, &ws, &models, data, beta);
     }
@@ -456,41 +469,16 @@ fn report(
         .filter(|&(weights, &ans)| weights.iter().all(|&g| g <= weights[ans as usize]))
         .count();
     let acc = correct as f64 / answer.len() as f64;
-    let pi: Vec<_> = ws.iter().map(|e| format!("{:.4}", e)).collect();
+    let pi: Vec<_> = ws.iter().map(|e| format!("{:.0}", 100. * e)).collect();
     let pi = pi.join("\t");
     let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
     let lk = likelihood_of_models(&models, data, &ws);
+    let lr: f64 = LEARNING_RATE * INIT_BETA / beta;
     info!(
-        "Summary\t{:.4}\t{:.4}\t{}\t{:.4}\t{}\t{}",
-        lk, soe, pi, beta, correct, acc
+        "Summary\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{}\t{:.2}",
+        lk, soe, pi, beta, lr, correct, acc
     );
 }
-
-// let res: Vec<(f64, f64)> = data
-//     .par_iter()
-//     .zip(weight_of_read.par_iter())
-//     .filter_map(|(read, ws)| {
-//         ws.iter()
-//             .enumerate()
-//             .filter_map(|(idx, &e)| if e > 0.99 { Some(idx) } else { None })
-//             .nth(0)
-//             .map(|idx| (read, idx))
-//     })
-//     .flat_map(|(read, cl)| {
-//         read.seq()
-//             .iter()
-//             .map(|chunk| {
-//                 let m = &models[cl][chunk.contig as usize][chunk.unit as usize];
-//                 let lk = m.forward(&chunk.bases(), &DEFAULT_CONFIG) + offset(m.weight(), A, B);
-//                 let w = m.weight();
-//                 (w, lk)
-//             })
-//             .collect::<Vec<_>>()
-//     })
-//     .collect();
-// for (w, lk) in res {
-//     debug!("DepthLK\t:{}\t{}", w, lk);
-// }
 
 fn updates_flags<R: Rng>(
     updates: &mut [bool],
@@ -544,7 +532,7 @@ fn minibatch_sgd_by(
         .filter(|&(_, &b)| b)
         .map(|((((read, weights), gamma), moment), _)| {
             compute_log_probs(&models, &ws, &read, gamma);
-            gamma.iter_mut().for_each(|g| *g = *g * beta);
+            gamma.iter_mut().for_each(|g| *g *= beta);
             let w = utils::logsumexp(&gamma);
             gamma.iter_mut().for_each(|l| *l = (*l - w).exp());
             assert!((1. - gamma.iter().sum::<f64>()).abs() < 0.001);
@@ -572,9 +560,7 @@ fn minibatch_sgd_by(
             gamma
         })
         .fold(vec![0.; cluster_num], |mut xs, ys| {
-            xs.iter_mut()
-                .zip(ys.into_iter())
-                .for_each(|(x, y)| *x += *y);
+            xs.iter_mut().zip(ys.iter()).for_each(|(x, &y)| *x += y);
             xs
         });
     assert_eq!(ws_gradient.len(), cluster_num);
@@ -623,7 +609,7 @@ pub fn construct_with_weights(
     // Contig -> Unit -> Seqs.
     let mut chunks: Vec<Vec<Vec<&[u8]>>> = len.iter().map(|&e| vec![vec![]; e]).collect();
     let mut weights: Vec<Vec<Vec<f64>>> = len.iter().map(|&e| vec![vec![]; e]).collect();
-    for (read, ws) in ds.into_iter().zip(gammas) {
+    for (read, ws) in ds.iter().zip(gammas) {
         for chunk in read.seq.iter() {
             chunks[chunk.contig()][chunk.unit()].push(chunk.bases());
             weights[chunk.contig()][chunk.unit()].push(ws[cl]);
@@ -746,12 +732,10 @@ fn merge_cluster(gammas: &[Vec<f64>], i: usize, j: usize, cl: usize) -> Vec<Vec<
         .map(|read_weight| {
             let mut ws = vec![0.; cl - 1];
             for (idx, w) in read_weight.iter().enumerate() {
-                if idx < j {
-                    ws[idx] += w;
-                } else if idx == j {
-                    ws[i] += w;
-                } else {
-                    ws[idx - 1] += w;
+                match idx {
+                    x if x < j => ws[idx] += w,
+                    x if x == j => ws[i] += w,
+                    _ => ws[idx - 1] += w,
                 }
             }
             ws

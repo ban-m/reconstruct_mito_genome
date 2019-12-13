@@ -74,7 +74,7 @@ pub fn mst(graph: Vec<Vec<(usize, f64)>>) -> Vec<Vec<(usize, f64)>> {
 }
 
 // Very small constant.
-const SMALL: f64 = -100000000000.0;
+const SMALL: f64 = -100_000_000_000.0;
 
 /// Find the center of MST. In other words,
 /// argmin_i max_j D[i,j], where D[i,j] is
@@ -115,7 +115,7 @@ pub fn find_center(mst: &[Vec<(usize, f64)>]) -> usize {
             }
         })
         .fold(
-            (0, 1000000000.),
+            (0, 1_000_000_000.),
             |(idx, min), (i, x)| if x < min { (i, x) } else { (idx, min) },
         )
         .0

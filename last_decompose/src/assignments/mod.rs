@@ -68,9 +68,9 @@ impl Assignment {
                     .weight
                     .iter()
                     .map(|color2| Self::sim_bet_color(color1, color2, ka, kb))
-                    .fold(-10000000., |max, x| if max < x { x } else { max })
+                    .fold(-10_000_000., |max, x| if max < x { x } else { max })
             })
-            .fold(-1000000., |max, x| if max < x { x } else { max })
+            .fold(-1_000_000., |max, x| if max < x { x } else { max })
     }
     // Return the weight of k-th cluster on each read.
     // In other words, if we let xs be the return value,
@@ -154,7 +154,6 @@ impl Assignment {
     }
 }
 
-
 // Decomposing the (possibly long) repeat into two. Repeat resolution program.
 // Hopefully, it would not be called in the procedure, since if there's no
 // mutation inside this repeat, it is no use.
@@ -174,7 +173,7 @@ fn local_first_order_decomposing<'a>(
             .iter()
             .enumerate()
             .partition(|(_idx, r)| cr.overlaps_with(r));
-    let (contained_reads, remainings): (Vec<(usize, &EncodedRead)>, Vec<(usize, &EncodedRead)>) =
+    let (contained_reads, remainings): (Vec<_>, Vec<_>) =
         remainings.into_iter().partition(|(_, r)| cr.contains(r));
     // classed_reads[idx] would return the idx-th cluster
     let (_num_of_cluster, classed_reads): (_, Vec<Vec<_>>) =
@@ -270,8 +269,8 @@ pub fn local_decompose(
     let (num_of_cluster, classed_reads, remaining_reads) = if num_of_spanning_reads > READ_NUM {
         // First, determine the number of clusters
         let (spanning_reads, mut remainings): (
-            Vec<(usize, &EncodedRead)>,
-            Vec<(usize, &EncodedRead)>,
+            Vec<_>,
+            Vec<_>,
         ) = reads
             .iter()
             .enumerate()
