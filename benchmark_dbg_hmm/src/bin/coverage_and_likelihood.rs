@@ -43,7 +43,7 @@ fn main() {
                 let m: Vec<_> = data[..cov].iter().map(|e| e.as_slice()).collect();
                 let w = vec![1.; cov];
                 let m = f.generate_with_weight(&m, &w, k);
-                let offset = (-0.2446704 * cov as f64 + 3.6172581).exp();
+                let _offset = (-0.2446704 * cov as f64 + 3.6172581).exp();
                 let samples = tests
                     .par_iter()
                     .map(|q| {

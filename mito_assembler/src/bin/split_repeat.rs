@@ -110,14 +110,26 @@ fn main() -> std::io::Result<()> {
     for record in contigs
         .into_iter()
         .enumerate()
-        .map(|(idx, r)| {
-            let seq: Vec<_> = r
-                .seq()
-                .iter()
-                .zip(mask[r.id()].iter())
-                .filter_map(|(&b, &m)| if m { Some(b) } else { None })
-                .collect();
-            fasta::Record::with_data(&format!("{}", idx), &None, &seq)
+        .flat_map(|(idx, r)| {
+            // Split this contig by repetitive regions.
+            let masks: Vec<(usize, bool)> = mask[r.id()].iter().copied().enumerate().collect();
+            let masks = masks.split(|&(_, m)| !m).filter(|sl| sl.len() > THR);
+            let seq = r.seq();
+            masks.enumerate().map(|(num, slice)| {
+                let &(start, ms) = slice.first().unwrap();
+                let &(end, me) = slice.last().unwrap();
+                assert!(ms & me);
+                let seq = &seq[start..=end];
+                let id = format!("{}-{}", idx, num);
+                fasta::Record::with_data(&id, &None, seq)
+                // let seqs: Vec<Vec<u8>> = r
+                // .seq()
+                // .iter()
+                // .zip(mask[r.id()].iter())
+                // .filter_map(|(&b, &m)| if m { Some(b) } else { None })
+                // .collect();
+                // fasta::Record::with_data(&format!("{}", idx), &None, &seq)
+            }).collect::<Vec<_>>()
         })
         .chain(result.into_iter())
     {

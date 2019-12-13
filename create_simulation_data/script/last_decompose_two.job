@@ -10,6 +10,8 @@
 set -ue
 OUTPUT=./result/last_decompose_sgd.txt
 
+cargo build --release
+
 echo "-----start-----" >> ${OUTPUT}
 # TEST_NUM=100
 # COVERAGE=0
@@ -52,7 +54,7 @@ PROBS="0.2 0.8"
 for seed in 10 20 30 40 50
 do
     ./target/release/test_last_decompose_multiple \
-        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
+        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT} 2>> ./logfiles/last_decompose_sgd_300.log
 done
 
 

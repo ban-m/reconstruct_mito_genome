@@ -30,13 +30,13 @@ const A: f64 = -0.245;
 const B: f64 = 3.6;
 const INIT_BETA: f64 = 0.02;
 // Actual step is 1 + 100 * BETA_STEP/maximum coverage.
-const BETA_STEP: f64 = 0.3;
+const BETA_STEP: f64 = 1.3;
 const MAX_BETA: f64 = 1.;
 const INIT_PICK_PROB: f64 = 0.02;
 const PICK_PROB_STEP: f64 = 1.05;
 const MAX_PICK_PROB: f64 = 0.05;
 const MINIMUM_PROB: f64 = 0.001;
-const LEARNING_RATE: f64 = 0.1;
+const LEARNING_RATE: f64 = 0.2;
 const MOMENT: f64 = 0.1;
 const LOOP_NUM: usize = 4;
 pub fn decompose(
@@ -417,10 +417,12 @@ pub fn soft_clustering(
         .map(|cl| mf.generate_model(&weight_of_read, data, cl))
         .collect();
     let max_coverage = get_max_coverage(data, contigs);
-    let beta_step = 1. + BETA_STEP * 2. / (max_coverage as f64).log10();
-    debug!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
+    // let beta_step = 1. + (BETA_STEP-1.) * 2. / (max_coverage as f64).log10();
+    // debug!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
+    let init_beta = INIT_BETA * 100.0 / max_coverage as f64;
+    debug!("MAX Coverage:{}, Beta init:{:.4}", max_coverage, init_beta);
     let betas = (0..)
-        .map(|i| INIT_BETA * beta_step.powi(i))
+        .map(|i| init_beta * BETA_STEP.powi(i))
         .take_while(|&e| e < MAX_BETA)
         .chain(vec![1.]);
     let pick_probs: Vec<_> = (0..)
@@ -431,6 +433,7 @@ pub fn soft_clustering(
         .collect();
     let mut updates = vec![false; data.len()];
     for beta in betas {
+        let lr = LEARNING_RATE * beta / init_beta;
         for &pick_prob in &pick_probs {
             updates_flags(&mut updates, &weight_of_read, &mut rng, pick_prob, beta);
             models.iter_mut().enumerate().for_each(|(cluster, model)| {
@@ -446,9 +449,11 @@ pub fn soft_clustering(
                 &models,
                 &updates,
                 beta,
+                lr,
             );
         }
-        report(&weight_of_read, border, answer, &ws, &models, data, beta);
+        let wr = &weight_of_read;
+        report(&wr, border, answer, &ws, &models, data, beta, lr);
     }
     weight_of_read
 }
@@ -461,6 +466,7 @@ fn report(
     models: &[Vec<Vec<DBGHMM>>],
     data: &[ERead],
     beta: f64,
+    lr: f64,
 ) {
     let correct = weight_of_read
         .iter()
@@ -473,7 +479,6 @@ fn report(
     let pi = pi.join("\t");
     let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
     let lk = likelihood_of_models(&models, data, &ws);
-    let lr: f64 = LEARNING_RATE * INIT_BETA / beta;
     info!(
         "Summary\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{}\t{:.2}",
         lk, soe, pi, beta, lr, correct, acc
@@ -518,16 +523,16 @@ fn minibatch_sgd_by(
     models: &[Vec<Vec<DBGHMM>>],
     updates: &[bool],
     beta: f64,
+    lr: f64,
 ) {
     let cluster_num = models.len();
     let datasize = data.len() as f64;
-    let lr: f64 = LEARNING_RATE * INIT_BETA / beta;
     let ws_gradient = data
-        .iter()
-        .zip(weight_of_read.iter_mut())
-        .zip(gammas.iter_mut())
-        .zip(moments.iter_mut())
-        .zip(updates.iter())
+        .par_iter()
+        .zip(weight_of_read.par_iter_mut())
+        .zip(gammas.par_iter_mut())
+        .zip(moments.par_iter_mut())
+        .zip(updates.par_iter())
         .skip(border)
         .filter(|&(_, &b)| b)
         .map(|((((read, weights), gamma), moment), _)| {
@@ -559,15 +564,25 @@ fn minibatch_sgd_by(
                 .for_each(|((g, &w), &m)| *g = m - w);
             gamma
         })
-        .fold(vec![0.; cluster_num], |mut xs, ys| {
-            xs.iter_mut().zip(ys.iter()).for_each(|(x, &y)| *x += y);
-            xs
-        });
+        .fold(
+            || vec![0.; cluster_num],
+            |mut xs, ys| {
+                xs.iter_mut().zip(ys.iter()).for_each(|(x, &y)| *x += y);
+                xs
+            },
+        )
+        .reduce(
+            || vec![0.; cluster_num],
+            |mut xs, ys| {
+                xs.iter_mut().zip(ys.iter()).for_each(|(x, &y)| *x += y);
+                xs
+            },
+        );
     assert_eq!(ws_gradient.len(), cluster_num);
     assert!(ws_gradient.iter().sum::<f64>().abs() < 0.0001);
     ws.iter_mut().zip(ws_gradient).for_each(|(w, gradient)| {
         let gradient = gradient / datasize;
-        *w += gradient * LEARNING_RATE;
+        *w += gradient * lr;
     });
     assert_eq!(ws.len(), cluster_num);
     assert!((1. - ws.iter().sum::<f64>()).abs() < 0.001);

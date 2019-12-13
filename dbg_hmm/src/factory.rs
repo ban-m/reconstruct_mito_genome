@@ -1,6 +1,6 @@
+use super::{find_union, Kmer, DBGHMM, SCALE, THR, THR_ON};
 use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
-use super::{find_union, Kmer, DBGHMM, SCALE, THR, THR_ON};
 use std::collections::HashMap;
 #[derive(Default)]
 pub struct Factory {
@@ -161,7 +161,8 @@ impl Factory {
         DBGHMM { nodes, k, weight }
     }
     fn clean_up_nodes(&mut self, nodes: Vec<Kmer>) -> Vec<Kmer> {
-        let mut nodes = self.renaming_nodes(nodes);
+        let mut buf = Vec::with_capacity(nodes.len());
+        let mut nodes = self.renaming_nodes(nodes, &mut buf);
         nodes.iter_mut().for_each(Kmer::finalize);
         nodes
     }
@@ -180,7 +181,7 @@ impl Factory {
         assert!(self.is_empty());
         assert!(buffer.is_empty());
         let nodes = self.pick_largest_components(nodes, &mut buffer)?;
-        let mut nodes = self.renaming_nodes(nodes);
+        let mut nodes = self.renaming_nodes(nodes, &mut buffer);
         assert!(self.is_empty());
         assert!(buffer.is_empty());
         nodes.iter_mut().for_each(Kmer::finalize);
@@ -458,7 +459,9 @@ impl Factory {
         self.dfs_flag.clear();
     }
 
-    fn renaming_nodes(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
+    fn renaming_nodes(&mut self, mut nodes: Vec<Kmer>, buffer: &mut Vec<Kmer>) -> Vec<Kmer> {
+        assert!(buffer.is_empty());
+        assert!(buffer.capacity() >= nodes.len());
         self.topological_sort(&nodes);
         let mut result = vec![None; nodes.len()];
         let mut idx = nodes.len();

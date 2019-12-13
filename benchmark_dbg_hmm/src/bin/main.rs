@@ -132,6 +132,11 @@ fn cross_validation(data1: &[Vec<u8>], data2: &[Vec<u8>]) -> Vec<(usize, f64, f6
     let len = data1.len();
     let mut res = vec![];
     let k = 6;
+    use std::time::Duration;
+    let mut tot = Duration::new(0,0);
+    let mut forward = Duration::new(0,0);
+    let mut construct = Duration::new(0,0);
+    let mut f = Factory::new();
     for i in 0..len {
         let test1 = &data1[i];
         let test2 = &data2[i];
@@ -151,7 +156,6 @@ fn cross_validation(data1: &[Vec<u8>], data2: &[Vec<u8>]) -> Vec<(usize, f64, f6
         let ds: Vec<_> = data1.iter().chain(data2.iter()).copied().collect();
         let w1 = vec![vec![1.; len - 1], vec![0.; len - 1]].concat();
         let w2 = vec![vec![0.; len - 1], vec![1.; len - 1]].concat();
-        let mut f = Factory::new();
         let m1 = f.generate_with_weight(&ds, &w1, k);
         let m2 = f.generate_with_weight(&ds, &w2, k);
         let s2 = Instant::now();
@@ -162,10 +166,12 @@ fn cross_validation(data1: &[Vec<u8>], data2: &[Vec<u8>]) -> Vec<(usize, f64, f6
         res.push((1, m1_for_1, m2_for_1));
         res.push((2, m1_for_2, m2_for_2));
         let s3 = Instant::now();
-        eprintln!("{:?}\t{:?}\t{:?} in tot", s2 - s, s3 - s2, s3 - s);
-        eprintln!("{:.4}\t{:.4}", m1_for_1, m2_for_2);
-        // eprintln!("{}\t{}", m1, m2);
+        tot += s3 - s;
+        construct += s2 - s;
+        forward += s3 - s2;
+        // eprintln!("{:.4}\t{:.4}", m1_for_1, m2_for_2);
     }
+    eprintln!("{:?}\t{:?}\t{:?}\t{}", tot, construct, forward, len);
     res.sort_by_key(|e| e.0);
     res
 }
