@@ -3,38 +3,38 @@
 #$ -N DecTwo
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/last_decompose_sgd.log
-#$ -o ./logfiles/last_decompose_sgd.log
+#$ -e ./logfiles/last_decompose_sgd_fast.log
+#$ -o ./logfiles/last_decompose_sgd_fast.log
 #$ -V
 #$ -m e
 set -ue
-OUTPUT=./result/last_decompose_sgd.txt
+OUTPUT=./result/last_decompose_sgd_fast.txt
 
 # cargo build --release
 
 echo "-----start-----" >> ${OUTPUT}
-# TEST_NUM=100
-# COVERAGE=0
-# PROBS="0.5 0.5"
-# for seed in 10 20 30 40 50
-# do
-#     ./target/release/test_last_decompose_multiple \
-#         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
-# done
+TEST_NUM=100
+COVERAGE=0
+PROBS="0.5 0.5"
+for seed in 10 20 30 40 50
+do
+    ./target/release/test_last_decompose_multiple \
+        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
+done
 
 # ./target/release/test_last_decompose_multiple \
 #     100 0 40 0.5 0.5 >> ${OUTPUT} 2> ./logfiles/last_decompose_sgd_11.log
 # ./target/release/test_last_decompose_multiple \
 #     100 0 40 0.2 0.8 >> ${OUTPUT} 2>> ./logfiles/last_decompose_sgd_14.log 
 
-# TEST_NUM=100
-# COVERAGE=0
-# PROBS="0.2 0.8"
-# for seed in 10 20 30 40 50
-# do
-#     ./target/release/test_last_decompose_multiple \
-#         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
-# done
+TEST_NUM=100
+COVERAGE=0
+PROBS="0.2 0.8"
+for seed in 10 20 30 40 50
+do
+    ./target/release/test_last_decompose_multiple \
+        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
+done
  
 # TEST_NUM=100
 # COVERAGE=4
@@ -49,12 +49,12 @@ echo "-----start-----" >> ${OUTPUT}
 # ./target/release/test_last_decompose_multiple 300 4 50 0.2 0.8 >> ${OUTPUT}
 
 TEST_NUM=300
-COVERAGE=4
+COVERAGE=0
 PROBS="0.2 0.8"
 for seed in 10 20 30 40 50
 do
     ./target/release/test_last_decompose_multiple \
-        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT} 2>> ./logfiles/last_decompose_sgd_300.log
+        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
 done
 
 

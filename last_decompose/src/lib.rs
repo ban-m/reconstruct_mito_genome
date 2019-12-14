@@ -339,7 +339,7 @@ pub fn clustering(
     let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer);
     // Maybe we should use randomized choose.
     debug!("Prediction. Dump weights");
-    for (weight, ans) in weights.iter().zip(answer) {
+    for (weight, ans) in weights.iter().skip(label.len()).zip(answer) {
         let weights: String = weight
             .iter()
             .map(|e| format!("{:.3},", e))
@@ -519,7 +519,7 @@ fn updates_flags<R: Rng>(
 ) {
     let datasize = weight_of_read.len() as f64;
     let sum_of_entropy = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-    debug!("SoE\t{:.8}\t{:.4}\t{:.4}", sum_of_entropy, pick_prob, beta);
+    // debug!("SoE\t{:.8}\t{:.4}\t{:.4}", sum_of_entropy, pick_prob, beta);
     let denom = sum_of_entropy + MINIMUM_PROB * datasize;
     loop {
         let num_ok = updates
@@ -565,7 +565,7 @@ fn minibatch_sgd_by(
             gamma.iter_mut().for_each(|g| *g *= beta);
             let w = utils::logsumexp(&gamma);
             gamma.iter_mut().for_each(|l| *l = (*l - w).exp());
-            assert!((1. - gamma.iter().sum::<f64>()).abs() < 0.001);
+            debug_assert!((1. - gamma.iter().sum::<f64>()).abs() < 0.001);
             if moment.is_empty() {
                 *moment = gamma.clone();
             } else {
@@ -574,12 +574,12 @@ fn minibatch_sgd_by(
                     *m += MOMENT * gradient;
                 });
             }
-            assert!((1. - moment.iter().sum::<f64>()).abs() < 0.001);
+            debug_assert!((1. - moment.iter().sum::<f64>()).abs() < 0.001);
             weights.iter_mut().zip(moment.iter()).for_each(|(w, &m)| {
                 let gradient = m - *w;
                 *w += lr * gradient;
             });
-            assert!((1. - weights.iter().sum::<f64>()).abs() < 0.001);
+            debug_assert!((1. - weights.iter().sum::<f64>()).abs() < 0.001);
             assert_eq!(gamma.len(), cluster_num);
             // Convert gamma into moment of PI.
             gamma
@@ -604,13 +604,13 @@ fn minibatch_sgd_by(
             },
         );
     assert_eq!(ws_gradient.len(), cluster_num);
-    assert!(ws_gradient.iter().sum::<f64>().abs() < 0.0001);
+    debug_assert!(ws_gradient.iter().sum::<f64>().abs() < 0.0001);
     ws.iter_mut().zip(ws_gradient).for_each(|(w, gradient)| {
         let gradient = gradient / datasize;
         *w += gradient * lr;
     });
     assert_eq!(ws.len(), cluster_num);
-    assert!((1. - ws.iter().sum::<f64>()).abs() < 0.001);
+    debug_assert!((1. - ws.iter().sum::<f64>()).abs() < 0.001);
 }
 
 fn compute_log_probs(models: &[Vec<Vec<DBGHMM>>], ws: &[f64], read: &ERead, gammas: &mut Vec<f64>) {

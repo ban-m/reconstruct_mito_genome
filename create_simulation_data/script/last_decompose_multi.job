@@ -3,12 +3,12 @@
 #$ -N DecMult
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/last_decompose_multi_sgd.log
-#$ -o ./logfiles/last_decompose_multi_sgd.out
+#$ -e ./logfiles/last_decompose_multi_sgd_fast.log
+#$ -o ./logfiles/last_decompose_multi_sgd_fast.out
 #$ -V
 #$ -m e
 set -ue
-OUTPUT=./result/last_decompose_multi_sgd.txt
+OUTPUT=./result/last_decompose_multi_sgd_fast.txt
 # TEST_NUM=300
 # COVERAGE=12
 # PROBS="0.16 0.16 0.16 0.16 0.16 0.16"

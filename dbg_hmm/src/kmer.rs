@@ -1,6 +1,6 @@
 use super::find_union;
-use super::PSEUDO_COUNT;
 use super::Config;
+use super::PSEUDO_COUNT;
 #[derive(Clone, Default)]
 pub struct Kmer {
     pub kmer: Vec<u8>,
@@ -76,8 +76,6 @@ impl Kmer {
                 self.weight[i] /= tot_for_weight;
                 self.transition[i] /= self.tot;
             }
-        // assert!((1. - self.transition.iter().sum::<f64>()).abs() < 0.0001);
-        // assert!((1. - self.weight.iter().sum::<f64>()).abs() < 0.0001);
         } else {
             self.weight = [0.25; 4];
         }
@@ -107,7 +105,7 @@ impl Kmer {
     pub fn remove_if_not_supported(&mut self, is_supported: &[u8]) {
         for i in 0..4 {
             if let Some(res) = self.edges[i] {
-                if is_supported[res] != 1{
+                if is_supported[res] != 1 {
                     self.edges[i] = None;
                     self.tot -= self.transition[i];
                     self.weight[i] -= self.transition[i];
@@ -120,33 +118,20 @@ impl Kmer {
         self.push_edge_with_weight(base, to, 1.);
     }
     pub fn push_edge_with_weight(&mut self, base: u8, to: usize, w: f64) {
-        let i = match base {
-            b'A' => 0,
-            b'C' => 1,
-            b'G' => 2,
-            b'T' => 3,
-            _ => unreachable!(),
-        };
-        match self.edges.get_mut(i) {
-            Some(Some(target)) => assert_eq!(*target, to),
-            Some(x) => *x = Some(to),
-            _ => unreachable!(),
-        };
+        use super::base_table::BASE_TABLE;
+        let i = BASE_TABLE[base as usize];
+        self.edges[i] = Some(to);
         self.tot += w;
         self.weight[i] += w;
         self.transition[i] += w;
     }
-    // return (Score(self.kmer,tip), match, mism,del, ins)
-    pub fn calc_score(&self, tip: &[u8]) -> (u8, u8, u8, u8) {
+    // return [mat, ins, del, mism]
+    pub fn calc_score(&self, tip: &[u8]) -> [u8; 4] {
         let aln = edlib_sys::global(&self.kmer, tip);
-        aln.into_iter()
-            .fold((0, 0, 0, 0), |(mat, mis, del, ins), x| match x {
-                0 => (mat + 1, mis, del, ins),
-                1 => (mat, mis, del, ins + 1),
-                2 => (mat, mis, del + 1, ins),
-                3 => (mat, mis + 1, del, ins),
-                _ => unreachable!(),
-            })
+        aln.into_iter().fold([0; 4], |mut xs, x| {
+            xs[x as usize] += 1;
+            xs
+        })
     }
     // return P(idx|self)
     #[inline]
@@ -155,21 +140,16 @@ impl Kmer {
     }
     #[inline]
     pub fn prob(&self, base: u8, config: &Config) -> f64 {
-        if self.last == base {
-            1. - config.mismatch
-        } else {
+        if self.last != base {
             config.mismatch / 3.
+        } else {
+            1. - config.mismatch
         }
     }
     // return P_I(base|self)
     pub fn insertion(&self, base: u8) -> f64 {
-        match base {
-            b'A' => self.weight[0],
-            b'C' => self.weight[1],
-            b'G' => self.weight[2],
-            b'T' => self.weight[3],
-            _ => 0.,
-        }
+        use super::base_table::BASE_TABLE;
+        self.weight[BASE_TABLE[base as usize]]
     }
 }
 #[cfg(test)]
@@ -191,7 +171,6 @@ mod tests {
         assert_eq!(kmer.edges, [Some(12), Some(34), Some(32), None]);
     }
     #[test]
-    #[should_panic]
     fn kmer2() {
         let mut kmer = Kmer::new(b"ACTCGTA", 1.);
         kmer.push_edge_with(b'A', 12);
