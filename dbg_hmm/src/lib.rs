@@ -142,15 +142,45 @@ impl DeBruijnGraphHiddenMarkovModel {
             .fold(std::f64::MIN, |x, &y| if x < y { y } else { x });
         max + xs.iter().map(|x| (x - max).exp()).sum::<f64>().ln()
     }
-    fn initialize(&self, tip: &[u8], config: &Config) -> (f64, f64, Vec<f64>) {
-        let alignments = self.nodes.iter().map(|e| e.calc_score(tip));
-        let initial_prob = (self.nodes.len() as f64).recip().ln();
+    fn global_alns(&self, tip: &[u8], config: &Config) -> Vec<f64> {
         let (mism, del, ins) = (config.mismatch.ln(), config.p_del.ln(), config.p_ins.ln());
-        let aln_scores: Vec<_> = alignments
-            .map(|xs| {
-                mism * (xs[3] as f64) + del * (xs[2] as f64) + ins * (xs[1] as f64) + initial_prob
-            })
-            .collect();
+        let mat = (1. - config.mismatch).ln();
+        let mut prev = vec![0.; self.k + 1];
+        let mut next = vec![0.; self.k + 1];
+        self.nodes
+            .iter()
+            .map(|e| Self::global_aln(&e.kmer, tip, mat, mism, del, ins, &mut prev, &mut next))
+            .collect()
+    }
+    #[inline]
+    fn global_aln(
+        xs: &[u8],
+        ys: &[u8],
+        mat: f64,
+        mism: f64,
+        del: f64,
+        ins: f64,
+        prev: &mut Vec<f64>,
+        next: &mut Vec<f64>,
+    ) -> f64 {
+        let small = std::f64::MIN;
+        let k = xs.len();
+        for i in 0..=k {
+            prev[i] = small;
+        }
+        prev[0] = 0.;
+        for i in 0..k {
+            next[0] = small;
+            for j in 0..k {
+                let match_score = prev[j] + if xs[i] == ys[j] { mat } else { mism };
+                next[j + 1] = (next[j] + del).max(prev[j + 1] + ins).max(match_score);
+            }
+            std::mem::swap(prev, next);
+        }
+        prev[k]
+    }
+    fn initialize(&self, tip: &[u8], config: &Config) -> (f64, f64, Vec<f64>) {
+        let aln_scores = self.global_alns(tip, config);
         let minus_ln_d = Self::logsumexp(&aln_scores);
         let mut hat = Vec::with_capacity(aln_scores.len() * 3 + 4);
         for init in aln_scores.into_iter().map(|x| (x - minus_ln_d).exp()) {
