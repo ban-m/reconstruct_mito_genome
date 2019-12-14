@@ -27,8 +27,8 @@ impl std::fmt::Debug for Kmer {
         writeln!(f, "Kmer:{}", String::from_utf8_lossy(&self.kmer))?;
         writeln!(f, "KmerWeight:{:.3}", self.kmer_weight)?;
         writeln!(f, "Last:{}", self.last as char)?;
-        writeln!(f, "Weight:{:?}", &self.weight[..4])?;
-        writeln!(f, "Transition:{:?}", &self.weight[4..])?;
+        // writeln!(f, "Weight:{:?}", &self.weight[..4])?;
+        // writeln!(f, "Transition:{:?}", &self.weight[4..])?;
         writeln!(f, "tot:{}", self.tot)?;
         writeln!(f, "is_tail:{}", self.is_tail)?;
         writeln!(f, "is_head:{}", self.is_head)?;
@@ -57,8 +57,8 @@ impl Kmer {
             }
         }
         // let weight = if PSEUDO_COUNT { [1.; 4] } else { [0.; 4] };
-        let tot = 0.;
         // let transition = [0f64; 4];
+        let tot = 0.;
         let edges = [None; 4];
         let is_tail = false;
         let is_head = false;
@@ -69,7 +69,7 @@ impl Kmer {
             weight,
             tot,
             edges,
-            //transition,
+            //  transition,
             is_tail,
             is_head,
         }
@@ -83,11 +83,11 @@ impl Kmer {
         if self.tot > 0. {
             for i in 0..4 {
                 self.weight[i] /= tot_for_weight;
-                // self.transition[i] /= self.tot;
+                //self.transition[i] /= self.tot;
                 self.weight[i + 4] /= self.tot;
             }
         } else {
-            for i in 0..8 {
+            for i in 0..4 {
                 self.weight[i] = 0.25;
             }
         }
