@@ -5,8 +5,11 @@ use super::PSEUDO_COUNT;
 pub struct Kmer {
     pub kmer: Vec<u8>,
     last: u8,
-    weight: [f64; 4],
-    transition: [f64; 4],
+    // parameters. First four for weight,
+    // last four for transition.
+    weight: [f64; 8],
+    // weight: [f64; 4],
+    // transition: [f64; 4],
     /// Total number of *Outdegree*
     pub tot: f64,
     /// The location to the edges with the label of A,C,G,and T.
@@ -24,8 +27,8 @@ impl std::fmt::Debug for Kmer {
         writeln!(f, "Kmer:{}", String::from_utf8_lossy(&self.kmer))?;
         writeln!(f, "KmerWeight:{:.3}", self.kmer_weight)?;
         writeln!(f, "Last:{}", self.last as char)?;
-        writeln!(f, "Weight:{:?}", self.weight)?;
-        writeln!(f, "Transition:{:?}", self.transition)?;
+        writeln!(f, "Weight:{:?}", &self.weight[..4])?;
+        writeln!(f, "Transition:{:?}", &self.weight[4..])?;
         writeln!(f, "tot:{}", self.tot)?;
         writeln!(f, "is_tail:{}", self.is_tail)?;
         writeln!(f, "is_head:{}", self.is_head)?;
@@ -47,9 +50,15 @@ impl Kmer {
         let kmer_weight = w;
         let last = *kmer.last().unwrap();
         // Prior
-        let weight = if PSEUDO_COUNT { [1.; 4] } else { [0.; 4] };
+        let mut weight = [0.; 8];
+        if PSEUDO_COUNT {
+            for i in 0..4 {
+                weight[i] = 1.;
+            }
+        }
+        // let weight = if PSEUDO_COUNT { [1.; 4] } else { [0.; 4] };
         let tot = 0.;
-        let transition = [0f64; 4];
+        // let transition = [0f64; 4];
         let edges = [None; 4];
         let is_tail = false;
         let is_head = false;
@@ -60,7 +69,7 @@ impl Kmer {
             weight,
             tot,
             edges,
-            transition,
+            //transition,
             is_tail,
             is_head,
         }
@@ -74,10 +83,13 @@ impl Kmer {
         if self.tot > 0. {
             for i in 0..4 {
                 self.weight[i] /= tot_for_weight;
-                self.transition[i] /= self.tot;
+                // self.transition[i] /= self.tot;
+                self.weight[i + 4] /= self.tot;
             }
         } else {
-            self.weight = [0.25; 4];
+            for i in 0..8 {
+                self.weight[i] = 0.25;
+            }
         }
     }
     // renaming all the edges by `map`
@@ -94,9 +106,12 @@ impl Kmer {
             if let Some(res) = self.edges[i] {
                 if fu.find(res).unwrap() != mg {
                     self.edges[i] = None;
-                    self.tot -= self.transition[i];
-                    self.weight[i] -= self.transition[i];
-                    self.transition[i] = 0.;
+                    // self.tot -= self.transition[i];
+                    // self.weight[i] -= self.transition[i];
+                    // self.transition[i] = 0.;
+                    self.tot -= self.weight[i + 4];
+                    self.weight[i] -= self.weight[i + 4];
+                    self.weight[i + 4] = 0.;
                 }
             }
         }
@@ -107,9 +122,12 @@ impl Kmer {
             if let Some(res) = self.edges[i] {
                 if is_supported[res] != 1 {
                     self.edges[i] = None;
-                    self.tot -= self.transition[i];
-                    self.weight[i] -= self.transition[i];
-                    self.transition[i] = 0.;
+                    // self.tot -= self.transition[i];
+                    // self.weight[i] -= self.transition[i];
+                    // self.transition[i] = 0.;
+                    self.tot -= self.weight[i + 4];
+                    self.weight[i] -= self.weight[i + 4];
+                    self.weight[i + 4] = 0.;
                 }
             }
         }
@@ -123,7 +141,8 @@ impl Kmer {
         self.edges[i] = Some(to);
         self.tot += w;
         self.weight[i] += w;
-        self.transition[i] += w;
+        //self.transition[i] += w;
+        self.weight[i+4] += w;
     }
     // return [mat, ins, del, mism]
     pub fn calc_score(&self, tip: &[u8]) -> [u8; 4] {
@@ -136,7 +155,8 @@ impl Kmer {
     // return P(idx|self)
     #[inline]
     pub fn to(&self, idx: usize) -> f64 {
-        self.transition[idx]
+        //self.transition[idx]
+        self.weight[idx + 4]
     }
     #[inline]
     pub fn prob(&self, base: u8, config: &Config) -> f64 {
@@ -164,9 +184,9 @@ mod tests {
         kmer.push_edge_with(b'G', 32);
         kmer.push_edge_with(b'A', 12);
         if PSEUDO_COUNT {
-            assert_eq!(kmer.weight, [1. + 1. + 1., 1. + 1., 1. + 1., 1.]);
+            assert_eq!(&kmer.weight[..4], &[1. + 1. + 1., 1. + 1., 1. + 1., 1.]);
         } else {
-            assert_eq!(kmer.weight, [1. + 1., 1., 1., 0.]);
+            assert_eq!(&kmer.weight[..4], &[1. + 1., 1., 1., 0.]);
         }
         assert_eq!(kmer.edges, [Some(12), Some(34), Some(32), None]);
     }
