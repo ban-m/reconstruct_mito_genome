@@ -35,10 +35,13 @@ const INIT_PICK_PROB: f64 = 0.02;
 const PICK_PROB_STEP: f64 = 1.05;
 const MAX_PICK_PROB: f64 = 0.05;
 const MINIMUM_PROB: f64 = 0.001;
-const LEARNING_RATE: f64 = 0.2;
+const LEARNING_RATE: f64 = 0.6;
 const MOMENT: f64 = 0.2;
 const LOOP_NUM: usize = 4;
-const SOE_THR: f64 = 10.;
+const SEED: u64 = 100;
+const FACTOR: f64 = 1.4;
+const SAMPING: usize = 500;
+const SOE_PER_DATA_ENTROPY: f64 = 0.05;
 pub fn decompose(
     read: Vec<fasta::Record>,
     alignments: Vec<LastTAB>,
@@ -334,12 +337,13 @@ pub fn clustering(
     cluster_num: usize,
     contigs: &[usize],
     answer: &[u8],
+    c: &Config,
 ) -> Vec<u8> {
     let border = label.len();
-    let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer);
+    let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
     // Maybe we should use randomized choose.
     debug!("Prediction. Dump weights");
-    for (weight, ans) in weights.iter().skip(label.len()).zip(answer) {
+    for (weight, ans) in weights.iter().zip(answer).skip(border) {
         let weights: String = weight
             .iter()
             .map(|e| format!("{:.3},", e))
@@ -386,6 +390,7 @@ fn get_max_coverage(data: &[ERead], contig: &[usize]) -> usize {
 /// When you know the i-th read should not be in the j-th cluster, please add  `j` into `forbidden[i]`'s vector.
 /// `cluster_num`should be the number of the cluster.
 /// `contigs` should be a map from the index of contig -> number of units.
+/// ToDO: Mofify to accept configurations.
 pub fn soft_clustering(
     data: &[ERead],
     label: &[u8],
@@ -394,18 +399,71 @@ pub fn soft_clustering(
     cluster_num: usize,
     contigs: &[usize],
     answer: &[u8],
+    config: &Config,
 ) -> Vec<Vec<f64>> {
     assert!(cluster_num > 1);
-    let seed = label.iter().sum::<u8>() as u64 + cluster_num as u64 + data.len() as u64;
-    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
-    let border = label.len();
     // weight_of_read[i] = "the vector of each cluster for i-th read"
     let mut weight_of_read: Vec<Vec<f64>> =
         construct_initial_weights(label, forbidden, cluster_num, data.len());
-    let mut gammas: Vec<Vec<_>> = vec![vec![0.; cluster_num]; data.len()];
-    //let mut moments: Vec<Vec<_>> = vec![vec![1. / cluster_num as f64; cluster_num]; data.len()];
-    let mut moments: Vec<Vec<_>> = vec![vec![]; data.len()];
+    let soe_thr = SOE_PER_DATA_ENTROPY * data.len() as f64 * (cluster_num as f64).ln();
+    let max_coverage = get_max_coverage(data, contigs);
+    let beta_step = 1. + (BETA_STEP - 1.) * 2. / (max_coverage as f64).log10();
+    info!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
+    let init_beta = search_initial_beta(data, label, forbidden, k, cluster_num, contigs, config);
+    info!("Initial Beta {:.4} -> {:.4}", INIT_BETA, init_beta);
+    let mut betas: Vec<_> = (0..)
+        .map(|i| init_beta * beta_step.powi(i))
+        .take_while(|&e| e < MAX_BETA)
+        .chain(vec![1.])
+        .collect();
+    let pick_probs: Vec<_> = (0..)
+        .map(|i| INIT_PICK_PROB * PICK_PROB_STEP.powi(i))
+        .take_while(|&e| e < MAX_PICK_PROB)
+        .map(|pick_prob| (pick_prob, pick_prob.recip().floor() as usize * LOOP_NUM))
+        .flat_map(|(pick_prob, num)| vec![pick_prob; num])
+        .collect();
+    loop {
+        let last_sum_of_entropy = from_weight_of_read(
+            &mut weight_of_read,
+            data,
+            label,
+            k,
+            cluster_num,
+            contigs,
+            answer,
+            config,
+            &betas,
+            soe_thr,
+            &pick_probs,
+        );
+        if last_sum_of_entropy < soe_thr {
+            break weight_of_read;
+        } else {
+            beta.iter_mut().for_each(|e| *e /= beta_step);
+            beta.push(1.);
+        }
+    }
+}
+
+fn from_weight_of_read(
+    weight_of_read: &mut [Vec<f64>],
+    data: &[ERead],
+    label: &[u8],
+    k: usize,
+    cluster_num: usize,
+    contigs: &[usize],
+    answer: &[u8],
+    config: &Config,
+    betas: &[f64],
+    soe_thr: f64,
+    pick_probs: &[f64],
+) -> f64 {
+    let seed = label.iter().sum::<u8>() as u64 + cluster_num as u64 + data.len() as u64;
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
+    let border = label.len();
     let datasize = data.len() as f64;
+    let mut gammas: Vec<Vec<_>> = vec![vec![0.; cluster_num]; data.len()];
+    let mut moments: Vec<Vec<_>> = vec![vec![]; data.len()];
     let mut ws: Vec<f64> = (0..cluster_num)
         .map(|i| weight_of_read.iter().map(|g| g[i]).sum::<f64>() / datasize)
         .collect();
@@ -416,54 +474,115 @@ pub fn soft_clustering(
     let mut models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
         .map(|cl| mf.generate_model(&weight_of_read, data, cl))
         .collect();
-    let max_coverage = get_max_coverage(data, contigs);
-    let beta_step = 1. + (BETA_STEP - 1.) * 2. / (max_coverage as f64).log10();
-    debug!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
-    let betas = (0..)
-        .map(|i| INIT_BETA * beta_step.powi(i))
-        .take_while(|&e| e < MAX_BETA)
-        .chain(vec![1.]);
-    let pick_probs: Vec<_> = (0..)
-        .map(|i| INIT_PICK_PROB * PICK_PROB_STEP.powi(i))
-        .take_while(|&e| e < MAX_PICK_PROB)
-        .map(|pick_prob| (pick_prob, pick_prob.recip().floor() as usize * LOOP_NUM))
-        .flat_map(|(pick_prob, num)| vec![pick_prob; num])
-        .collect();
     let mut updates = vec![false; data.len()];
-    for beta in betas {
-        let lr = LEARNING_RATE * INIT_BETA / beta;
-        for &pick_prob in &pick_probs {
-            updates_flags(&mut updates, &weight_of_read, &mut rng, pick_prob, beta);
-            models.iter_mut().enumerate().for_each(|(cluster, model)| {
-                mf.update_model(&weight_of_read, &updates, data, cluster, model);
-            });
-            minibatch_sgd_by(
-                &mut weight_of_read,
-                &mut gammas,
-                &mut moments,
-                &mut ws,
-                border,
-                data,
-                &models,
-                &updates,
-                beta,
-                lr,
-            );
-        }
-        let wr = &weight_of_read;
-        report(&wr, border, answer, &ws, &models, data, beta, lr);
-    }
+    let lr = LEARNING_RATE;
     let mut soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-    let mut soe_diff = 10000.;
-    let lr = LEARNING_RATE * INIT_BETA;
-    while soe_diff < SOE_THR {
-        let pick_prob = INIT_PICK_PROB;
-        updates_flags(&mut updates, &weight_of_read, &mut rng, pick_prob, 1.);
+    for &beta in betas {
+        let mut soe_diff = 1000000.;
+        while soe_diff > soe_thr && soe_thr < soe {
+            for &pick_prob in pick_probs {
+                updates_flags(&mut updates, &weight_of_read, &mut rng, pick_prob, beta);
+                models.iter_mut().enumerate().for_each(|(cluster, model)| {
+                    mf.update_model(&weight_of_read, &updates, data, cluster, model);
+                });
+                minibatch_sgd_by(
+                    weight_of_read,
+                    &mut gammas,
+                    &mut moments,
+                    &mut ws,
+                    border,
+                    data,
+                    &models,
+                    &updates,
+                    beta,
+                    lr,
+                    config,
+                );
+            }
+            let wr = &weight_of_read;
+            report(&wr, border, answer, &ws, &models, data, beta, lr, config);
+            let c_soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
+            soe_diff = soe - c_soe;
+            soe = c_soe;
+        }
+        if soe < soe_thr || soe_diff < -soe_thr {
+            info!("Sum of Entropy {:.4} < {:.4}.", soe, soe_thr);
+            info!("Or, it increased. {:.4} -> {:.4}.", soe + soe_diff, soe,);
+            info!("Early dropping.");
+            break;
+        }
+    }
+    soe
+}
+
+// Find initial good parameter for \beta.
+// It frist starts from INITIAL_BETA, then
+// multiple by FACTOR it while SoE after T times sampling would not decrease.
+// Then, it divides the beta by FACTOR until SoE after T times sampling would not decrease.
+// In other words, it searches for a "platoe" beta for the given data.
+fn search_initial_beta(
+    data: &[ERead],
+    label: &[u8],
+    forbidden: &[Vec<u8>],
+    k: usize,
+    cluster_num: usize,
+    contigs: &[usize],
+    c: &Config,
+) -> f64 {
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(SEED);
+    let weight_of_read: Vec<Vec<f64>> =
+        construct_initial_weights(label, forbidden, cluster_num, data.len());
+    let wor = &weight_of_read;
+    let border = label.len();
+    let datasize = data.len() as f64;
+    let mut mf = ModelFactory::new(contigs, data, k);
+    let mut beta = INIT_BETA / FACTOR;
+    let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
+    let mut diff = 0.;
+    let thr = SOE_PER_DATA_ENTROPY * datasize * (cluster_num as f64).ln();
+    while diff < thr {
+        beta *= FACTOR;
+        let c_soe = soe_after_sampling(beta, data, wor, border, &mut rng, cluster_num, &mut mf, c);
+        diff = soe - c_soe;
+        debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, c_soe, diff);
+    }
+    while diff > thr {
+        beta /= FACTOR;
+        let c_soe = soe_after_sampling(beta, data, wor, border, &mut rng, cluster_num, &mut mf, c);
+        diff = soe - c_soe;
+        debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, c_soe, diff);
+    }
+    beta
+}
+
+fn soe_after_sampling<R: Rng>(
+    beta: f64,
+    data: &[ERead],
+    wor: &[Vec<f64>],
+    border: usize,
+    rng: &mut R,
+    cluster_num: usize,
+    mf: &mut ModelFactory,
+    c: &Config,
+) -> f64 {
+    let datasize = data.len() as f64;
+    let mut updates = vec![false; data.len()];
+    let mut gammas: Vec<Vec<_>> = vec![vec![0.; cluster_num]; data.len()];
+    let mut moments: Vec<Vec<_>> = vec![vec![]; data.len()];
+    let mut ws: Vec<f64> = (0..cluster_num)
+        .map(|i| wor.iter().map(|g| g[i]).sum::<f64>() / datasize)
+        .collect();
+    let mut models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
+        .map(|cl| mf.generate_model(&wor, data, cl))
+        .collect();
+    let mut wor: Vec<Vec<f64>> = wor.to_vec();
+    for _ in 0..SAMPING {
+        updates_flags(&mut updates, &wor, rng, INIT_PICK_PROB, beta);
         models.iter_mut().enumerate().for_each(|(cluster, model)| {
-            mf.update_model(&weight_of_read, &updates, data, cluster, model);
+            mf.update_model(&wor, &updates, data, cluster, model);
         });
         minibatch_sgd_by(
-            &mut weight_of_read,
+            &mut wor,
             &mut gammas,
             &mut moments,
             &mut ws,
@@ -471,16 +590,12 @@ pub fn soft_clustering(
             data,
             &models,
             &updates,
-            1.,
-            lr,
+            beta,
+            LEARNING_RATE,
+            c,
         );
-        let wr = &weight_of_read;
-        report(&wr, border, answer, &ws, &models, data, 1., lr);
-        let n_soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-        soe_diff = soe - n_soe;
-        soe = n_soe;
     }
-    weight_of_read
+    wor.iter().map(|e| entropy(e)).sum::<f64>()
 }
 
 fn report(
@@ -492,6 +607,7 @@ fn report(
     data: &[ERead],
     beta: f64,
     lr: f64,
+    c: &Config,
 ) {
     let correct = weight_of_read
         .iter()
@@ -503,11 +619,18 @@ fn report(
     let pi: Vec<_> = ws.iter().map(|e| format!("{:.0}", 100. * e)).collect();
     let pi = pi.join("\t");
     let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-    let lk = likelihood_of_models(&models, data, &ws);
+    let lk = likelihood_of_models(&models, data, &ws, c);
     info!(
         "Summary\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{}\t{:.2}",
         lk, soe, pi, beta, lr, correct, acc
     );
+    for (i, mss) in models.iter().enumerate() {
+        for (_j, ms) in mss.iter().enumerate() {
+            for (j, m) in ms.iter().enumerate() {
+                debug!("{}\t{}\t{:.4}", i, j, m.weight());
+            }
+        }
+    }
 }
 
 fn updates_flags<R: Rng>(
@@ -519,7 +642,7 @@ fn updates_flags<R: Rng>(
 ) {
     let datasize = weight_of_read.len() as f64;
     let sum_of_entropy = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-    // debug!("SoE\t{:.8}\t{:.4}\t{:.4}", sum_of_entropy, pick_prob, beta);
+    debug!("SoE\t{:.8}\t{:.4}\t{:.4}", sum_of_entropy, pick_prob, beta);
     let denom = sum_of_entropy + MINIMUM_PROB * datasize;
     loop {
         let num_ok = updates
@@ -549,6 +672,7 @@ fn minibatch_sgd_by(
     updates: &[bool],
     beta: f64,
     lr: f64,
+    c: &Config,
 ) {
     let cluster_num = models.len();
     let datasize = data.len() as f64;
@@ -561,7 +685,7 @@ fn minibatch_sgd_by(
         .skip(border)
         .filter(|&(_, &b)| b)
         .map(|((((read, weights), gamma), moment), _)| {
-            compute_log_probs(&models, &ws, &read, gamma);
+            compute_log_probs(&models, &ws, &read, gamma, c);
             gamma.iter_mut().for_each(|g| *g *= beta);
             let w = utils::logsumexp(&gamma);
             gamma.iter_mut().for_each(|l| *l = (*l - w).exp());
@@ -613,7 +737,13 @@ fn minibatch_sgd_by(
     debug_assert!((1. - ws.iter().sum::<f64>()).abs() < 0.001);
 }
 
-fn compute_log_probs(models: &[Vec<Vec<DBGHMM>>], ws: &[f64], read: &ERead, gammas: &mut Vec<f64>) {
+fn compute_log_probs(
+    models: &[Vec<Vec<DBGHMM>>],
+    ws: &[f64],
+    read: &ERead,
+    gammas: &mut Vec<f64>,
+    c: &Config,
+) {
     assert_eq!(models.len(), ws.len());
     assert_eq!(models.len(), gammas.len());
     models
@@ -624,9 +754,9 @@ fn compute_log_probs(models: &[Vec<Vec<DBGHMM>>], ws: &[f64], read: &ERead, gamm
             *g = read
                 .seq
                 .par_iter()
-                .map(|c| {
-                    let model = &model[c.contig()][c.unit()];
-                    let lk = model.forward(c.bases(), &DEFAULT_CONFIG);
+                .map(|u| {
+                    let model = &model[u.contig()][u.unit()];
+                    let lk = model.forward(u.bases(), c);
                     lk + offset(model.weight(), A, B)
                 })
                 .sum::<f64>()
@@ -676,6 +806,7 @@ pub fn likelihood_of_assignments(
     k: usize,
     cluster_num: usize,
     contigs: &[usize],
+    config: &Config,
 ) -> f64 {
     assert_eq!(assignments.len(), data.len());
     assert!(cluster_num > 1);
@@ -692,16 +823,21 @@ pub fn likelihood_of_assignments(
     let models: Vec<Vec<_>> = (0..cluster_num)
         .map(|cl| construct_with_weights(data, &gammas, k, contigs, cl))
         .collect();
-    likelihood_of_models(&models, data, &ws)
+    likelihood_of_models(&models, data, &ws, config)
 }
 
-fn likelihood_of_models(models: &[Vec<Vec<DBGHMM>>], data: &[ERead], ws: &[f64]) -> f64 {
+fn likelihood_of_models(
+    models: &[Vec<Vec<DBGHMM>>],
+    data: &[ERead],
+    ws: &[f64],
+    c: &Config,
+) -> f64 {
     let cluster_num = models.len();
     let mut gammas: Vec<_> = vec![vec![0.; cluster_num]; data.len()];
     data.par_iter()
         .zip(gammas.par_iter_mut())
         .map(|(read, gs)| {
-            compute_log_probs(&models, &ws, &read, gs);
+            compute_log_probs(&models, &ws, &read, gs, c);
             utils::logsumexp(&gs)
         })
         .sum::<f64>()
@@ -717,6 +853,7 @@ pub fn get_mergable_cluster(
     k: usize,
     cluster_num: usize,
     contigs: &[usize],
+    c: &Config,
 ) -> (f64, u8, u8) {
     let datasize = data.len() as f64;
     let ws: Vec<f64> = gammas
@@ -727,12 +864,12 @@ pub fn get_mergable_cluster(
     let models: Vec<Vec<_>> = (0..cluster_num)
         .map(|cl| construct_with_weights(data, gammas, k, contigs, cl))
         .collect();
-    let before = likelihood_of_models(&models, data, &ws);
+    let before = likelihood_of_models(&models, data, &ws, c);
     let (mut max, mut cluster_a, mut cluster_b) = (std::f64::MIN, 0, 0);
     assert!(cluster_num > 2);
     for i in 0..cluster_num {
         for j in i + 1..cluster_num {
-            let lk = likelihood_by_merging(data, &gammas, i, j, cluster_num, k, contigs);
+            let lk = likelihood_by_merging(data, &gammas, i, j, cluster_num, k, contigs, c);
             if max < lk {
                 cluster_a = i;
                 cluster_b = j;
@@ -751,6 +888,7 @@ pub fn likelihood_by_merging(
     cl: usize,
     k: usize,
     contigs: &[usize],
+    config: &Config,
 ) -> f64 {
     let datasize = data.len() as f64;
     let gammas = merge_cluster(&gammas, i, j, cl);
@@ -762,7 +900,7 @@ pub fn likelihood_by_merging(
     let models: Vec<Vec<_>> = (0..cl - 1)
         .map(|cl| construct_with_weights(data, &gammas, k, contigs, cl))
         .collect();
-    likelihood_of_models(&models, data, &ws)
+    likelihood_of_models(&models, data, &ws, config)
 }
 
 fn merge_cluster(gammas: &[Vec<f64>], i: usize, j: usize, cl: usize) -> Vec<Vec<f64>> {

@@ -1,3 +1,4 @@
+extern crate bio;
 extern crate create_simulation_data;
 extern crate dbg_hmm;
 extern crate edlib_sys;
@@ -7,10 +8,12 @@ extern crate rand_xoshiro;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
+extern crate rayon;
 use dbg_hmm::gen_sample;
-use last_decompose::{clustering, likelihood_of_assignments, ERead};
+use last_decompose::clustering_via_alignment;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
+use rayon::prelude::*;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     rayon::ThreadPoolBuilder::new()
@@ -32,7 +35,6 @@ fn main() {
         (200, 0, vec![2f64.recip(); 2], 2, 11920981)
     };
     let chain_len = 20;
-    let k = 6;
     let len = 150;
     let p = &gen_sample::Profile {
         sub: 0.002,
@@ -43,7 +45,7 @@ fn main() {
     println!("TestNum:{}\tLabeled:{}", test_num, coverage);
     let s = Instant::now();
     let (hmm, dists) = benchmark(
-        seed, p, coverage, test_num, chain_len, k, len, &probs, clusters,
+        seed, p, coverage, test_num, chain_len, len, &probs, clusters,
     );
     debug!("Elapsed {:?}", Instant::now() - s);
     for (idx, preds) in hmm.into_iter().enumerate() {
@@ -70,7 +72,6 @@ fn benchmark(
     coverage: usize,
     test_num: usize,
     chain_len: usize,
-    k: usize,
     len: usize,
     probs: &[f64],
     clusters: usize,
@@ -106,34 +107,38 @@ fn benchmark(
         .collect();
     let (dataset, label, answer, _border) =
         create_simulation_data::generate_mul_data(&templates, coverage, test_num, &mut rng, probs);
-    let contigs = vec![chain_len];
-    let c= &dbg_hmm::DEFAULT_CONFIG;
-    let data: Vec<_> = dataset
+    let reads: Vec<Vec<u8>> = dataset
         .into_iter()
-        .enumerate()
-        .map(|(idx, e)| {
-            let id = format!("{}", idx);
-            ERead::new_with_lowseq(e, &id)
+        .map(|e| e.into_iter().flat_map(|e| e).collect::<Vec<u8>>())
+        .collect();
+    let forbidden = vec![vec![]; reads.len()];
+    let read_index: Vec<_> = (0..reads.len()).collect();
+    use std::collections::HashMap;
+    let sims: Vec<HashMap<usize, i64>> = reads
+        .par_iter()
+        .map(|r| {
+            reads
+                .iter()
+                .enumerate()
+                .map(|(i, q)| (i, alignment(r, q)))
+                .collect()
         })
         .collect();
-    {
-        let answer: Vec<_> = label.iter().chain(answer.iter()).copied().collect();
-        let objlk = likelihood_of_assignments(&data, &answer, k, clusters, &contigs, c);
-        debug!("ObjLK:{}", objlk);
-    }
-    {
-        let probs: Vec<_> = probs.iter().map(|e| format!("{:3}", e)).collect();
-        debug!("Probs:[{}]", probs.join(","));
-    };
-    let forbidden = vec![vec![]; data.len()];
-    let em_pred = clustering(&data, &label, &forbidden, k, clusters, &contigs, &answer,c );
+    let aln_pred = clustering_via_alignment(&read_index, &label, &forbidden, &sims, clusters);
+    debug!("Finish alignment.");
     let mut result = vec![vec![0; clusters]; clusters];
     for i in 0..clusters {
         let tot = answer.iter().filter(|&&e| e as usize == i).count();
         debug!("Cluster {}:{}", i, tot);
     }
-    for (pred, ans) in em_pred.into_iter().zip(answer) {
+    for (pred, ans) in aln_pred.into_iter().zip(answer) {
         result[pred as usize][ans as usize] += 1;
     }
     (result, dists)
+}
+
+fn alignment(r: &[u8], q: &[u8]) -> i64 {
+    use bio::alignment::pairwise::Aligner;
+    let mut a = Aligner::new(-3, -1, |a, b| if a == b { 1 } else { -1 });
+    a.global(r, q).score as i64
 }

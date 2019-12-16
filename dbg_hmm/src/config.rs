@@ -1,3 +1,14 @@
+pub const BADREAD_CONFIG: Config = Config {
+    mismatch: 0.0344,
+    base_freq: [0.25, 0.25, 0.25, 0.25],
+    p_match: 0.88,
+    p_ins: 0.0549,
+    p_del: 0.0651,
+    p_extend_ins: 0.0337,
+    p_extend_del: 0.1787,
+    p_del_to_ins: 0.0,
+};
+
 pub const DEFAULT_CONFIG: Config = Config {
     mismatch: 0.03,
     base_freq: [0.25, 0.25, 0.25, 0.25],
@@ -19,7 +30,6 @@ pub const PACBIO_CONFIG: Config = Config {
     p_extend_del: 0.0695,
     p_del_to_ins: 0.0086,
 };
-
 
 /// A configure struct.
 #[derive(Debug, Clone, Default)]

@@ -295,6 +295,7 @@ dependencies = [
 name = "create_simulation_data"
 version = "0.1.0"
 dependencies = [
+ "bio 0.29.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bio_utils 0.1.0",
  "dbg_hmm 0.1.0",
  "edlib_sys 0.1.0",

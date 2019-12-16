@@ -77,6 +77,7 @@ fn benchmark(
         &template1, &template2, coverage, test_num, &mut rng, prob,
     );
     let contigs = vec![chain_len];
+            let c= &dbg_hmm::DEFAULT_CONFIG;
     let data: Vec<_> = dataset
         .into_iter()
         .enumerate()
@@ -87,11 +88,11 @@ fn benchmark(
         .collect();
     {
         let answer: Vec<_> = label.iter().chain(answer.iter()).copied().collect();
-        let objlk = likelihood_of_assignments(&data, &answer, k, 2, &contigs);
+        let objlk = likelihood_of_assignments(&data, &answer, k, 2, &contigs, c);
         debug!("ObjLK:{}", objlk);
     }
     let forbidden = vec![vec![]; data.len()];
-    let em_pred = clustering(&data, &label, &forbidden, k, 2, &contigs, &answer);
+    let em_pred = clustering(&data, &label, &forbidden, k, 2, &contigs, &answer, c);
     let pos = answer.iter().filter(|&&e| e == 0).count();
     let neg = answer.len() - pos;
     let tp = em_pred

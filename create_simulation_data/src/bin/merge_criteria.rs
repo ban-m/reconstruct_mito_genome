@@ -68,8 +68,9 @@ fn main() {
         .collect();
     let answers: Vec<_> = (0..dataset.len()).map(|i| (i / coverage) as u8).collect();
     let contigs = vec![chain_len];
+    let c = &dbg_hmm::DEFAULT_CONFIG;
     let before_lk =
-        last_decompose::likelihood_of_assignments(&dataset, &answers, K, clusters, &contigs);
+        last_decompose::likelihood_of_assignments(&dataset, &answers, K, clusters, &contigs, c);
     let gammas: Vec<_> = (0..dataset.len())
         .map(|idx| {
             let mut gamma = vec![0.; clusters];
@@ -87,7 +88,7 @@ fn main() {
                 .sum::<u32>();
             debug!("Dist {} out of {} ({},{})", diff, chain_len, i, j);
             let after_lk = last_decompose::likelihood_by_merging(
-                &dataset, &gammas, i, j, clusters, K, &contigs,
+                &dataset, &gammas, i, j, clusters, K, &contigs, c,
             );
             let lkgain = after_lk - before_lk;
             debug!(

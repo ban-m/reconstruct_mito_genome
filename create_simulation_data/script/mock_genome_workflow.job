@@ -4,7 +4,7 @@
 #$ -cwd
 #$ -pe smp 24
 #$ -e ./logfiles/mock_genome_workflow.log
-#$ -o ./logfiles/mock_genome_workflow.out
+#$ -o ./logfiles/mock_genome_workflow.log
 #$ -V
 #$ -m e
 
@@ -23,7 +23,7 @@ CORES=24
 # cd ${ROOT}
 
 # ----- Prediction ------
-cargo run --release --bin predict_mockdata \
-      -- ${READ} ${REFERENCE} ${OUTPUT}/last_db/alignments.tab random\
-      > ${OUTPUT}/predictions_random.tsv
+./target/release/predict_mockdata \
+    ${READ} ${REFERENCE} ${OUTPUT}/last_db/alignments.tab random\
+    > ${OUTPUT}/predictions_random.tsv
 

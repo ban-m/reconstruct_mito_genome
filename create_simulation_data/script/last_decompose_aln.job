@@ -1,0 +1,52 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N DecTwo
+#$ -cwd
+#$ -pe smp 24
+#$ -e ./logfiles/last_decompose_aln.log
+#$ -o ./logfiles/last_decompose_aln.log
+#$ -V
+#$ -m e
+set -ue
+OUTPUT=./result/last_decompose_aln.txt
+
+
+echo "-----start-----" >> ${OUTPUT}
+
+TEST_NUM=100
+COVERAGE=0
+PROBS="0.5 0.5"
+for seed in 10 20 30 40 50
+do
+    ./target/release/test_last_decompose_alignment \
+        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
+done
+
+TEST_NUM=100
+COVERAGE=0
+PROBS="0.2 0.8"
+for seed in 10 20 30 40 50
+do
+    ./target/release/test_last_decompose_alignment \
+        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
+done
+ 
+TEST_NUM=100
+COVERAGE=4
+PROBS="0.2 0.8"
+for seed in 10 20 30 40 50
+do
+    ./target/release/test_last_decompose_alignment \
+        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
+done
+
+TEST_NUM=300
+COVERAGE=0
+PROBS="0.2 0.8"
+for seed in 10 20 30 40 50
+do
+    ./target/release/test_last_decompose_alignment \
+        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
+done
+
+
