@@ -8,26 +8,20 @@ pub struct ERead {
     pub seq: Vec<CUnit>,
 }
 
-/// A chunk of sequence. It is "canonicalized".
-/// In other words, it is reverse-complimented if needed.
-#[derive(Debug, Clone)]
-pub struct CUnit {
-    pub contig: u16,
-    pub unit: u16,
-    pub bases: Vec<u8>,
+use std::hash::{Hash, Hasher};
+
+impl Hash for ERead {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
 }
 
-impl CUnit {
-    pub fn bases(&self) -> &[u8] {
-        &self.bases
-    }
-    pub fn unit(&self) -> usize {
-        self.unit as usize
-    }
-    pub fn contig(&self) -> usize {
-        self.contig as usize
+impl PartialEq for ERead {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
     }
 }
+impl Eq for ERead {}
 
 /// Currently, gap units are ignored.
 impl ERead {
@@ -75,5 +69,32 @@ impl ERead {
     }
     pub fn seq(&self) -> &[CUnit] {
         &self.seq
+    }
+    pub fn has(&self, contig: u16) -> bool {
+        self.seq.iter().any(|c| c.contig == contig)
+    }
+    pub fn len(&self) -> usize {
+        self.seq.len()
+    }
+}
+
+/// A chunk of sequence. It is "canonicalized".
+/// In other words, it is reverse-complimented if needed.
+#[derive(Debug, Clone)]
+pub struct CUnit {
+    pub contig: u16,
+    pub unit: u16,
+    pub bases: Vec<u8>,
+}
+
+impl CUnit {
+    pub fn bases(&self) -> &[u8] {
+        &self.bases
+    }
+    pub fn unit(&self) -> usize {
+        self.unit as usize
+    }
+    pub fn contig(&self) -> usize {
+        self.contig as usize
     }
 }

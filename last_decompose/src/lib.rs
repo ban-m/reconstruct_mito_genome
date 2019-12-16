@@ -16,10 +16,9 @@ pub mod utils;
 use bio_utils::fasta;
 use last_tiling::LastTAB;
 use log::Level;
-mod assignments;
-mod find_breakpoint;
-use last_tiling::UNIT_SIZE;
+// mod assignments;
 mod eread;
+mod find_breakpoint;
 use dbg_hmm::*;
 pub use eread::*;
 
@@ -47,6 +46,8 @@ const SOE_PER_DATA_ENTROPY: f64 = 0.05;
 const K: usize = 6;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
+/// TODO: make a procedure to filter out contained reads.
+/// TODO: make a procedure to mask critical regions.
 pub fn decompose(
     read: Vec<fasta::Record>,
     alignments: Vec<LastTAB>,
@@ -57,13 +58,13 @@ pub fn decompose(
     // Alignment informations are completely (losslessly) encoded into reads.
     let encoded_reads = last_tiling::encoding(&read, &contigs, &alignments);
     // We convert these reads into ERead, a lightweight mode.
+    let encoded_reads: Vec<_> = encoded_reads.into_iter().map(ERead::new).collect();
     let critical_regions = critical_regions(&encoded_reads, &contigs);
     if log_enabled!(Level::Debug) {
         for c in &critical_regions {
             debug!("{:?}", c);
         }
     }
-    let encoded_reads: Vec<_> = encoded_reads.into_iter().map(ERead::new).collect();
     let datasize = encoded_reads.len();
     let mut unassigned_reads: Vec<_> = vec![];
     let mut assigned_reads: Vec<_> = vec![];

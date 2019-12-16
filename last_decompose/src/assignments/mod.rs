@@ -159,103 +159,103 @@ impl Assignment {
 // mutation inside this repeat, it is no use.
 // Also, it is currently able to resolve two repeat. If there are more complex situation,
 // It just fails.
-fn local_first_order_decomposing<'a>(
-    reads: &'a [EncodedRead],
-    cr: &ContigPair,
-    contigs: &Contigs,
-) -> (
-    usize,
-    std::vec::Vec<(usize, usize, &'a EncodedRead)>,
-    std::vec::Vec<(usize, &'a EncodedRead)>,
-) {
-    let (overlapping_reads, remainings): (Vec<(usize, &EncodedRead)>, Vec<(usize, &EncodedRead)>) =
-        reads
-            .iter()
-            .enumerate()
-            .partition(|(_idx, r)| cr.overlaps_with(r));
-    let (contained_reads, remainings): (Vec<_>, Vec<_>) =
-        remainings.into_iter().partition(|(_, r)| cr.contains(r));
-    // classed_reads[idx] would return the idx-th cluster
-    let (_num_of_cluster, classed_reads): (_, Vec<Vec<_>>) =
-        cr.clustering_reads_into_points(&overlapping_reads);
-    let pairs: Vec<[usize; 2]> = cr.get_competitive_pair(&overlapping_reads);
-    // Let competitive pair be [[i,j],[l,m]]. Thus, we should chose one out of two options:
-    // i connets to l and j connects to m, OR, i connects to m, and j connects to l.
-    // First option is like:
-    // -----i----|->->->|----l----
-    // -----j----|->->->|----m----
-    // Second one is like
-    // -----i----|->->->|----m----
-    // -----j----|->->->|----l----
-    // Note that i-l are 0..4, but we can not tell which to which.
-    let mut rng: StdRng = SeedableRng::seed_from_u64(12123);
-    let separated_reads: Vec<[HashSet<_>; 2]> = pairs
-        .iter()
-        .map(|pair| {
-            let (i, j) = (pair[0], pair[1]);
-            let mut dbg_hmms = dbg_hmms::DeBruijnGraphHiddenMarkovs::new(contigs, 2);
-            classed_reads[i]
-                .iter()
-                .for_each(|(_, r)| dbg_hmms.push(0, r));
-            classed_reads[j]
-                .iter()
-                .for_each(|(_, r)| dbg_hmms.push(1, r));
-            let (mut class_i, mut class_j) = (HashSet::new(), HashSet::new());
-            contained_reads.iter().for_each(|(idx, read)| {
-                let weights = dbg_hmms.predict(read);
-                let assign = *[0, 1].choose_weighted(&mut rng, |&k| weights[k]).unwrap();
-                if assign == 0 {
-                    class_i.insert(idx);
-                } else {
-                    class_j.insert(idx);
-                }
-            });
-            [class_i, class_j]
-        })
-        .collect();
-    // (i->l and j->m) and (i->m and j -> l)
-    let connection_pattern = [[(0, 0, 0), (1, 1, 1)], [(0, 0, 1), (1, 1, 0)]];
-    let selected_pattern = connection_pattern
-        .iter()
-        .max_by_key(|pat| {
-            pat.iter()
-                .map(|&(x, y, z)| {
-                    separated_reads[x][y]
-                        .intersection(&separated_reads[x][z])
-                        .count()
-                })
-                .sum::<usize>()
-        })
-        .unwrap();
-    let classes: Vec<HashSet<usize>> = selected_pattern
-        .iter()
-        .map(|&(x, y, z)| {
-            separated_reads[x][y]
-                .intersection(&separated_reads[x][z])
-                .map(|&&e| e)
-                .collect()
-        })
-        .collect();
-    let mut result: Vec<(usize, usize, _)> = vec![];
-    for (class, y, z) in selected_pattern {
-        result.extend(
-            classed_reads[pairs[0][*y]]
-                .iter()
-                .chain(classed_reads[pairs[1][*z]].iter())
-                .map(|(idx, read)| (*class, *idx, *read)),
-        );
-    }
-    for (idx, read) in contained_reads {
-        if classes[0].contains(&idx) {
-            result.push((0, idx, read));
-        } else if classes[1].contains(&idx) {
-            result.push((1, idx, read));
-        } else {
-            panic!();
-        }
-    }
-    (2, result, remainings)
-}
+// fn local_first_order_decomposing<'a>(
+//     reads: &'a [EncodedRead],
+//     cr: &ContigPair,
+//     contigs: &Contigs,
+// ) -> (
+//     usize,
+//     std::vec::Vec<(usize, usize, &'a EncodedRead)>,
+//     std::vec::Vec<(usize, &'a EncodedRead)>,
+// ) {
+//     let (overlapping_reads, remainings): (Vec<(usize, &EncodedRead)>, Vec<(usize, &EncodedRead)>) =
+//         reads
+//             .iter()
+//             .enumerate()
+//             .partition(|(_idx, r)| cr.overlaps_with(r));
+//     let (contained_reads, remainings): (Vec<_>, Vec<_>) =
+//         remainings.into_iter().partition(|(_, r)| cr.contains(r));
+//     // classed_reads[idx] would return the idx-th cluster
+//     let (_num_of_cluster, classed_reads): (_, Vec<Vec<_>>) =
+//         cr.clustering_reads_into_points(&overlapping_reads);
+//     let pairs: Vec<[usize; 2]> = cr.get_competitive_pair(&overlapping_reads);
+//     // Let competitive pair be [[i,j],[l,m]]. Thus, we should chose one out of two options:
+//     // i connets to l and j connects to m, OR, i connects to m, and j connects to l.
+//     // First option is like:
+//     // -----i----|->->->|----l----
+//     // -----j----|->->->|----m----
+//     // Second one is like
+//     // -----i----|->->->|----m----
+//     // -----j----|->->->|----l----
+//     // Note that i-l are 0..4, but we can not tell which to which.
+//     let mut rng: StdRng = SeedableRng::seed_from_u64(12123);
+//     let separated_reads: Vec<[HashSet<_>; 2]> = pairs
+//         .iter()
+//         .map(|pair| {
+//             let (i, j) = (pair[0], pair[1]);
+//             let mut dbg_hmms = dbg_hmms::DeBruijnGraphHiddenMarkovs::new(contigs, 2);
+//             classed_reads[i]
+//                 .iter()
+//                 .for_each(|(_, r)| dbg_hmms.push(0, r));
+//             classed_reads[j]
+//                 .iter()
+//                 .for_each(|(_, r)| dbg_hmms.push(1, r));
+//             let (mut class_i, mut class_j) = (HashSet::new(), HashSet::new());
+//             contained_reads.iter().for_each(|(idx, read)| {
+//                 let weights = dbg_hmms.predict(read);
+//                 let assign = *[0, 1].choose_weighted(&mut rng, |&k| weights[k]).unwrap();
+//                 if assign == 0 {
+//                     class_i.insert(idx);
+//                 } else {
+//                     class_j.insert(idx);
+//                 }
+//             });
+//             [class_i, class_j]
+//         })
+//         .collect();
+//     // (i->l and j->m) and (i->m and j -> l)
+//     let connection_pattern = [[(0, 0, 0), (1, 1, 1)], [(0, 0, 1), (1, 1, 0)]];
+//     let selected_pattern = connection_pattern
+//         .iter()
+//         .max_by_key(|pat| {
+//             pat.iter()
+//                 .map(|&(x, y, z)| {
+//                     separated_reads[x][y]
+//                         .intersection(&separated_reads[x][z])
+//                         .count()
+//                 })
+//                 .sum::<usize>()
+//         })
+//         .unwrap();
+//     let classes: Vec<HashSet<usize>> = selected_pattern
+//         .iter()
+//         .map(|&(x, y, z)| {
+//             separated_reads[x][y]
+//                 .intersection(&separated_reads[x][z])
+//                 .map(|&&e| e)
+//                 .collect()
+//         })
+//         .collect();
+//     let mut result: Vec<(usize, usize, _)> = vec![];
+//     for (class, y, z) in selected_pattern {
+//         result.extend(
+//             classed_reads[pairs[0][*y]]
+//                 .iter()
+//                 .chain(classed_reads[pairs[1][*z]].iter())
+//                 .map(|(idx, read)| (*class, *idx, *read)),
+//         );
+//     }
+//     for (idx, read) in contained_reads {
+//         if classes[0].contains(&idx) {
+//             result.push((0, idx, read));
+//         } else if classes[1].contains(&idx) {
+//             result.push((1, idx, read));
+//         } else {
+//             panic!();
+//         }
+//     }
+//     (2, result, remainings)
+// }
 
 /// Locally decompose the critical region, and then
 /// wave it to remaining reads.
