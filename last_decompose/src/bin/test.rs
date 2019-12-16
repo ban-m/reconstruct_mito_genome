@@ -12,11 +12,8 @@ fn main() -> std::io::Result<()> {
     let alignments = last_tiling::parse_tab_file(&args[2])?;
     let contigs = bio_utils::fasta::parse_into_vec(&args[3])?;
     let decomposed = last_decompose::decompose(read, alignments, contigs);
-    for (idx, reads) in decomposed.into_iter().enumerate() {
-        debug!("Cluster {}", idx);
-        for r in reads {
-            debug!("{}", r.id());
-        }
+    for (id, cluster) in decomposed {
+        debug!("{}\t{}", id, cluster);
     }
     Ok(())
 }

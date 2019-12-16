@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 #[macro_use]
 extern crate log;
 extern crate bio_utils;
@@ -21,11 +22,12 @@ use last_tiling::UNIT_SIZE;
 mod eread;
 use dbg_hmm::*;
 pub use eread::*;
-use rand::rngs::StdRng;
+
 use rand::seq::SliceRandom;
 use rand::Rng;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
+mod error_profile;
 const A: f64 = -0.245;
 const B: f64 = 3.6;
 const INIT_BETA: f64 = 0.02;
@@ -42,53 +44,82 @@ const SEED: u64 = 100;
 const FACTOR: f64 = 1.4;
 const SAMPING: usize = 500;
 const SOE_PER_DATA_ENTROPY: f64 = 0.05;
+const K: usize = 6;
+/// Main method. Decomposing the reads.
+/// You should call "merge" method separatly(?) -- should be integrated with this function.
 pub fn decompose(
     read: Vec<fasta::Record>,
     alignments: Vec<LastTAB>,
     contigs: Vec<fasta::Record>,
-) -> Vec<Vec<fasta::Record>> {
+) -> Vec<(String, u8)> {
+    let config = error_profile::summarize_tab(&alignments, &read, &contigs);
     let contigs = last_tiling::Contigs::new(contigs);
     // Alignment informations are completely (losslessly) encoded into reads.
     let encoded_reads = last_tiling::encoding(&read, &contigs, &alignments);
+    // We convert these reads into ERead, a lightweight mode.
     let critical_regions = critical_regions(&encoded_reads, &contigs);
     if log_enabled!(Level::Debug) {
-        for c in critical_regions {
+        for c in &critical_regions {
             debug!("{:?}", c);
         }
-        return vec![];
     }
-    let assignments: Vec<_> = critical_regions
-        .into_iter()
-        .map(|cr| assignments::local_decompose(&cr, &encoded_reads, &contigs))
+    let encoded_reads: Vec<_> = encoded_reads.into_iter().map(ERead::new).collect();
+    let datasize = encoded_reads.len();
+    let mut unassigned_reads: Vec<_> = vec![];
+    let mut assigned_reads: Vec<_> = vec![];
+    let mut labels: Vec<_> = vec![];
+    for read in encoded_reads {
+        // TODO
+        let matched_cluster = critical_regions
+            .iter()
+            .enumerate()
+            .filter(|(_idx, _cr)| false)
+            .nth(0);
+        if let Some((idx, _)) = matched_cluster {
+            assigned_reads.push(read);
+            labels.push(idx as u8);
+        } else {
+            unassigned_reads.push(read);
+        }
+    }
+    assert_eq!(labels.len(), assigned_reads.len());
+    assert_eq!(assigned_reads.len() + unassigned_reads.len(), datasize);
+    let forbidden = unassigned_reads
+        .iter()
+        .map(|_read| {
+            critical_regions
+                .iter()
+                .enumerate()
+                .filter_map(|(_idx, _cr)| {
+                    // TODO
+                    // if cr.crossed(read) {
+                    //     Some(idx as u8)
+                    // } else {
+                    None
+                    //}
+                })
+                .collect::<Vec<u8>>()
+        })
+        .collect::<Vec<_>>();
+    let dataset: Vec<_> = assigned_reads.into_iter().chain(unassigned_reads).collect();
+    let contigs: Vec<_> = (0..contigs.get_num_of_contigs())
+        .map(|e| contigs.get_last_unit(e as u16).unwrap() as usize + 1)
         .collect();
-    // We no longer need any annotataion for critical region.
-    let merge_order = assignments::enumerate_merge_order(&assignments);
-    let mut assignments: Vec<_> = assignments.into_iter().map(|e| Some(e)).collect();
-    for (from, to) in merge_order {
-        // Merge `from` assignment into `to`.
-        let f = match &assignments[from] {
-            Some(ref f) => f,
-            None => panic!("{} should be some value, but none.", from),
-        };
-        let t = match &assignments[to] {
-            Some(ref t) => t,
-            None => panic!("{} should be some value, but none.", from),
-        };
-        let new = assignments::merge_two_assignments(f, t);
-        assignments[to] = Some(new);
-        assignments[from] = None;
-    }
-    let mut assignments: Vec<_> = assignments.into_iter().filter_map(|e| e).collect();
-    let assignment = assignments.pop().unwrap();
-    assert!(assignments.is_empty());
-    let mut result = vec![vec![]; assignment.get_num_of_cluster()];
-    let mut rng: StdRng = SeedableRng::seed_from_u64(2444);
-    // The order of read is critical, since the assignments are just array of weight.
-    for (idx, read) in read.into_iter().enumerate() {
-        let c = assignment.assign(idx, &mut rng);
-        result[c].push(read);
-    }
-    result
+    let predicts = clustering(
+        &dataset,
+        &labels,
+        &forbidden,
+        K,
+        critical_regions.len(),
+        &contigs,
+        &vec![],
+        &config,
+    );
+    dataset
+        .into_iter()
+        .zip(labels.iter().chain(predicts.iter()))
+        .map(|(read, cl)| (read.id().to_string(), *cl))
+        .collect()
 }
 
 use std::collections::HashMap;
@@ -286,49 +317,6 @@ impl<'a> ModelFactory<'a> {
     }
 }
 
-const NUM_OF_BALL: usize = 100;
-fn construct_initial_weights(
-    label: &[u8],
-    forbidden: &[Vec<u8>],
-    cluster_num: usize,
-    data_size: usize,
-) -> Vec<Vec<f64>> {
-    let border = label.len();
-    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(data_size as u64);
-    let num_of_ball = cluster_num * NUM_OF_BALL;
-    let denom = (num_of_ball as f64).recip();
-    let gen_dist = |idx| {
-        let mut choices = vec![true; cluster_num];
-        let forbidden: &Vec<u8> = &forbidden[idx + border];
-        forbidden
-            .iter()
-            .for_each(|&cl| choices[cl as usize] = false);
-        let choices: Vec<_> = choices
-            .into_iter()
-            .enumerate()
-            .filter_map(|(idx, b)| if b { Some(idx) } else { None })
-            .collect();
-        let mut bucket = vec![0; cluster_num];
-        (0..num_of_ball).for_each(|_| bucket[*choices.choose(&mut rng).unwrap()] += 1);
-        bucket.iter().map(|&e| e as f64 * denom).collect::<Vec<_>>()
-    };
-    let weights: Vec<Vec<_>> = label
-        .iter()
-        .map(|&e| {
-            let mut ws = vec![0.; cluster_num];
-            ws[e as usize] = 1.;
-            ws
-        })
-        .chain((0..data_size - border).map(gen_dist))
-        .collect();
-    assert_eq!(weights.len(), data_size);
-    assert!(weights.iter().all(|e| e.len() == cluster_num));
-    assert!(weights
-        .iter()
-        .all(|ws| (ws.iter().sum::<f64>() - 1.).abs() < 0.001));
-    weights
-}
-
 pub fn clustering(
     data: &[ERead],
     label: &[u8],
@@ -340,6 +328,7 @@ pub fn clustering(
     c: &Config,
 ) -> Vec<u8> {
     let border = label.len();
+    assert_eq!(forbidden.len() + label.len(), data.len());
     let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
     // Maybe we should use randomized choose.
     debug!("Prediction. Dump weights");
@@ -404,7 +393,7 @@ pub fn soft_clustering(
     assert!(cluster_num > 1);
     // weight_of_read[i] = "the vector of each cluster for i-th read"
     let mut weight_of_read: Vec<Vec<f64>> =
-        construct_initial_weights(label, forbidden, cluster_num, data.len());
+        construct_initial_weights(label, forbidden, cluster_num, data.len(), data.len() as u64);
     let soe_thr = SOE_PER_DATA_ENTROPY * data.len() as f64 * (cluster_num as f64).ln();
     let max_coverage = get_max_coverage(data, contigs);
     let beta_step = 1. + (BETA_STEP - 1.) * 2. / (max_coverage as f64).log10();
@@ -422,6 +411,7 @@ pub fn soft_clustering(
         .map(|pick_prob| (pick_prob, pick_prob.recip().floor() as usize * LOOP_NUM))
         .flat_map(|(pick_prob, num)| vec![pick_prob; num])
         .collect();
+    let mut lr = LEARNING_RATE;
     loop {
         let last_sum_of_entropy = from_weight_of_read(
             &mut weight_of_read,
@@ -435,14 +425,16 @@ pub fn soft_clustering(
             &betas,
             soe_thr,
             &pick_probs,
+            lr,
         );
         if last_sum_of_entropy < soe_thr {
-            break weight_of_read;
+            break;
         } else {
-            beta.iter_mut().for_each(|e| *e /= beta_step);
-            beta.push(1.);
+            betas = vec![1.];
+            lr = 1.;
         }
     }
+    weight_of_read
 }
 
 fn from_weight_of_read(
@@ -457,6 +449,7 @@ fn from_weight_of_read(
     betas: &[f64],
     soe_thr: f64,
     pick_probs: &[f64],
+    lr: f64,
 ) -> f64 {
     let seed = label.iter().sum::<u8>() as u64 + cluster_num as u64 + data.len() as u64;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
@@ -475,8 +468,7 @@ fn from_weight_of_read(
         .map(|cl| mf.generate_model(&weight_of_read, data, cl))
         .collect();
     let mut updates = vec![false; data.len()];
-    let lr = LEARNING_RATE;
-    let mut soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
+    let mut soe = 100000.; // weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
     for &beta in betas {
         let mut soe_diff = 1000000.;
         while soe_diff > soe_thr && soe_thr < soe {
@@ -515,6 +507,50 @@ fn from_weight_of_read(
     soe
 }
 
+const NUM_OF_BALL: usize = 100;
+fn construct_initial_weights(
+    label: &[u8],
+    forbidden: &[Vec<u8>],
+    cluster_num: usize,
+    data_size: usize,
+    seed: u64,
+) -> Vec<Vec<f64>> {
+    let border = label.len();
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
+    let num_of_ball = cluster_num * NUM_OF_BALL;
+    let denom = (num_of_ball as f64).recip();
+    let gen_dist = |idx| {
+        let mut choices = vec![true; cluster_num];
+        let forbidden: &Vec<u8> = &forbidden[idx + border];
+        forbidden
+            .iter()
+            .for_each(|&cl| choices[cl as usize] = false);
+        let choices: Vec<_> = choices
+            .into_iter()
+            .enumerate()
+            .filter_map(|(idx, b)| if b { Some(idx) } else { None })
+            .collect();
+        let mut bucket = vec![0; cluster_num];
+        (0..num_of_ball).for_each(|_| bucket[*choices.choose(&mut rng).unwrap()] += 1);
+        bucket.iter().map(|&e| e as f64 * denom).collect::<Vec<_>>()
+    };
+    let weights: Vec<Vec<_>> = label
+        .iter()
+        .map(|&e| {
+            let mut ws = vec![0.; cluster_num];
+            ws[e as usize] = 1.;
+            ws
+        })
+        .chain((0..data_size - border).map(gen_dist))
+        .collect();
+    assert_eq!(weights.len(), data_size);
+    assert!(weights.iter().all(|e| e.len() == cluster_num));
+    assert!(weights
+        .iter()
+        .all(|ws| (ws.iter().sum::<f64>() - 1.).abs() < 0.001));
+    weights
+}
+
 // Find initial good parameter for \beta.
 // It frist starts from INITIAL_BETA, then
 // multiple by FACTOR it while SoE after T times sampling would not decrease.
@@ -531,7 +567,7 @@ fn search_initial_beta(
 ) -> f64 {
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(SEED);
     let weight_of_read: Vec<Vec<f64>> =
-        construct_initial_weights(label, forbidden, cluster_num, data.len());
+        construct_initial_weights(label, forbidden, cluster_num, data.len(), data.len() as u64);
     let wor = &weight_of_read;
     let border = label.len();
     let datasize = data.len() as f64;
@@ -812,8 +848,9 @@ pub fn likelihood_of_assignments(
     assert!(cluster_num > 1);
     // gammas[i] = "the vector of each cluster for i-th read"
     let forbid: Vec<_> = (0..data.len()).map(|_| vec![]).collect();
+    let s = data.len() as u64;
     let gammas: Vec<Vec<f64>> =
-        construct_initial_weights(assignments, &forbid, cluster_num, data.len());
+        construct_initial_weights(assignments, &forbid, cluster_num, data.len(), s);
     let datasize = data.len() as f64;
     assert_eq!(data.len(), gammas.len());
     let ws: Vec<f64> = (0..cluster_num)
