@@ -1,4 +1,5 @@
 use super::ERead;
+use last_tiling::repeat::RepeatPairs;
 use last_tiling::Contigs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -7,8 +8,7 @@ const READ_NUM: usize = 4;
 /// How many reads are needed to construct a separate class.
 /// Note that it should be more than 1, since there is a
 /// danger of chimeric reads.
-const CLASS_THR: usize = 4;
-
+const CHECK_THR: u16 = 10;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CriticalRegion {
     CP(ContigPair),
@@ -23,31 +23,13 @@ pub trait ReadClassify {
     /// Whether the read spans `self`. In other words,
     /// If r is not agree with this critical region, return true.
     fn is_spanned_by(&self, r: &ERead) -> bool;
-    // /// Whether the read touches `self`. Return false if the read is contained.
-    // fn overlaps_with(&self, r: &ERead) -> bool;
     /// Wether `self` contains the read.
     fn contains(&self, r: &ERead) -> bool;
     /// If r is along with this critical region, return true.
     fn along_with(&self, r: &ERead) -> bool;
-    // /// Separate (spanned) reads into corresponding slots.
-    // /// It automatically remove some of the reads supporting very weak connections.
-    // /// This method should not invoke heavy procs such as HMMs or other prediction methods.
-    // /// For example, `self` should use the most naive approach such as just distributing reads.
-    // fn separate_reads_into_clusters<'a>(
-    //     &self,
-    //     reads: Vec<(usize, &'a EncodedRead)>,
-    // ) -> (usize, Vec<ReadWithClassAndIndex<'a>>);
-    // /// The shortest distance from r to self.
-    // fn distance(&self, r: &EncodedRead) -> usize;
 }
 
 impl ReadClassify for CriticalRegion {
-    // fn overlaps_with(&self, r: &EncodedRead) -> bool {
-    //     match self {
-    //         CriticalRegion::CP(ref cp) => cp.overlaps_with(r),
-    //         CriticalRegion::RJ(ref rj) => rj.overlaps_with(r),
-    //     }
-    // }
     fn is_spanned_by(&self, r: &ERead) -> bool {
         match self {
             CriticalRegion::CP(ref cp) => cp.is_spanned_by(r),
@@ -66,21 +48,6 @@ impl ReadClassify for CriticalRegion {
             CriticalRegion::CR(ref cr) => cr.contains(r),
         }
     }
-    // fn separate_reads_into_clusters<'a>(
-    //     &self,
-    //     reads: Vec<(usize, &'a EncodedRead)>,
-    // ) -> (usize, Vec<ReadWithClassAndIndex<'a>>) {
-    //     match self {
-    //         CriticalRegion::CP(ref cp) => cp.separate_reads_into_clusters(reads),
-    //         CriticalRegion::RJ(ref rj) => rj.separate_reads_into_clusters(reads),
-    //     }
-    // }
-    // fn distance(&self, r: &EncodedRead) -> usize {
-    //     match self {
-    //         CriticalRegion::CP(ref cp) => cp.distance(r),
-    //         CriticalRegion::RJ(ref rj) => rj.distance(r),
-    //     }
-    // }
 }
 
 /// The position at contigs.
@@ -100,7 +67,7 @@ pub enum Direction {
 
 impl Position {
     fn new(contig: u16, s: u16, e: u16, direction: Direction) -> Self {
-        let (start_unit, end_unit) = (s.min(e), s.max(e));
+        let (start_unit, end_unit) = (s, e);
         Self {
             contig,
             start_unit,
@@ -126,43 +93,6 @@ pub struct ContigPair {
 /// it assigns i+1.
 /// If there's no unit in contig, return (std::i32::MAX, std::i32::MIN).
 pub fn get_max_min_unit(r: &ERead, contig: u16) -> (i32, i32) {
-    // let (mut min, mut max) = (std::i32::MAX, std::i32::MIN);
-    // let mut last_met_unitnum = None;
-    // let mut had_not_met_encode = true;
-    // let mut last_unit_was_large_gap = false;
-    // let mut first_unit_was_large_gap = false;
-    // for unit in r.seq() {
-    //     match unit {
-    //         ChunkedUnit::En(e) if e.contig == contig => {
-    //             if had_not_met_encode && first_unit_was_large_gap {
-    //                 min = e.unit as i32 - 1;
-    //                 max = e.unit as i32 + 1;
-    //             } else {
-    //                 min = min.min(e.unit as i32);
-    //                 max = max.max(e.unit as i32);
-    //             }
-    //             had_not_met_encode = false;
-    //             last_unit_was_large_gap = false;
-    //             last_met_unitnum = Some(e.unit as i32);
-    //         }
-    //         ChunkedUnit::En(_) => {
-    //             had_not_met_encode = false;
-    //             last_unit_was_large_gap = false;
-    //         }
-    //         ChunkedUnit::Gap(g) if g.len() > UNIT_SIZE => {
-    //             last_unit_was_large_gap = true;
-    //             first_unit_was_large_gap = true;
-    //         }
-    //         _ => {}
-    //     }
-    // }
-    // // It indicate that last encoded unit is the wanted one, and followed by long gap.
-    // // Increment the maximum number of unit by 1.
-    // if last_met_unitnum == Some(max) && last_unit_was_large_gap {
-    //     max += 1;
-    // } else if last_met_unitnum == Some(min) && last_unit_was_large_gap {
-    //     min -= 1;
-    // }
     let filtered = r
         .seq()
         .iter()
@@ -176,23 +106,6 @@ pub fn get_max_min_unit(r: &ERead, contig: u16) -> (i32, i32) {
         _ => unreachable!(),
     }
 }
-
-// A helper method for ReadClassify for ContigPair.
-// This function takes the classed reads, assesses if
-// there is enough number of reads.
-// If it has, this function push these reads into result bucket.
-// fn extend_and_increment<'a>(
-//     result: &mut Vec<ReadWithClassAndIndex<'a>>,
-//     class: usize,
-//     reads: Vec<&(usize, &'a EncodedRead)>,
-// ) -> usize {
-//     if reads.len() > CLASS_THR {
-//         result.extend(reads.into_iter().map(|&(idx, r)| (class, idx, r)));
-//         class + 1
-//     } else {
-//         class
-//     }
-// }
 
 impl ReadClassify for ContigPair {
     // The broad repeat is like the below.
@@ -214,108 +127,6 @@ impl ReadClassify for ContigPair {
         let span_cd = c2_min < c2_s && c2_e < c2_max;
         span_ab || span_cd
     }
-    // Overlapping can be detected similary.
-    // Note that overlapping here means that
-    // the read "crosses" boundary or not.
-    // Shortly, if the read spans this region, it overlaps.
-    // Thus, it is sufficient and nessesary condition to
-    // check whther min < boundary < max holds for one of four
-    // breakpoints.
-    // fn overlaps_with(&self, r: &EncodedRead) -> bool {
-    //     let (c1_min, c1_max) = get_max_min_unit(r, self.contig1.contig);
-    //     let (c2_min, c2_max) = get_max_min_unit(r, self.contig2.contig);
-    //     let (c1_s, c1_e) = self.contig1.range();
-    //     let (c2_s, c2_e) = self.contig2.range();
-    //     // The code below is correst, as c*_min would be std::i32::MAX
-    //     // if there is no contig * unit in the read `r`, and c*_max would be std::i32::MIN
-    //     // if there is no contig * unit.
-    //     c1_min <= c1_s && c1_s <= c1_max
-    //         || c1_min <= c1_e && c1_e <= c1_max
-    //         || c2_min <= c2_s && c2_s <= c2_max
-    //         || c2_min <= c2_e && c2_e <= c2_max
-    // }
-    // Assign each reads into its color. Note that the
-    // color should be at most four, depending of the spanning patterns.
-    // Returns the number of cluster, with a vector of (class,index,read) tuples.
-    // fn separate_reads_into_clusters<'a>(
-    //     &self,
-    //     reads: Vec<(usize, &'a EncodedRead)>,
-    // ) -> (usize, Vec<ReadWithClassAndIndex<'a>>) {
-    //     // Determine class.
-    //     assert!(reads.iter().all(|&(_idx, r)| self.is_spanned_by(r)));
-    //     let c1 = self.contig1.contig;
-    //     let c2 = self.contig2.contig;
-    //     let (c1_s, c1_e) = self.contig1.range();
-    //     let (c2_s, c2_e) = self.contig2.range();
-    //     // TODO: refactoring this function. Currently very agry.
-    //     let mut result = vec![];
-    //     let mut cluster_num = 0;
-    //     {
-    //         let c1s_to_c1e: Vec<_> = reads
-    //             .iter()
-    //             .filter(|&(_, r)| {
-    //                 let (c1_min, c1_max) = get_max_min_unit(r, c1);
-    //                 c1_min < c1_s && c1_e < c1_max
-    //             })
-    //             .collect();
-    //         cluster_num = extend_and_increment(&mut result, cluster_num, c1s_to_c1e);
-    //     }
-    //     {
-    //         let c2s_to_c2e: Vec<_> = reads
-    //             .iter()
-    //             .filter(|&(_, r)| {
-    //                 let (c2_min, c2_max) = get_max_min_unit(r, c2);
-    //                 c2_min < c2_s && c2_e < c2_max
-    //             })
-    //             .collect();
-    //         cluster_num = extend_and_increment(&mut result, cluster_num, c2s_to_c2e);
-    //     }
-    //     {
-    //         let c1s_to_c2e: Vec<_> = reads
-    //             .iter()
-    //             .filter(|&(_, r)| {
-    //                 let (c1_min, _) = get_max_min_unit(r, c1);
-    //                 let (_, c2_max) = get_max_min_unit(r, c2);
-    //                 c1_min < c1_s && c2_e < c2_max
-    //             })
-    //             .collect();
-    //         cluster_num = extend_and_increment(&mut result, cluster_num, c1s_to_c2e);
-    //     }
-    //     {
-    //         let c2s_to_c1e: Vec<_> = reads
-    //             .iter()
-    //             .filter(|&(_, r)| {
-    //                 let (_, c1_max) = get_max_min_unit(r, c1);
-    //                 let (c2_min, _) = get_max_min_unit(r, c2);
-    //                 c2_min < c2_e && c1_e < c1_max
-    //             })
-    //             .collect();
-    //         cluster_num = extend_and_increment(&mut result, cluster_num, c2s_to_c1e);
-    //     }
-    //     {
-    //         let c1s_to_c2s: Vec<_> = reads
-    //             .iter()
-    //             .filter(|&(_, r)| {
-    //                 let (c1_min, _) = get_max_min_unit(r, c1);
-    //                 let (c2_min, _) = get_max_min_unit(r, c2);
-    //                 c1_min < c1_s && c2_min < c2_s
-    //             })
-    //             .collect();
-    //         cluster_num = extend_and_increment(&mut result, cluster_num, c1s_to_c2s);
-    //     }
-    //     {
-    //         let c1e_to_c2e: Vec<_> = reads
-    //             .iter()
-    //             .filter(|&(_, r)| {
-    //                 let (_, c1_max) = get_max_min_unit(r, c1);
-    //                 let (_, c2_max) = get_max_min_unit(r, c2);
-    //                 c1_e < c1_max && c2_e < c2_max
-    //             })
-    //             .collect();
-    //         cluster_num = extend_and_increment(&mut result, cluster_num, c1e_to_c2e);
-    //     }
-    //     (cluster_num, result)
-    // }
     // Return whether self contains the read.
     // It is enough to check s < start && e < end holds
     // for contig 1 or contig 2.
@@ -355,79 +166,12 @@ impl ReadClassify for ContigPair {
         let is_spanned = self.is_spanned_by(r);
         !is_spanned && along_with_1 && along_with_2
     }
-    // Calculate the distance between the read and self.
-    // It can be assumed that the read is not contained nor not overlapping with self.
-    // For the reasen, search for the location where this function is called.
-    // fn distance(&self, r: &EncodedRead) -> usize {
-    //     let (c1_s, c1_e) = self.contig1.range();
-    //     let (c2_s, c2_e) = self.contig2.range();
-    //     let (c1_min, c1_max) = get_max_min_unit(r, self.contig1.contig);
-    //     let (c2_min, c2_max) = get_max_min_unit(r, self.contig2.contig);
-    //     [c1_s - c1_max, c1_e - c1_min, c2_s - c2_max, c2_e - c2_min]
-    //         .iter()
-    //         .copied()
-    //         .map(i32::abs)
-    //         .min()
-    //         .unwrap() as usize
-    // }
 }
 
 impl ContigPair {
     pub fn new(contig1: Position, contig2: Position) -> Self {
         Self { contig1, contig2 }
     }
-    // pub fn get_competitive_pair(&self, ovlp: &[(usize, &EncodedRead)]) -> Vec<[usize; 2]> {
-    //     // C1:-----1=======2------
-    //     // C2:-----3=======4------
-    //     // (A,C) vs (B,D) or (A,D) vs (B,C)
-    //     // It can be determined by counting concording reads(forward in both C1 and C2, or reverse in both C1 and C2)
-    //     // and non-concording reads(forward in C1, reverse in C2 and vice versa).
-    //     let (concord, disconcord) = ovlp
-    //         .iter()
-    //         .filter_map(|(_, r)| {
-    //             Some((
-    //                 r.is_forward_wrt(self.contig1.contig)?,
-    //                 r.is_forward_wrt(self.contig2.contig)?,
-    //             ))
-    //         })
-    //         .fold(
-    //             (0, 0),
-    //             |(c, d), (c1, c2)| if c1 == c2 { (c + 1, d) } else { (c, d + 1) },
-    //         );
-    //     if concord > disconcord {
-    //         vec![[1, 3], [2, 4]]
-    //     } else {
-    //         vec![[1, 4], [2, 3]]
-    //     }
-    // }
-    // TODO
-    // pub fn clustering_reads_into_points<'a>(
-    //     &self,
-    //     reads: &[(usize, &'a EncodedRead)],
-    // ) -> (usize, Vec<Vec<(usize, &'a EncodedRead)>>) {
-    //     // Distribute reads into four points listed below:
-    //     // C1:-----1=======2------
-    //     // C2:-----3=======4------
-    //     let num_of_cluster = 4;
-    //     let mut result = vec![vec![]; 4];
-    //     let (c1_s, c1_e) = self.contig1.range();
-    //     let (c2_s, c2_e) = self.contig2.range();
-    //     for &(idx, read) in reads {
-    //         // Determine point.
-    //         let (c1min, c1max) = get_max_min_unit(read, self.contig1.contig);
-    //         let (c2min, c2max) = get_max_min_unit(read, self.contig2.contig);
-    //         if c1min < c1_s && c1_s < c1max {
-    //             result[0].push((idx, read));
-    //         } else if c1min < c1_e && c1_e < c1max {
-    //             result[1].push((idx, read));
-    //         } else if c2min < c2_s && c2_s < c2max {
-    //             result[2].push((idx, read));
-    //         } else if c2min < c2_e && c2_e < c2max {
-    //             result[3].push((idx, read));
-    //         }
-    //     }
-    //     (num_of_cluster, result)
-    // }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -452,32 +196,11 @@ impl ReadClassify for ConfluentRegion {
         let (start, end) = self.pos.range();
         min <= start && end <= max
     }
-    // fn overlaps_with(&self, r: &EncodedRead) -> bool {
-    //     let some_unit = r
-    //         .seq()
-    //         .iter()
-    //         .filter_map(|e| e.encode())
-    //         .filter(|e| e.contig != self.pos.contig)
-    //         .count()
-    //         != 0;
-    //     let (min, max) = get_max_min_unit(r, self.pos.contig);
-    //     min != std::i32::MAX && max != std::i32::MIN && some_unit
-    // }
     fn contains(&self, r: &ERead) -> bool {
         let (min, max) = get_max_min_unit(r, self.pos.contig);
         let (start, end) = self.pos.range();
         start < min && max < end
     }
-    // fn separate_reads_into_clusters<'a>(
-    //     &self,
-    //     _reads: Vec<(usize, &'a EncodedRead)>,
-    // ) -> (usize, Vec<ReadWithClassAndIndex<'a>>) {
-    //     (0, vec![])
-    // }
-    // // TODO
-    // fn distance(&self, _r: &EncodedRead) -> usize {
-    //     0
-    // }
     fn along_with(&self, r: &ERead) -> bool {
         let (min, max) = get_max_min_unit(r, self.pos.contig);
         let (start, end) = self.pos.range();
@@ -489,7 +212,11 @@ impl ReadClassify for ConfluentRegion {
 }
 
 /// Return critical regions.
-pub fn critical_regions(reads: &[ERead], contigs: &Contigs) -> Vec<CriticalRegion> {
+pub fn critical_regions(
+    reads: &[ERead],
+    contigs: &Contigs,
+    repeats: &[RepeatPairs],
+) -> Vec<CriticalRegion> {
     let num_of_contig = contigs.get_num_of_contigs() as u16;
     let mut regions = vec![];
     debug!("There are {} contigs", num_of_contig);
@@ -497,21 +224,21 @@ pub fn critical_regions(reads: &[ERead], contigs: &Contigs) -> Vec<CriticalRegio
         debug!("->{}({}len)", c, contigs.get(c).unwrap().len());
     }
     for from in 0..num_of_contig {
-        if let Some(res) = critical_region_within(from, reads, contigs) {
+        if let Some(res) = critical_region_within(from, reads, contigs, repeats) {
             for c in &res {
                 debug!("{:?}", c);
             }
             regions.extend(res);
         }
         debug!("Inner end");
-        for to in from + 1..num_of_contig {
-            if let Some(res) = critical_regions_between(from, to, reads, contigs) {
-                for c in &res {
-                    debug!("{:?}", c);
-                }
-                regions.extend(res);
-            }
-        }
+        // for to in from + 1..num_of_contig {
+        //     if let Some(res) = critical_regions_between(from, to, reads, contigs) {
+        //         for c in &res {
+        //             debug!("{:?}", c);
+        //         }
+        //         regions.extend(res);
+        //     }
+        // }
         debug!("Confluent region");
         if let Some(res) = critical_region_confluent(from, reads, contigs) {
             for c in &res {
@@ -529,22 +256,22 @@ fn critical_region_within(
     contig: u16,
     reads: &[ERead],
     contigs: &Contigs,
+    repeats: &[RepeatPairs],
 ) -> Option<Vec<CriticalRegion>> {
     debug!("{}-th contig, self critical region.", contig);
     let last_unit = contigs.get_last_unit(contig)? as usize;
     let mut inner_count: Vec<Vec<&ERead>> = vec![vec![]; last_unit + 1];
-    const ACCEPTED_GAP: u16 = 4;
-    for read in reads.iter().filter(|r| r.has(contig) && r.len() > 0) {
-        let mut prev_chunk = &read.seq()[0];
-        for c in read.seq().iter().skip(1) {
-            if c.contig == contig {
-                let is_forward = c.unit <= prev_chunk.unit + ACCEPTED_GAP;
-                let is_reverse = prev_chunk.unit <= c.unit + ACCEPTED_GAP;
-                if !is_forward && !is_reverse && prev_chunk.contig == contig {
-                    inner_count[c.unit as usize].push(read);
-                    inner_count[prev_chunk.unit as usize].push(read);
+    const ACCEPTED_GAP: u16 = 10;
+    for read in reads.iter().filter(|r| r.has(contig)) {
+        for w in read.seq().windows(2) {
+            if w[0].contig == contig && w[1].contig == contig {
+                let gapsize = w[1].unit.max(w[0].unit) - w[1].unit.min(w[0].unit);
+                let is_circled = last_unit as u16 - w[1].unit.max(w[0].unit) < ACCEPTED_GAP
+                    && w[1].unit.min(w[0].unit) < ACCEPTED_GAP;
+                if gapsize > ACCEPTED_GAP && !is_circled {
+                    inner_count[w[0].unit as usize].push(read);
+                    inner_count[w[1].unit as usize].push(read);
                 }
-                prev_chunk = c;
             }
         }
     }
@@ -561,11 +288,28 @@ fn critical_region_within(
         let inner_counts = inner_count.iter().map(|e| e.len()).collect::<Vec<_>>();
         let inner_region = calculate_average_more_than(&inner_counts, READ_NUM as i32);
         let inner_region = merge_overlap_and_remove_contained(inner_region);
-        inner_region
+        let inner_region: Vec<_> = inner_region
             .into_iter()
             .map(|(s, e)| tighten_up(s, e, &inner_counts))
+            .collect();
+        let repetitive_regions: Vec<_> = repeats
+            .iter()
+            .flat_map(|repeats| {
+                (repeats
+                    .inner()
+                    .iter()
+                    .map(|r| (r.start_in_unit() as usize, r.end_in_unit() as usize)))
+            })
+            .map(|(s, t)| (s.max(2) - 2, (t + 2).min(last_unit)))
+            .collect();
+        let inner_region: Vec<_> = inner_region.into_iter().chain(repetitive_regions).collect();
+        let inner_region = merge_overlap_and_remove_contained(inner_region);
+        let inner_region = inner_region
+            .into_iter()
+            .map(|(s, e)| (s.max(2) - 2, (e + 2).min(last_unit)))
             .map(|(s, e)| (s as u16, e as u16))
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        merge_circular_genome(inner_region, last_unit)
     };
     debug!("Aggregated!");
     debug!("Start\tEnd");
@@ -577,7 +321,8 @@ fn critical_region_within(
         for j in (i + 1)..inner_region.len() {
             let &(s, t) = &inner_region[i];
             let &(x, y) = &inner_region[j];
-            if (s <= x && y <= t) || (x <= s && t <= y) {
+            let is_ordered = 0 < t && t <= x && x <= y;
+            if !is_ordered {
                 // (s,t) contains (x,y) or vise versa.
                 continue;
             }
@@ -589,68 +334,96 @@ fn critical_region_within(
             // Case3: --->s(jumps)x---> : (s,t):UpStream, (x,y):UpStream,
             // Case4: --->t(jumps)y---> : (s,t):DownStream, (x,y):DownStream
             // To this end, first create each gadget.
-            let st_upstream = inner_count[s as usize..t as usize]
+            // Note that all the read innner_count should be mapped to the
+            // 'contig' contig. However, to treat chimera reads correctly,
+            // we double check it.
+            debug!("S-T:{}-{}\tX-Y:{}-{}", s, t, x, y);
+            let (s_thr, t_thr) = (s.max(CHECK_THR) - CHECK_THR, t + CHECK_THR);
+            let st_upstream: HashSet<_> = if s < t {
+                inner_count[s as usize..t as usize]
+                    .iter()
+                    .flat_map(|reads| {
+                        reads.iter().filter(|r| {
+                            r.does_touch(contig, s_thr, s) && !r.does_touch(contig, t, t_thr)
+                        })
+                    })
+                    .copied()
+                    .collect()
+            } else {
+                inner_count[..t as usize]
+                    .iter()
+                    .chain(inner_count[s as usize..].iter())
+                    .flat_map(|reads| {
+                        reads.iter().filter(|r| {
+                            r.does_touch(contig, s_thr, s) && !r.does_touch(contig, t, t_thr)
+                        })
+                    })
+                    .copied()
+                    .collect()
+            };
+            let st_downstream: HashSet<_> = if s < t {
+                inner_count[s as usize..t as usize]
+                    .iter()
+                    .flat_map(|reads| {
+                        reads.iter().filter(|read| {
+                            !read.does_touch(contig, s_thr, s) && read.does_touch(contig, t, t_thr)
+                        })
+                    })
+                    .copied()
+                    .collect()
+            } else {
+                inner_count[..t as usize]
+                    .iter()
+                    .chain(inner_count[s as usize..].iter())
+                    .flat_map(|reads| {
+                        reads.iter().filter(|read| {
+                            !read.does_touch(contig, s_thr, s) && read.does_touch(contig, t, t_thr)
+                        })
+                    })
+                    .copied()
+                    .collect()
+            };
+            let (x_thr, y_thr) = (x.max(CHECK_THR) - CHECK_THR, y + CHECK_THR);
+            let xy_upstream: HashSet<_> = inner_count[x as usize..y as usize]
                 .iter()
                 .flat_map(|reads| {
                     reads.iter().filter(|read| {
-                        let (min, max) = get_max_min_unit(read, contig);
-                        min <= s as i32 && s as i32 <= max
+                        read.does_touch(contig, x_thr, x) && !read.does_touch(contig, y, y_thr)
                     })
                 })
-                .copied();
-            let st_downstream = inner_count[s as usize..t as usize]
+                .copied()
+                .collect();
+            let xy_downstream: HashSet<_> = inner_count[x as usize..y as usize]
                 .iter()
                 .flat_map(|reads| {
                     reads.iter().filter(|read| {
-                        let (min, max) = get_max_min_unit(read, contig);
-                        min <= t as i32 && t as i32 <= max
+                        !read.does_touch(contig, x, x_thr) && read.does_touch(contig, y, y_thr)
                     })
                 })
-                .copied();
-            let xy_upstream = inner_count[x as usize..y as usize]
-                .iter()
-                .flat_map(|reads| {
-                    reads.iter().filter(|read| {
-                        let (min, max) = get_max_min_unit(read, contig);
-                        min <= x as i32 && y as i32 <= max
-                    })
-                })
-                .copied();
-            let xy_downstream = inner_count[x as usize..y as usize]
-                .iter()
-                .flat_map(|reads| {
-                    reads.iter().filter(|read| {
-                        let (min, max) = get_max_min_unit(read, contig);
-                        min <= y as i32 && y as i32 <= max
-                    })
-                })
-                .copied();
+                .copied()
+                .collect();
+            assert!(st_upstream.intersection(&st_downstream).count() == 0);
+            assert!(xy_upstream.intersection(&xy_downstream).count() == 0);
             // Case1.
-            let up_down: HashSet<&ERead> =
-                st_upstream.clone().chain(xy_downstream.clone()).collect();
-            if up_down.len() >= READ_NUM {
+            if st_upstream.intersection(&xy_downstream).count() >= READ_NUM {
                 let c1 = Position::new(contig, s, t, Direction::UpStream);
                 let c2 = Position::new(contig, x, y, Direction::DownStream);
                 result.push(CriticalRegion::CP(ContigPair::new(c1, c2)));
             }
             // Case2
-            let down_up: HashSet<&ERead> =
-                st_downstream.clone().chain(xy_upstream.clone()).collect();
-            if down_up.len() >= READ_NUM {
+            if st_downstream.intersection(&xy_upstream).count() >= READ_NUM {
                 let c1 = Position::new(contig, s, t, Direction::DownStream);
                 let c2 = Position::new(contig, x, y, Direction::UpStream);
                 result.push(CriticalRegion::CP(ContigPair::new(c1, c2)));
             }
             // Case3
-            let up_up: HashSet<&ERead> = st_upstream.chain(xy_upstream).collect();
-            if up_up.len() >= READ_NUM {
+            if st_upstream.intersection(&xy_upstream).count() >= READ_NUM {
                 let c1 = Position::new(contig, s, t, Direction::UpStream);
                 let c2 = Position::new(contig, x, y, Direction::UpStream);
                 result.push(CriticalRegion::CP(ContigPair::new(c1, c2)));
             }
             // Case4
-            let down_down: HashSet<&ERead> = st_downstream.chain(xy_downstream).collect();
-            if down_down.len() >= READ_NUM {
+            if st_downstream.intersection(&xy_downstream).count() >= READ_NUM {
                 let c1 = Position::new(contig, s, t, Direction::DownStream);
                 let c2 = Position::new(contig, x, y, Direction::DownStream);
                 result.push(CriticalRegion::CP(ContigPair::new(c1, c2)));
@@ -660,6 +433,7 @@ fn critical_region_within(
     Some(result)
 }
 
+#[allow(dead_code)]
 // Currently we do not need this function. TODO.
 fn critical_regions_between(
     from: u16,
@@ -668,6 +442,7 @@ fn critical_regions_between(
     contigs: &Contigs,
 ) -> Option<Vec<CriticalRegion>> {
     // Enumerate critical regions from `from` contig to `to` contig.
+    warn!("Invoke critical_regions_between. Currently not implemented correctly. Be careful.");
     let from_last_unit = contigs.get_last_unit(from)?;
     let to_last_unit = contigs.get_last_unit(to)?;
     let mut from_count: Vec<Vec<&ERead>> = vec![vec![]; from_last_unit as usize + 1];
@@ -814,23 +589,26 @@ fn critical_regions_between(
 }
 
 fn critical_region_confluent(
-    from: u16,
+    contig: u16,
     reads: &[ERead],
     contigs: &Contigs,
 ) -> Option<Vec<CriticalRegion>> {
-    debug!("{}-th contig, self critical region.", from);
-    let last_unit = contigs.get_last_unit(from)? as usize;
+    debug!("{}-th contig, self critical region.", contig);
+    let last_unit = contigs.get_last_unit(contig)? as usize;
     let mut clip_count: Vec<Vec<&ERead>> = vec![vec![]; last_unit + 1];
-    for read in reads.iter().filter(|r| r.has(from) && r.len() > 0) {
+    for read in reads.iter().filter(|r| r.has(contig) && r.len() > 0) {
         {
             let first_chunk = &read.seq()[0];
-            if first_chunk.contig == from {
+            if first_chunk.contig == contig && read.has_head_clip() {
                 clip_count[first_chunk.unit as usize].push(read);
             }
         }
         if read.len() > 1 {
             let last_chunk = &read.seq().last().unwrap();
-            if last_chunk.contig == from {
+            if last_chunk.contig == contig
+                && read.has_tail_clip()
+                && last_chunk.unit != last_unit as u16
+            {
                 clip_count[last_chunk.unit as usize].push(read);
             }
         }
@@ -848,11 +626,12 @@ fn critical_region_confluent(
         let clip_counts = clip_count.iter().map(|e| e.len()).collect::<Vec<_>>();
         let clip_region = calculate_average_more_than(&clip_counts, READ_NUM as i32);
         let clip_region = merge_overlap_and_remove_contained(clip_region);
-        clip_region
+        let clip_region = clip_region
             .into_iter()
             .map(|(s, e)| tighten_up(s, e, &clip_counts))
             .map(|(s, e)| (s as u16, e as u16))
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        merge_circular_genome(clip_region, last_unit)
     };
     debug!("Aggregated!");
     debug!("Start\tEnd");
@@ -865,94 +644,66 @@ fn critical_region_confluent(
         // ----s||||t-----
         // Case1: --->s(entry)y     : (s,t):UpStream
         // Case2:     s(entry)t---> : (s,t):DownStream
-        let st_upstream: HashSet<&ERead> = clip_count[s as usize..t as usize]
-            .iter()
-            .flat_map(|reads| {
-                reads.iter().filter(|read| {
-                    let (min, max) = get_max_min_unit(read, from);
-                    min <= s as i32 && s as i32 <= max
+        let (s_thr, t_thr) = (s.max(CHECK_THR) - CHECK_THR, t + CHECK_THR);
+        // Here, we maybe want to get circulaized genome region.
+        // It should not happen in x-y, because we force 0 < t < x < y.
+        let st_upstream: HashSet<&ERead> = if s < t {
+            clip_count[s as usize..t as usize]
+                .iter()
+                .flat_map(|reads| {
+                    reads.iter().filter(|read| {
+                        read.does_touch(contig, s_thr, s) && !read.does_touch(contig, t_thr, t)
+                    })
                 })
-            })
-            .copied()
-            .collect();
-        let st_downstream: HashSet<&ERead> = clip_count[s as usize..t as usize]
-            .iter()
-            .flat_map(|reads| {
-                reads.iter().filter(|read| {
-                    let (min, max) = get_max_min_unit(read, from);
-                    min <= t as i32 && t as i32 <= max
+                .copied()
+                .collect()
+        } else {
+            clip_count[..t as usize]
+                .iter()
+                .chain(clip_count[s as usize..].iter())
+                .flat_map(|reads| {
+                    reads.iter().filter(|read| {
+                        read.does_touch(contig, s_thr, s) && !read.does_touch(contig, t_thr, t)
+                    })
                 })
-            })
-            .copied()
-            .collect();
+                .copied()
+                .collect()
+        };
+        let st_downstream: HashSet<&ERead> = if s < t {
+            clip_count[s as usize..t as usize]
+                .iter()
+                .flat_map(|reads| {
+                    reads.iter().filter(|read| {
+                        !read.does_touch(contig, s_thr, s) && read.does_touch(contig, t_thr, t)
+                    })
+                })
+                .copied()
+                .collect()
+        } else {
+            clip_count[..t as usize]
+                .iter()
+                .chain(clip_count[s as usize..].iter())
+                .flat_map(|reads| {
+                    reads.iter().filter(|read| {
+                        !read.does_touch(contig, s_thr, s) && read.does_touch(contig, t_thr, t)
+                    })
+                })
+                .copied()
+                .collect()
+        };
         // Case1.
         if st_upstream.len() >= READ_NUM {
-            let c1 = Position::new(from, s, t, Direction::UpStream);
+            let c1 = Position::new(contig, s, t, Direction::UpStream);
             result.push(CriticalRegion::CR(ConfluentRegion::new(c1)));
         }
         // Case2
         if st_downstream.len() >= READ_NUM {
-            let c1 = Position::new(from, s, t, Direction::DownStream);
+            let c1 = Position::new(contig, s, t, Direction::DownStream);
             result.push(CriticalRegion::CR(ConfluentRegion::new(c1)));
         }
     }
     Some(result)
 }
-
-// fn critical_regions_repeat_junction(
-//     from: u16,
-//     reads: &[EncodedRead],
-//     contigs: &Contigs,
-// ) -> Option<Vec<CriticalRegion>> {
-//     if !contigs.is_repeat(from) {
-//         return None;
-//     }
-//     debug!("Contig:{} comes from repetitive contig!", from);
-//     let mut counts: Vec<u64> = vec![0; contigs.get_last_unit(from as u16)? as usize + 1];
-//     for read in reads {
-//         let mut prev_unit: Option<&Encode> = None;
-//         for unit in read.seq().iter().filter_map(|e| match e {
-//             ChunkedUnit::En(e) => Some(e),
-//             ChunkedUnit::Gap(_g) => None,
-//         }) {
-//             if let Some(prev_unit) = prev_unit {
-//                 if prev_unit.contig != unit.contig && unit.contig == from {
-//                     // Entering the repetitive contig. Increment the landing point.
-//                     counts[unit.unit as usize] |= 1 << prev_unit.contig;
-//                 } else if prev_unit.contig == from && unit.contig != from {
-//                     // Exiting the repetitive contig. Increment the leaving point.
-//                     counts[prev_unit.unit as usize] |= 1 << unit.contig;
-//                 }
-//             }
-//             prev_unit = Some(unit);
-//         }
-//     }
-//     // Here, we ignore first 25 units, because it would be the 'canonical' connections.
-//     // TODO: Tune this.
-//     let len = counts.len();
-//     for i in 0..25.min(len) {
-//         counts[i] = 0;
-//         counts[len - 1 - i] = 0;
-//     }
-//     let counts: Vec<usize> = counts
-//         .into_iter()
-//         .map(|e| e.count_ones() as usize)
-//         .collect();
-//     debug!("Repetitive Summary");
-//     for (idx, count) in counts.iter().enumerate().filter(|&(_, &l)| l > 0) {
-//         debug!("{}\t{}", idx, count);
-//     }
-//     let region = calculate_average_more_than(&counts, 1);
-//     debug!("{:?}", region);
-//     let region = merge_overlap_and_remove_contained(region);
-//     debug!("{:?}", region);
-//     let result = region
-//         .into_iter()
-//         .map(|(start, end)| tighten_up(start, end, &counts))
-//         .map(|(start, end)| CriticalRegion::RJ(RepeatJunction::new(from, start as u16, end as u16)))
-//         .collect();
-//     Some(result)
-// }
 
 fn calculate_average_more_than(input: &[usize], average: i32) -> Vec<(usize, usize)> {
     // Calculate maximal region with average more than READ_NUM.
@@ -1029,7 +780,6 @@ fn tighten_up(start: usize, end: usize, xs: &[usize]) -> (usize, usize) {
     assert!(start <= end);
     let _average = xs[start..end].iter().sum::<usize>() as f64 / (end - start) as f64;
     // debug!("Fin. {}-{},average {}", start, end, average);
-
     (start, end)
 }
 
@@ -1054,7 +804,7 @@ fn merge_overlap_and_remove_contained(mut regions: Vec<(usize, usize)>) -> Vec<(
     let mut result = vec![];
     for &(s, e) in &contained_free[1..] {
         assert!(end < e);
-        if end + 4 < s {
+        if end < s {
             // No overlap.
             result.push((start, end));
             start = s;
@@ -1065,7 +815,24 @@ fn merge_overlap_and_remove_contained(mut regions: Vec<(usize, usize)>) -> Vec<(
         }
     }
     result.push((start, end));
+    result.sort();
     result
+}
+
+fn merge_circular_genome(mut regions: Vec<(u16, u16)>, len: usize) -> Vec<(u16, u16)> {
+    let len = len as u16;
+    if regions.len() <= 1 {
+        regions
+    } else {
+        let first: (u16, u16) = *regions.first().unwrap();
+        let last: (u16, u16) = *regions.last().unwrap();
+        if first.0 < 10 && last.1 - len < 10 {
+            regions.remove(0);
+            regions.pop();
+            regions.insert(0, (last.0, first.1));
+        }
+        regions
+    }
 }
 
 #[cfg(test)]

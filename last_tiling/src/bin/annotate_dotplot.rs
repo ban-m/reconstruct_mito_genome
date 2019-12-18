@@ -14,7 +14,8 @@ fn main() -> std::io::Result<()> {
             let seq2_cmp = aln.seq2_matchlen() != aln.seq2_len();
             // Check Long alignment.
             let long = aln.seq1_matchlen() > THR && aln.seq2_matchlen() > THR;
-            seq1_cmp && seq2_cmp && long
+            let seq1_faster = aln.seq1_start_from_forward() < aln.seq2_start_from_forward();
+            seq1_cmp && seq2_cmp && long && seq1_faster
         })
         .filter_map(|aln| last_tiling::repeat::RepeatPairs::new(&aln, &contig))
         .collect();

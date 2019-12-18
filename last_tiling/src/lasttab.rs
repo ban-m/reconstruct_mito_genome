@@ -317,7 +317,7 @@ mod tests {
         assert_eq!(aln.eg2_score(), 8.2e-86);
         assert_eq!(aln.seq1_start_from_forward(), 98045);
         assert_eq!(aln.seq1_end_from_forward(), 98045 + 539);
-        assert_eq!(aln.seq2_start_from_forward(), 1125 - 527 - 4 + 1);
-        assert_eq!(aln.seq2_end_from_forward(), 1125 - 4 + 1);
+        assert_eq!(aln.seq2_start_from_forward(), 1125 - 527 - 4);
+        assert_eq!(aln.seq2_end_from_forward(), 1125 - 4);
     }
 }

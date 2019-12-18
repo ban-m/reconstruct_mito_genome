@@ -3,12 +3,12 @@
 #$ -N DecTwo
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/last_decompose_iter.log
-#$ -o ./logfiles/last_decompose_iter.log
+#$ -e ./logfiles/last_decompose_variational_bayes.log
+#$ -o ./logfiles/last_decompose_variational_bayes.log
 #$ -V
 #$ -m e
 set -ue
-OUTPUT=./result/last_decompose_iter.txt
+OUTPUT=./result/last_decompose_variational_bayes.txt
 
 # RUSTFLAGS="-C target-cpu=native" cargo build --release
 
@@ -22,7 +22,6 @@ echo "-----start-----" >> ${OUTPUT}
 #     ./target/release/test_last_decompose_multiple \
 #         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
 # done
-
 
 
 # TEST_NUM=100
@@ -42,6 +41,17 @@ echo "-----start-----" >> ${OUTPUT}
 #     ./target/release/test_last_decompose_multiple \
 #         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
 # done
+
+
+# TEST_NUM=300
+# COVERAGE=0
+# PROBS="0.5 0.5"
+# for seed in 10 20 30 40 50
+# do
+#     ./target/release/test_last_decompose_multiple \
+#         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
+# done
+
 
 TEST_NUM=300
 COVERAGE=0

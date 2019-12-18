@@ -481,13 +481,17 @@ fn seek_len(len: usize, ops: &mut Vec<Op>) -> (usize, Vec<Op>) {
 
 fn filter_contained_alignment<'a>(
     mut bucket: Vec<&'a LastTAB>,
-    defs: &Contigs,
+    _defs: &Contigs,
 ) -> Vec<&'a LastTAB> {
     use std::cmp::Ordering;
     bucket.sort_by(|aln1, aln2| {
         if aln1.seq2_start_from_forward() < aln2.seq2_start_from_forward() {
             Ordering::Less
         } else if aln1.seq2_start_from_forward() > aln2.seq2_start_from_forward() {
+            Ordering::Greater
+        } else if aln1.seq2_end_from_forward() > aln2.seq2_end_from_forward() {
+            Ordering::Less
+        } else if aln1.seq2_end_from_forward() < aln2.seq2_end_from_forward() {
             Ordering::Greater
         } else if aln1.score() > aln2.score() {
             Ordering::Less
@@ -498,17 +502,15 @@ fn filter_contained_alignment<'a>(
         }
     });
     let mut end = 0;
-    let mut contig_order = std::u16::MAX;
     bucket
         .into_iter()
         .filter(|aln| {
             let e = aln.seq2_end_from_forward();
-            let order = defs.get_id(aln.seq1_name()).unwrap();
+            // let order = defs.get_id(aln.seq1_name()).unwrap();
             if e <= end + 1 {
                 false
             } else {
                 end = e;
-                contig_order = order;
                 true
             }
         })
@@ -601,7 +603,7 @@ mod tests {
         let len = 14;
         let mut res = ops.clone();
         let (r_len, popped) = seek_len(len, &mut res);
-        assert_eq!(r_len, 11);
+        assert_eq!(r_len, 16);
         assert_eq!(
             popped,
             vec![Match(4), Seq2In(3), Match(2), Seq1In(5), Match(5)]

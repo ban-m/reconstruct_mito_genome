@@ -1,8 +1,9 @@
 extern crate bio_utils;
+extern crate env_logger;
 extern crate last_decompose;
 extern crate last_tiling;
+#[macro_use]
 extern crate log;
-extern crate env_logger;
 extern crate serde;
 extern crate serde_json;
 use last_decompose::ERead;
@@ -13,12 +14,17 @@ fn main() -> std::io::Result<()> {
     let reads = bio_utils::fasta::parse_into_vec(&args[1])?;
     let alignments = last_tiling::parse_tab_file(&args[2])?;
     let contigs = bio_utils::fasta::parse_into_vec(&args[3])?;
+    let repeats = last_tiling::repeat::open(&args[4])?;
+    debug!("Start");
     let contigs = last_tiling::Contigs::new(contigs);
-    let reads:Vec<_> = last_tiling::encoding(&reads, &contigs, &alignments)
+    let reads: Vec<_> = last_tiling::encoding(&reads, &contigs, &alignments)
         .into_iter()
+        //.inspect(|e| debug!("{}", e))
         .map(ERead::new)
+        //.inspect(|e| debug!("{}", e))
         .collect();
-    let result = last_decompose::critical_regions(&reads, &contigs);
+    debug!("Start");
+    let result = last_decompose::critical_regions(&reads, &contigs, &repeats);
     let wtr = std::io::stdout();
     let mut wtr = std::io::BufWriter::new(wtr.lock());
     serde_json::ser::to_writer_pretty(&mut wtr, &result).unwrap();

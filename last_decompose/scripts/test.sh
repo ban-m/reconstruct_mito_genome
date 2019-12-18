@@ -7,9 +7,10 @@
 #$ -o ./out
 #$ -V
 #$ -m e
-ROOT=/grid/ban-m/arabidopsis_thaliana/sequel/assemble/mine
-READ=${ROOT}/filtered_read.fasta
-ALIGN=${ROOT}/last_db/collupsed.tab
-CONTIG=${ROOT}/contigs.fasta
-cargo run --release --bin test -- ${READ} ${ALIGN} ${CONTIG}
-cargo run --release --bin enumerate_cr -- ${READ} ${ALIGN} ${CONTIG} > ./logfiles/cr.json
+READ=../create_dataset_and_circos_plots/result/forward_repeat/filtered_read.fasta
+ALIGN=../create_dataset_and_circos_plots/result/forward_repeat/last_db/initial.tab
+CONTIG=../create_simulation_data/data/flip_repeats/reference.fasta
+REPEAT=../create_dataset_and_circos_plots/result/forward_repeat/circos/repeats.json
+# cargo run --release --bin test -- ${READ} ${ALIGN} ${CONTIG}
+cargo run --release --bin enumerate_cr -- ${READ} ${ALIGN} ${CONTIG} ${REPEAT} \
+      > ./logfiles/cr.json

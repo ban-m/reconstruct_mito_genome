@@ -182,6 +182,9 @@ impl GapUnit {
         self.bases.clear();
         self.bases.push_str(&String::from_utf8_lossy(seq));
     }
+    pub fn bases(&self) -> &[u8] {
+        self.bases.as_bytes()
+    }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]

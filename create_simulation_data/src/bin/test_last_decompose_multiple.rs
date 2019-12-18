@@ -107,7 +107,7 @@ fn benchmark(
     let (dataset, label, answer, _border) =
         create_simulation_data::generate_mul_data(&templates, coverage, test_num, &mut rng, probs);
     let contigs = vec![chain_len];
-    let c= &dbg_hmm::DEFAULT_CONFIG;
+    let c = &dbg_hmm::DEFAULT_CONFIG;
     let data: Vec<_> = dataset
         .into_iter()
         .enumerate()
@@ -126,7 +126,7 @@ fn benchmark(
         debug!("Probs:[{}]", probs.join(","));
     };
     let forbidden = vec![vec![]; data.len()];
-    let em_pred = clustering(&data, &label, &forbidden, k, clusters, &contigs, &answer,c );
+    let em_pred = clustering(&data, &label, &forbidden, k, clusters, &contigs, &answer, c);
     let mut result = vec![vec![0; clusters]; clusters];
     for i in 0..clusters {
         let tot = answer.iter().filter(|&&e| e as usize == i).count();

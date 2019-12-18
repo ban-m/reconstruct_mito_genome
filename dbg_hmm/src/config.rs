@@ -75,4 +75,15 @@ impl Config {
             p_del_to_ins,
         }
     }
+    pub fn null_model(&self, seq: &[u8]) -> f64 {
+        let mut counts = [0; 4];
+        for &base in seq {
+            counts[super::base_table::BASE_TABLE[base as usize]] += 1;
+        }
+        counts
+            .iter()
+            .zip(self.base_freq.iter())
+            .map(|(&c, f)| (c as f64) * f.ln())
+            .sum::<f64>()
+    }
 }

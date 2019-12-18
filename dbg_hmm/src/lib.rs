@@ -18,8 +18,8 @@ extern crate test;
 const PSEUDO_COUNT: bool = true;
 const THR_ON: bool = true;
 const THR: f64 = 2.;
-const WEIGHT_THR: f64 = 2.0;
-const LOW_LIKELIHOOD: f64 = -100_000.;
+// const WEIGHT_THR: f64 = 2.0;
+// const LOW_LIKELIHOOD: f64 = -100_000.;
 const SCALE: f64 = 3.;
 mod find_union;
 pub mod gen_sample;
@@ -197,12 +197,24 @@ impl DeBruijnGraphHiddenMarkovModel {
     pub fn weight(&self) -> f64 {
         self.weight
     }
+    // fn all_inserts(obs: &[u8], config: &Config) -> f64 {
+    //     obs.iter()
+    //         .map(|&e| match e {
+    //             b'A' | b'a' => config.base_freq[0],
+    //             b'C' | b'c' => config.base_freq[1],
+    //             b'G' | b'g' => config.base_freq[2],
+    //             b'T' | b't' => config.base_freq[3],
+    //             _ => unreachable!(),
+    //         })
+    //         .map(|x| x.ln())
+    //         .sum::<f64>()
+    // }
     #[cfg(target_feature = "sse")]
     pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
         assert!(obs.len() > self.k);
-        if self.weight < WEIGHT_THR {
-            return LOW_LIKELIHOOD;
-        }
+        // if self.weight < WEIGHT_THR {
+        //     return Self::all_inserts(obs, config);
+        // }
         // Alignemnts: [mat, ins, del, mat, ins, del, ....]
         let (mut cs, mut ds, mut prev) = self.initialize(&obs[..self.k], config);
         assert!(prev.len() % 4 == 0);
