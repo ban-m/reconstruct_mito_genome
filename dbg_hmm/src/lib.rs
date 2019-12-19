@@ -17,8 +17,8 @@ extern crate test;
 // Whether or not to use 'pseudo count' in the out-dgree.
 const PSEUDO_COUNT: bool = true;
 const THR_ON: bool = true;
-const THR: f64 = 2.;
-// const WEIGHT_THR: f64 = 2.0;
+const THR: f64 = 3.5;
+const WEIGHT_THR: f64 = 2.0;
 // const LOW_LIKELIHOOD: f64 = -100_000.;
 const SCALE: f64 = 3.;
 mod find_union;
@@ -71,6 +71,11 @@ impl DeBruijnGraphHiddenMarkovModel {
         let mut f = Factory::new();
         f.generate_from_ref(dataset, k)
     }
+    pub fn new_with_weight(dataset: &[&[u8]], ws: &[f64], k: usize) -> Self {
+        let mut f = Factory::new();
+        f.generate_with_weight(dataset, ws, k)
+    }
+
     // Calc hat. Return (c,d)
     fn is_non_zero(idx: usize, xs: &[f64]) -> bool {
         xs[idx * 3..(idx + 1) * 3].iter().any(|&e| e > 0.00001)
@@ -212,9 +217,9 @@ impl DeBruijnGraphHiddenMarkovModel {
     #[cfg(target_feature = "sse")]
     pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
         assert!(obs.len() > self.k);
-        // if self.weight < WEIGHT_THR {
-        //     return Self::all_inserts(obs, config);
-        // }
+        if self.weight < WEIGHT_THR {
+            return config.null_model(obs);
+        }
         // Alignemnts: [mat, ins, del, mat, ins, del, ....]
         let (mut cs, mut ds, mut prev) = self.initialize(&obs[..self.k], config);
         assert!(prev.len() % 4 == 0);
@@ -238,7 +243,7 @@ impl DeBruijnGraphHiddenMarkovModel {
             std::mem::swap(&mut prev, &mut updated);
         }
         assert!(cs + ds < 0.);
-        cs + ds
+        (cs + ds).max(config.null_model(obs))
     }
     pub fn node_num(&self) -> usize {
         self.nodes.len()
@@ -274,7 +279,6 @@ mod tests {
         ];
         let _ = DBGHMM::new(&test, 12);
     }
-
     #[test]
     fn forward() {
         let test = [

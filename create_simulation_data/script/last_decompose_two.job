@@ -3,12 +3,12 @@
 #$ -N DecTwo
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/last_decompose_variational_bayes.log
-#$ -o ./logfiles/last_decompose_variational_bayes.log
+#$ -e ./logfiles/last_decompose_sgd.log
+#$ -o ./logfiles/last_decompose_sgd.log
 #$ -V
 #$ -m e
 set -ue
-OUTPUT=./result/last_decompose_variational_bayes.txt
+OUTPUT=./result/last_decompose_sgd.txt
 
 # RUSTFLAGS="-C target-cpu=native" cargo build --release
 
@@ -24,14 +24,14 @@ echo "-----start-----" >> ${OUTPUT}
 # done
 
 
-# TEST_NUM=100
-# COVERAGE=0
-# PROBS="0.2 0.8"
-# for seed in 10 20 30 40 50
-# do
-#     ./target/release/test_last_decompose_multiple \
-#         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
-# done
+TEST_NUM=100
+COVERAGE=0
+PROBS="0.2 0.8"
+for seed in 10 20 30 40 50
+do
+    ./target/release/test_last_decompose_multiple \
+        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
+done
  
 # TEST_NUM=100
 # COVERAGE=4
@@ -53,13 +53,29 @@ echo "-----start-----" >> ${OUTPUT}
 # done
 
 
-TEST_NUM=300
-COVERAGE=0
-PROBS="0.2 0.8"
-for seed in 10 20 30 40 50
-do
-    ./target/release/test_last_decompose_multiple \
-        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
-done
+# # ./target/release/test_last_decompose_multiple \
+# #     300 0 10 0.2 0.8 >> ${OUTPUT}
+
+
+# TEST_NUM=300
+# COVERAGE=4
+# PROBS="0.2 0.8"
+# for seed in 10 20 30 40 50
+# do
+#     ./target/release/test_last_decompose_multiple \
+#         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
+# done
+
+
+
+
+# TEST_NUM=300
+# COVERAGE=0
+# PROBS="0.2 0.8"
+# for seed in 10 20 30 40 50
+# do
+#     ./target/release/test_last_decompose_multiple \
+#         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
+# done
 
 

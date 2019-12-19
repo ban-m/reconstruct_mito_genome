@@ -164,7 +164,8 @@ impl Factory {
         }
         let thr = nodes.iter().map(|e| e.tot).sum::<f64>() / nodes.len() as f64 - THR;
         self.clear();
-        let nodes = self.clean_up_nodes_exp(nodes, thr, &mut rng);
+        let mut nodes = self.clean_up_nodes_exp(nodes, thr, &mut rng);
+        nodes.iter_mut().for_each(Kmer::finalize);
         self.clear();
         DBGHMM::from(nodes, k, weight)
     }
@@ -181,8 +182,7 @@ impl Factory {
         assert!(self.is_empty());
         let nodes = self.pick_largest_components(nodes);
         assert!(self.is_empty());
-        let mut nodes = self.renaming_nodes(nodes);
-        nodes.iter_mut().for_each(Kmer::finalize);
+        let nodes = self.renaming_nodes(nodes);
         nodes
     }
     fn pick_largest_components(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
@@ -586,7 +586,7 @@ impl Factory {
         idx: usize,
     ) -> Option<usize> {
         match self.inner.get_mut(idx) {
-            Some(x) if rng.gen_bool(Self::prob(x.0 - thr)) => None,
+            Some(x) if x.0 < thr && rng.gen_bool(Self::prob(x.0 - thr)) => None,
             Some(x) if x.1 != std::usize::MAX => Some(x.1),
             Some(x) => {
                 x.1 = nodes.len();
@@ -648,6 +648,59 @@ impl Factory {
 
 #[cfg(test)]
 mod tests {
+    // #[test]
+    // fn shrink() {
+    //     // Easy
+    //     let number_of_nodes = 8;
+    //     let edges_and_labels = vec![
+    //         vec![(1, b'a'), (4, b'a')],
+    //         vec![(2, b'c')],
+    //         vec![(3, b't')],
+    //         vec![(7, b'c')],
+    //         vec![(5, b'c')],
+    //         vec![(6, b't')],
+    //         vec![(7, b'c')],
+    //         vec![],
+    //     ];
+    //     let (edges, nodes, merges) = super::Factory::shringk(number_of_nodes, edges_and_labels);
+    //     assert_eq!(nodes, 5);
+    //     let answer = vec![
+    //         vec![(1, b'a')],
+    //         vec![(2, b'c')],
+    //         vec![(3, b't')],
+    //         vec![(4, b'c')],
+    //         vec![],
+    //     ];
+    //     assert_eq!(answer, edges);
+    //     let answer = vec![vec![0], vec![1, 4], vec![2, 5], vec![3, 6], vec![7]];
+    //     assert_eq!(answer, merges);
+    //     // Little hard
+    //     let number_of_nodes = 9;
+    //     let edges_and_labels = vec![
+    //         vec![(1, b'a'), (4, b'a')],
+    //         vec![(2, b'c')],
+    //         vec![(3, b't')],
+    //         vec![(7, b'c')],
+    //         vec![(5, b'c')],
+    //         vec![(6, b't')],
+    //         vec![(7, b'c')],
+    //         vec![],
+    //         vec![(2, b'c')],
+    //     ];
+    //     let (edges, nodes, merges) = super::Factory::shringk(number_of_nodes, edges_and_labels);
+    //     assert_eq!(nodes, 5);
+    //     let answer = vec![
+    //         vec![(1, b'a')],
+    //         vec![(2, b'c')],
+    //         vec![(3, b't')],
+    //         vec![(4, b'c')],
+    //         vec![],
+    //     ];
+    //     assert_eq!(answer, edges);
+    //     let answer = vec![vec![0], vec![1, 4, 8], vec![2, 5], vec![3, 6], vec![7]];
+    //     assert_eq!(answer, merges);
+    //     // Hard mode
+    // }
     use super::*;
     // #[test]
     // fn tip_cut() {

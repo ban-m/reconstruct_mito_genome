@@ -45,19 +45,19 @@ const BETA_STEP: f64 = 1.2;
 // Maximum beta. Until this beta, we multiply beta_step for the current beta.
 const MAX_BETA: f64 = 1.;
 // This is the parameter for Diriclet prior.
-const ALPHA: f64 = 0.001;
+const ALPHA: f64 = 0.01;
 // This is the parameter for de Bruijn prior.
-const BETA: f64 = 80.0;
+const BETA: f64 = 40.0;
 // Loop number for Gibbs sampling.
-const LOOP_NUM: usize = 4;
+const LOOP_NUM: usize = 3;
 // Loop number for variational Bayes.
-const LOOP_NUM_VB: usize = 6;
+const LOOP_NUM_VB: usize = 20;
 // Initial picking probability.
 const INIT_PICK_PROB: f64 = 0.02;
 const PICK_PROB_STEP: f64 = 1.05;
 const MAX_PICK_PROB: f64 = 0.05;
 const MINIMUM_PROB: f64 = 0.001;
-const LEARNING_RATE: f64 = 0.6;
+const LEARNING_RATE: f64 = 0.2;
 const MOMENT: f64 = 0.2;
 const SEED: u64 = 100;
 const SOE_PER_DATA_ENTROPY: f64 = 0.05;
@@ -351,8 +351,8 @@ pub fn clustering(
 ) -> Vec<u8> {
     let border = label.len();
     assert_eq!(forbidden.len(), data.len());
-    // let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
-    let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
+    let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
+    // let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
     // Maybe we should use randomized choose.
     debug!("Prediction. Dump weights");
     for (weight, ans) in weights.iter().zip(answer).skip(border) {
@@ -396,7 +396,7 @@ fn get_max_coverage(data: &[ERead], contig: &[usize]) -> usize {
         .unwrap()
 }
 
-fn variational_bayes(
+pub fn variational_bayes(
     data: &[ERead],
     label: &[u8],
     forbidden: &[Vec<u8>],
@@ -416,46 +416,59 @@ fn variational_bayes(
     let mut models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
         .map(|cl| mf.generate_model(&weights_of_reads, data, cl))
         .collect();
-    let _prior = get_initial_prior(cluster_num);
-    // debug!("Prior");
-    // for (idx, p) in prior.iter().enumerate() {
-    //     debug!("{}\t{:.4}", idx, p);
-    // }
-    let mut alphas: Vec<_> = (0..cluster_num)
-        .map(|cl| weights_of_reads.iter().map(|e| e[cl]).sum::<f64>() + ALPHA)
-        .collect();
     let wor = &weights_of_reads;
     let betas = get_schedule(data, contigs, wor, label, k, cluster_num, config);
+    let mut alphas: Vec<_> = (0..cluster_num)
+        .map(|cl| {
+            let n_k = weights_of_reads.iter().map(|e| e[cl]).sum::<f64>();
+            (n_k + ALPHA - 1.) * betas[0] + 1.
+        })
+        .collect();
     let mut log_ros = vec![vec![0.; cluster_num]; data.len()];
     debug!("THR:{}", soe_thr);
+    let mut assignments: Vec<u8> = get_assignments(&weights_of_reads);
     for beta in betas {
-        let mut soe = 1000000.;
-        let mut soe_diff = 10000000.;
+        let mut has_assignment_changed = true;
         let mut count = 0;
-        while (soe_thr < soe && soe_thr < soe_diff) || count < LOOP_NUM_VB {
+        while has_assignment_changed && count < 50 {
+            count += 1;
             // Update weight of reads.
             let wor = &mut weights_of_reads;
             let lr = &mut log_ros;
             batch_vb(wor, lr, &alphas, border, data, &models, beta, config);
             // Updates Distributions
+            // There is a "implicit" annealing term at mf.genarate_model.
             models = (0..cluster_num)
                 .map(|cl| mf.generate_model(&weights_of_reads, data, cl))
                 .collect();
             alphas = (0..cluster_num)
-                // .zip(prior.iter())
                 .map(|cl| weights_of_reads.iter().map(|e| e[cl]).sum::<f64>() + ALPHA)
                 .map(|alpha| (alpha - 1.) * beta + 1.)
                 .collect();
             let wr = &weights_of_reads;
             report(wr, border, answer, &alphas, &models, data, beta, 1., config);
-            let soe_next = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
-            soe_diff = soe - soe_next;
-            soe = soe_next;
-            count += 1;
-            debug!("RECURSE:{:.3}\t{:.3}\t{:.3}", soe_diff, soe, soe_thr);
+            let next_assignments = get_assignments(&weights_of_reads);
+            has_assignment_changed = assignments
+                .iter()
+                .zip(next_assignments.iter())
+                .any(|(a, b)| a != b);
+            assignments = next_assignments;
         }
     }
     weights_of_reads
+}
+
+fn get_assignments(wor: &[Vec<f64>]) -> Vec<u8> {
+    wor.iter()
+        .map(|weight| {
+            let (cl, _) =
+                weight.iter().enumerate().fold(
+                    (0, -1.),
+                    |(i, m), (j, &w)| if m < w { (j, w) } else { (i, m) },
+                );
+            cl as u8
+        })
+        .collect()
 }
 
 fn get_schedule(
@@ -473,7 +486,7 @@ fn get_schedule(
     let init_beta = search_initial_beta_vb(wor, data, label, k, cluster_num, contigs, config);
     info!("Initial Beta {:.4} -> {:.4}", INIT_BETA, init_beta);
     (0..)
-        .map(|i| init_beta * beta_step.powi(i))
+        .map(|i| init_beta * beta_step.powi(i - 2))
         .take_while(|&e| e < MAX_BETA)
         .chain(vec![1.])
         .collect()
@@ -557,22 +570,24 @@ fn batch_vb(
                 .iter()
                 .zip(alphas.iter())
                 .zip(log_ros.iter_mut())
-                .for_each(|((ms, w), log_ro)| {
+                .for_each(|((ms, &w), log_ro)| {
                     let lk = read
                         .seq
                         .iter()
                         .map(|u| {
                             let model = &ms[u.contig()][u.unit()];
                             let lk = model.forward(u.bases(), c);
-                            // Should be more reasonable prior.
-                            let prior = c.null_model(u.bases());
-                            let diff = (prior - lk).exp();
-                            let n_k = w - ALPHA;
-                            lk + (n_k / (n_k + BETA) + (BETA / n_k) * diff).ln()
+                            //let prior = c.null_model(u.bases()) + offset(model.weight(), A, B);
+                            //let diff = (prior - lk).exp();
+                            // This beta is for scaling/prior de Bruijn graph.
+                            //let n_k = w - ALPHA;
+                            //let weight = prev_beta * n_k / (BETA + n_k);
+                            // lk + (weight + (1. - weight) * diff).ln()
+                            lk
                         })
                         .sum::<f64>();
-                    let prior = digamma(*w) - digamma(alpha_tot);
-                    *log_ro = prior + lk * beta;
+                    let prior = digamma(w) - digamma(alpha_tot);
+                    *log_ro = (prior + lk) * beta;
                 });
             let log_sum_ro = utils::logsumexp(&log_ros);
             weights
@@ -616,12 +631,13 @@ pub fn soft_clustering(
         .take_while(|&e| e < MAX_BETA)
         .chain(vec![1.])
         .collect();
-    let mut pick_probs: Vec<_> = (0..)
-        .map(|i| INIT_PICK_PROB * PICK_PROB_STEP.powi(i))
-        .take_while(|&e| e < MAX_PICK_PROB)
-        .map(|pick_prob| (pick_prob, pick_prob.recip().floor() as usize * LOOP_NUM))
-        .flat_map(|(pick_prob, num)| vec![pick_prob; num])
-        .collect();
+    // let mut pick_probs: Vec<_> = (0..)
+    //     .map(|i| INIT_PICK_PROB * PICK_PROB_STEP.powi(i))
+    //     .take_while(|&e| e < MAX_PICK_PROB)
+    //     .map(|pick_prob| (pick_prob, pick_prob.recip().floor() as usize * LOOP_NUM))
+    //     .flat_map(|(pick_prob, num)| vec![pick_prob; num])
+    //     .collect();
+    let mut pick_probs: Vec<_> = vec![0.1; 40];
     let mut lr = LEARNING_RATE;
     for s in 0.. {
         let last_sum_of_entropy = from_weight_of_read(
@@ -721,7 +737,7 @@ fn from_weight_of_read(
     soe
 }
 
-const NUM_OF_BALL: usize = 100;
+const NUM_OF_BALL: usize = 10_000;
 fn construct_initial_weights(
     label: &[u8],
     forbidden: &[Vec<u8>],
@@ -763,21 +779,6 @@ fn construct_initial_weights(
         .iter()
         .all(|ws| (ws.iter().sum::<f64>() - 1.).abs() < 0.001));
     weights
-}
-
-fn get_initial_prior(cl: usize) -> Vec<f64> {
-    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(SEED);
-    let num_of_ball = cl * NUM_OF_BALL;
-    let mut counts = vec![0.; cl];
-    for _ in 0..num_of_ball {
-        let idx = rng.gen_range(0, cl);
-        counts[idx] += 1.;
-    }
-    for c in counts.iter_mut() {
-        *c /= NUM_OF_BALL as f64;
-        *c *= ALPHA;
-    }
-    counts
 }
 
 // Find initial good parameter for \beta.
@@ -881,7 +882,7 @@ fn report(
         .filter(|&(weights, &ans)| weights.iter().all(|&g| g <= weights[ans as usize]))
         .count();
     let acc = correct as f64 / answer.len() as f64;
-    let pi: Vec<_> = ws.iter().map(|e| format!("{:.0}", 100. * e)).collect();
+    let pi: Vec<_> = ws.iter().map(|e| format!("{:.2}", *e)).collect();
     let pi = pi.join("\t");
     let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
     let lk = likelihood_of_models(&models, data, &ws, c);
@@ -889,13 +890,6 @@ fn report(
         "Summary\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{}\t{:.2}",
         lk, soe, pi, beta, lr, correct, acc
     );
-    // for (i, mss) in models.iter().enumerate() {
-    //     for (_j, ms) in mss.iter().enumerate() {
-    //         for (j, m) in ms.iter().enumerate() {
-    //             debug!("{}\t{}\t{:.4}", i, j, m.weight());
-    //         }
-    //     }
-    // }
 }
 
 fn updates_flags<R: Rng>(
@@ -1100,6 +1094,8 @@ fn likelihood_of_models(
 ) -> f64 {
     let cluster_num = models.len();
     let mut gammas: Vec<_> = vec![vec![0.; cluster_num]; data.len()];
+    let sum = ws.iter().sum::<f64>();
+    let ws: Vec<_> = ws.iter().map(|&e| e / sum).collect();
     data.par_iter()
         .zip(gammas.par_iter_mut())
         .map(|(read, gs)| {
