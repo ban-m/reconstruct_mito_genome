@@ -352,7 +352,8 @@ pub fn clustering(
     let border = label.len();
     assert_eq!(forbidden.len(), data.len());
     let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
-    // let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
+    // let weights = soft_clustering_full(data, label, forbidden, k, cluster_num, contigs, answer, c);
+    //let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
     // Maybe we should use randomized choose.
     debug!("Prediction. Dump weights");
     for (weight, ans) in weights.iter().zip(answer).skip(border) {
@@ -631,13 +632,12 @@ pub fn soft_clustering(
         .take_while(|&e| e < MAX_BETA)
         .chain(vec![1.])
         .collect();
-    // let mut pick_probs: Vec<_> = (0..)
-    //     .map(|i| INIT_PICK_PROB * PICK_PROB_STEP.powi(i))
-    //     .take_while(|&e| e < MAX_PICK_PROB)
-    //     .map(|pick_prob| (pick_prob, pick_prob.recip().floor() as usize * LOOP_NUM))
-    //     .flat_map(|(pick_prob, num)| vec![pick_prob; num])
-    //     .collect();
-    let mut pick_probs: Vec<_> = vec![0.1; 40];
+    let mut pick_probs: Vec<_> = (0..)
+        .map(|i| INIT_PICK_PROB * PICK_PROB_STEP.powi(i))
+        .take_while(|&e| e < MAX_PICK_PROB)
+        .map(|pick_prob| (pick_prob, pick_prob.recip().floor() as usize * LOOP_NUM))
+        .flat_map(|(pick_prob, num)| vec![pick_prob; num])
+        .collect();
     let mut lr = LEARNING_RATE;
     for s in 0.. {
         let last_sum_of_entropy = from_weight_of_read(
@@ -663,6 +663,70 @@ pub fn soft_clustering(
                 .iter_mut()
                 .for_each(|e| *e *= PICK_PROB_STEP.powi(s as i32));
         }
+    }
+    weight_of_read
+}
+
+pub fn soft_clustering_full(
+    data: &[ERead],
+    label: &[u8],
+    forbidden: &[Vec<u8>],
+    k: usize,
+    cluster_num: usize,
+    contigs: &[usize],
+    answer: &[u8],
+    config: &Config,
+) -> Vec<Vec<f64>> {
+    assert!(cluster_num > 1);
+    // weight_of_read[i] = "the vector of each cluster for i-th read"
+    let mut weight_of_read: Vec<Vec<f64>> =
+        construct_initial_weights(label, forbidden, cluster_num, data.len(), data.len() as u64);
+    let max_coverage = get_max_coverage(data, contigs);
+    let beta_step = 1. + (BETA_STEP - 1.) * 2. / (max_coverage as f64).log10();
+    info!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
+    let init_beta =
+        search_initial_beta_full(data, label, forbidden, k, cluster_num, contigs, config);
+    info!("Initial Beta {:.4} -> {:.4}", INIT_BETA, init_beta);
+    let betas: Vec<_> = (0..)
+        .map(|i| init_beta * beta_step.powi(i))
+        .take_while(|&e| e < MAX_BETA)
+        .chain(vec![1.])
+        .collect();
+    let border = label.len();
+    let datasize = data.len() as f64;
+    let mut gammas: Vec<Vec<_>> = vec![vec![0.; cluster_num]; data.len()];
+    let mut moments: Vec<Vec<_>> = vec![vec![]; data.len()];
+    let mut ws: Vec<f64> = (0..cluster_num)
+        .map(|i| weight_of_read.iter().map(|g| g[i]).sum::<f64>() / datasize)
+        .collect();
+    assert!((ws.iter().sum::<f64>() - 1.).abs() < 0.0001);
+    assert_eq!(ws.len(), cluster_num);
+    // Cluster -> Contig -> Unit -> DBG/Vec<CUnit>
+    let mut mf = ModelFactory::new(contigs, data, k);
+    let mut models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
+        .map(|cl| mf.generate_model(&weight_of_read, data, cl))
+        .collect();
+    for beta in betas {
+        let lr = LEARNING_RATE / beta * init_beta;
+        for _ in 0..20 {
+            models = (0..cluster_num)
+                .map(|cl| mf.generate_model(&weight_of_read, data, cl))
+                .collect();
+            batch_sgd(
+                &mut weight_of_read,
+                &mut gammas,
+                &mut moments,
+                &mut ws,
+                border,
+                data,
+                &models,
+                beta,
+                lr,
+                config,
+            );
+        }
+        let wr = &weight_of_read;
+        report(&wr, border, answer, &ws, &models, data, beta, lr, config);
     }
     weight_of_read
 }
@@ -944,6 +1008,152 @@ fn minibatch_sgd_by(
         .skip(border)
         .filter(|&(_, &b)| b)
         .map(|((((read, weights), gamma), moment), _)| {
+            compute_log_probs(&models, &ws, &read, gamma, c);
+            gamma.iter_mut().for_each(|g| *g *= beta);
+            let w = utils::logsumexp(&gamma);
+            gamma.iter_mut().for_each(|l| *l = (*l - w).exp());
+            debug_assert!((1. - gamma.iter().sum::<f64>()).abs() < 0.001);
+            if moment.is_empty() {
+                *moment = gamma.clone();
+            } else {
+                moment.iter_mut().zip(gamma.iter()).for_each(|(m, &g)| {
+                    let gradient = g - *m;
+                    *m += MOMENT * gradient;
+                });
+            }
+            debug_assert!((1. - moment.iter().sum::<f64>()).abs() < 0.001);
+            weights.iter_mut().zip(moment.iter()).for_each(|(w, &m)| {
+                let gradient = m - *w;
+                *w += lr * gradient;
+            });
+            debug_assert!((1. - weights.iter().sum::<f64>()).abs() < 0.001);
+            assert_eq!(gamma.len(), cluster_num);
+            // Convert gamma into moment of PI.
+            gamma
+                .iter_mut()
+                .zip(ws.iter())
+                .zip(moment.iter())
+                .for_each(|((g, &w), &m)| *g = m - w);
+            gamma
+        })
+        .fold(
+            || vec![0.; cluster_num],
+            |mut xs, ys| {
+                xs.iter_mut().zip(ys.iter()).for_each(|(x, &y)| *x += y);
+                xs
+            },
+        )
+        .reduce(
+            || vec![0.; cluster_num],
+            |mut xs, ys| {
+                xs.iter_mut().zip(ys.iter()).for_each(|(x, &y)| *x += y);
+                xs
+            },
+        );
+    assert_eq!(ws_gradient.len(), cluster_num);
+    debug_assert!(ws_gradient.iter().sum::<f64>().abs() < 0.0001);
+    ws.iter_mut().zip(ws_gradient).for_each(|(w, gradient)| {
+        let gradient = gradient / datasize;
+        *w += gradient * lr;
+    });
+    assert_eq!(ws.len(), cluster_num);
+    debug_assert!((1. - ws.iter().sum::<f64>()).abs() < 0.001);
+}
+
+fn search_initial_beta_full(
+    data: &[ERead],
+    label: &[u8],
+    forbidden: &[Vec<u8>],
+    k: usize,
+    cluster_num: usize,
+    contigs: &[usize],
+    c: &Config,
+) -> f64 {
+    let weight_of_read: Vec<Vec<f64>> =
+        construct_initial_weights(label, forbidden, cluster_num, data.len(), data.len() as u64);
+    let wor = &weight_of_read;
+    let border = label.len();
+    let datasize = data.len() as f64;
+    let mut mf = ModelFactory::new(contigs, data, k);
+    let mut beta = INIT_BETA / FACTOR;
+    let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
+    let mut diff = 0.;
+    let thr = SOE_PER_DATA_ENTROPY * datasize * (cluster_num as f64).ln();
+    while diff < thr {
+        beta *= FACTOR;
+        let c_soe = soe_after_sampling_full(beta, data, wor, border, cluster_num, &mut mf, c);
+        diff = soe - c_soe;
+        debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, c_soe, diff);
+    }
+    while diff > thr {
+        beta /= FACTOR;
+        let c_soe = soe_after_sampling_full(beta, data, wor, border, cluster_num, &mut mf, c);
+        diff = soe - c_soe;
+        debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, c_soe, diff);
+    }
+    beta
+}
+
+fn soe_after_sampling_full(
+    beta: f64,
+    data: &[ERead],
+    wor: &[Vec<f64>],
+    border: usize,
+    cluster_num: usize,
+    mf: &mut ModelFactory,
+    c: &Config,
+) -> f64 {
+    let datasize = data.len() as f64;
+    let mut gammas: Vec<Vec<_>> = vec![vec![0.; cluster_num]; data.len()];
+    let mut moments: Vec<Vec<_>> = vec![vec![]; data.len()];
+    let mut ws: Vec<f64> = (0..cluster_num)
+        .map(|i| wor.iter().map(|g| g[i]).sum::<f64>() / datasize)
+        .collect();
+    let mut models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
+        .map(|cl| mf.generate_model(&wor, data, cl))
+        .collect();
+    let mut wor: Vec<Vec<f64>> = wor.to_vec();
+    for _ in 0..10 {
+        models.iter_mut().enumerate().for_each(|(cluster, model)| {
+            mf.update_model(&wor, &vec![false; data.len()], data, cluster, model);
+        });
+        batch_sgd(
+            &mut wor,
+            &mut gammas,
+            &mut moments,
+            &mut ws,
+            border,
+            data,
+            &models,
+            beta,
+            LEARNING_RATE,
+            c,
+        );
+    }
+    wor.iter().map(|e| entropy(e)).sum::<f64>()
+}
+
+fn batch_sgd(
+    weight_of_read: &mut [Vec<f64>],
+    gammas: &mut [Vec<f64>],
+    moments: &mut [Vec<f64>],
+    ws: &mut [f64],
+    border: usize,
+    data: &[ERead],
+    models: &[Vec<Vec<DBGHMM>>],
+    beta: f64,
+    lr: f64,
+    c: &Config,
+) {
+    let cluster_num = models.len();
+    let datasize = data.len() as f64;
+    let ws_gradient = data
+        .par_iter()
+        .zip(weight_of_read.par_iter_mut())
+        .zip(gammas.par_iter_mut())
+        .zip(moments.par_iter_mut())
+        .skip(border)
+        .map(|(((read, weights), gamma), moment)| {
             compute_log_probs(&models, &ws, &read, gamma, c);
             gamma.iter_mut().for_each(|g| *g *= beta);
             let w = utils::logsumexp(&gamma);
