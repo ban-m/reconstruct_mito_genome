@@ -17,7 +17,11 @@ extern crate test;
 // Whether or not to use 'pseudo count' in the out-dgree.
 const PSEUDO_COUNT: bool = true;
 const THR_ON: bool = true;
-const THR: f64 = 3.5;
+// This 2.5 is good for prediction for a new query,
+// but very bad for exisiting(i.e., the reads used as model) query.
+const THR: f64 = 2.0;
+// This is tuned for clustering.
+// const THR: f64 = 3.;
 const WEIGHT_THR: f64 = 2.0;
 // const LOW_LIKELIHOOD: f64 = -100_000.;
 const SCALE: f64 = 3.;
@@ -243,7 +247,7 @@ impl DeBruijnGraphHiddenMarkovModel {
             std::mem::swap(&mut prev, &mut updated);
         }
         assert!(cs + ds < 0.);
-        (cs + ds).max(config.null_model(obs))
+        cs + ds
     }
     pub fn node_num(&self) -> usize {
         self.nodes.len()

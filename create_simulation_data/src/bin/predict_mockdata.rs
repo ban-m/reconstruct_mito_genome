@@ -30,6 +30,11 @@ fn main() -> std::io::Result<()> {
     debug!("{} reads in total.", reads.len());
     let reference = last_tiling::Contigs::from_file(&args[2])?;
     let alignments: Vec<_> = last_tiling::parse_tab_file(&args[3])?;
+    let config = {
+        let contigs = bio_utils::fasta::parse_into_vec(&args[2]).unwrap();
+        last_decompose::error_profile::summarize_tab(&alignments, &reads, &contigs)
+    };
+    debug!("{:?}", config);
     debug!("{} alignments in total", alignments.len());
     let len = reference.get_by_id(0).unwrap().len();
     let answer: HashMap<_, _> = reads
@@ -64,8 +69,8 @@ fn main() -> std::io::Result<()> {
         debug!("Random mode");
         let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1893749823);
         let (training, testset): (Vec<_>, Vec<_>) =
-            reads.into_iter().partition(|_| rng.gen_bool(0.5));
-        let testset: Vec<_> = testset.into_iter().filter(|_| rng.gen_bool(0.3)).collect();
+            reads.into_iter().partition(|_| rng.gen_bool(0.2));
+        // let testset: Vec<_> = testset.into_iter().filter(|_| rng.gen_bool(0.3)).collect();
         (training, testset)
     } else {
         debug!("Half mode");
@@ -77,7 +82,7 @@ fn main() -> std::io::Result<()> {
         testset.len()
     );
     let s = std::time::Instant::now();
-    let result = predict(training, testset, alignments, &reference, &answer).unwrap();
+    let result = predict(training, testset, alignments, &reference, &answer, &config).unwrap();
     debug!("Elapsed Time:{:?}", std::time::Instant::now() - s);
     debug!("Dump results");
     let stdout = std::io::stdout();
@@ -112,6 +117,7 @@ fn predict(
     alignments: Vec<LastTAB>,
     contig: &Contigs,
     ans: &HashMap<String, bool>,
+    config: &dbg_hmm::Config,
 ) -> Option<Vec<(String, u8)>> {
     let (_is_original, data, border) = setup(training, tests, alignments, contig);
     let answer: Vec<_> = data.iter().map(|e| ans[e.id()]).collect::<Vec<_>>();
@@ -124,14 +130,15 @@ fn predict(
         .map(|e| contig.get_last_unit(e as u16).unwrap() as usize + 1)
         .collect();
     debug!("{:?}", contigs);
-    let c = &BADREAD_CONFIG;
+
+    //    let c = &BADREAD_CONFIG;
     let result = {
         let answer: Vec<_> = answer
             .iter()
             .skip(border)
             .map(|&e| if e { 0 } else { 1 })
             .collect();
-        clustering(&data, &label, &forbid, K, 2, &contigs, &answer, c)
+        clustering(&data, &label, &forbid, K, 2, &contigs, &answer, config)
     };
     let result: Vec<_> = data[border..]
         .iter()

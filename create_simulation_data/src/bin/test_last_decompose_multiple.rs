@@ -31,13 +31,13 @@ fn main() {
     } else {
         (200, 0, vec![2f64.recip(); 2], 2, 11920981)
     };
-    let chain_len = 20;
+    let chain_len = 40;
     let k = 6;
     let len = 150;
     let p = &gen_sample::Profile {
-        sub: 0.002,
-        ins: 0.002,
-        del: 0.002,
+        sub: 0.003,
+        ins: 0.003,
+        del: 0.003,
     };
     use std::time::Instant;
     println!("TestNum:{}\tLabeled:{}", test_num, coverage);

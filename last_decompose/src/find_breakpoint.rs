@@ -339,52 +339,35 @@ fn critical_region_within(
             // we double check it.
             debug!("S-T:{}-{}\tX-Y:{}-{}", s, t, x, y);
             let (s_thr, t_thr) = (s.max(CHECK_THR) - CHECK_THR, t + CHECK_THR);
-            let st_upstream: HashSet<_> = if s < t {
-                inner_count[s as usize..t as usize]
-                    .iter()
-                    .flat_map(|reads| {
-                        reads.iter().filter(|r| {
-                            r.does_touch(contig, s_thr, s) && !r.does_touch(contig, t, t_thr)
-                        })
-                    })
-                    .copied()
-                    .collect()
+            let st_region: Vec<_> = if s < t {
+                inner_count[s as usize..t as usize].iter().collect()
             } else {
                 inner_count[..t as usize]
                     .iter()
                     .chain(inner_count[s as usize..].iter())
-                    .flat_map(|reads| {
-                        reads.iter().filter(|r| {
-                            r.does_touch(contig, s_thr, s) && !r.does_touch(contig, t, t_thr)
-                        })
-                    })
-                    .copied()
                     .collect()
             };
-            let st_downstream: HashSet<_> = if s < t {
-                inner_count[s as usize..t as usize]
-                    .iter()
-                    .flat_map(|reads| {
-                        reads.iter().filter(|read| {
-                            !read.does_touch(contig, s_thr, s) && read.does_touch(contig, t, t_thr)
-                        })
+            let st_upstream: HashSet<_> = st_region
+                .iter()
+                .flat_map(|reads| {
+                    reads.iter().filter(|r| {
+                        r.does_touch(contig, s_thr, s) && !r.does_touch(contig, t, t_thr)
                     })
-                    .copied()
-                    .collect()
-            } else {
-                inner_count[..t as usize]
-                    .iter()
-                    .chain(inner_count[s as usize..].iter())
-                    .flat_map(|reads| {
-                        reads.iter().filter(|read| {
-                            !read.does_touch(contig, s_thr, s) && read.does_touch(contig, t, t_thr)
-                        })
+                })
+                .copied()
+                .collect();
+            let st_downstream: HashSet<_> = st_region
+                .iter()
+                .flat_map(|reads| {
+                    reads.iter().filter(|read| {
+                        !read.does_touch(contig, s_thr, s) && read.does_touch(contig, t, t_thr)
                     })
-                    .copied()
-                    .collect()
-            };
+                })
+                .copied()
+                .collect();
             let (x_thr, y_thr) = (x.max(CHECK_THR) - CHECK_THR, y + CHECK_THR);
-            let xy_upstream: HashSet<_> = inner_count[x as usize..y as usize]
+            let xy_region: Vec<_> = inner_count[x as usize..y as usize].iter().collect();
+            let xy_upstream: HashSet<_> = xy_region
                 .iter()
                 .flat_map(|reads| {
                     reads.iter().filter(|read| {
@@ -393,7 +376,7 @@ fn critical_region_within(
                 })
                 .copied()
                 .collect();
-            let xy_downstream: HashSet<_> = inner_count[x as usize..y as usize]
+            let xy_downstream: HashSet<_> = xy_region
                 .iter()
                 .flat_map(|reads| {
                     reads.iter().filter(|read| {
@@ -406,12 +389,20 @@ fn critical_region_within(
             assert!(xy_upstream.intersection(&xy_downstream).count() == 0);
             // Case1.
             if st_upstream.intersection(&xy_downstream).count() >= READ_NUM {
+                debug!(
+                    "Up-Down:{}",
+                    st_upstream.intersection(&xy_downstream).count()
+                );
                 let c1 = Position::new(contig, s, t, Direction::UpStream);
                 let c2 = Position::new(contig, x, y, Direction::DownStream);
                 result.push(CriticalRegion::CP(ContigPair::new(c1, c2)));
             }
             // Case2
             if st_downstream.intersection(&xy_upstream).count() >= READ_NUM {
+                debug!(
+                    "Down-Up:{}",
+                    st_downstream.intersection(&xy_upstream).count()
+                );
                 let c1 = Position::new(contig, s, t, Direction::DownStream);
                 let c2 = Position::new(contig, x, y, Direction::UpStream);
                 result.push(CriticalRegion::CP(ContigPair::new(c1, c2)));

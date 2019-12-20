@@ -26,42 +26,50 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
-mod error_profile;
-// These A and B are to offset the low-coverage region.
+pub mod error_profile;
+// These A and B are to offset the low-coverage region. For THR=2.0;
 const A: f64 = -0.245;
 const B: f64 = 3.6;
+// These are for THR=3.0;
+// const A: f64 = -0.3223992;
+// const B: f64 = 3.7831344;
+// These parameters to adjust self-contained models.
+// const CONTAINED_COEF: f64 = -0.02579843;
+// const CONTAINED_SCALE: f64 = 4.26264183;
 // This is the initial reverse temprature.
 // Note that, from this rev-temprature, we adjust the start beta by doubling-search.
 const INIT_BETA: f64 = 0.02;
 // This is the search factor for the doubling-step.
 const FACTOR: f64 = 1.4;
 // Sampling times for variationl bayes.
-const SAMPLING_VB: usize = 10;
+const SAMPLING_VB: usize = 5;
 // Sampling times for Gibbs sampling.
-const SAMPING: usize = 500;
+const SAMPING: usize = 100;
 // This is the factor we multiply at each iteration for beta.
 // Note that this factor also scaled for the maximum coverage.
 const BETA_STEP: f64 = 1.2;
 // Maximum beta. Until this beta, we multiply beta_step for the current beta.
 const MAX_BETA: f64 = 1.;
 // This is the parameter for Diriclet prior.
-const ALPHA: f64 = 0.01;
+const ALPHA: f64 = 0.001;
 // This is the parameter for de Bruijn prior.
-const BETA: f64 = 40.0;
+const BETA: f64 = 0.5;
 // Loop number for Gibbs sampling.
-const LOOP_NUM: usize = 3;
+const LOOP_NUM: usize = 4;
 // Loop number for variational Bayes.
-const LOOP_NUM_VB: usize = 20;
+const LOOP_NUM_VB: usize = 15;
 // Initial picking probability.
 const INIT_PICK_PROB: f64 = 0.02;
 const PICK_PROB_STEP: f64 = 1.05;
-const MAX_PICK_PROB: f64 = 0.05;
+const MAX_PICK_PROB: f64 = 0.08;
 const MINIMUM_PROB: f64 = 0.001;
-const LEARNING_RATE: f64 = 0.2;
+// const LEARNING_RATE: f64 = 0.1;
+// This is good parameter for THR=2.0 in dbghmm.
+const LEARNING_RATE: f64 = 0.6;
 const MOMENT: f64 = 0.2;
 const SEED: u64 = 100;
 const SOE_PER_DATA_ENTROPY: f64 = 0.05;
-const SOE_PER_DATA_ENTROPY_VB: f64 = 0.01;
+const SOE_PER_DATA_ENTROPY_VB: f64 = 0.005;
 const K: usize = 6;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
@@ -202,12 +210,12 @@ pub fn clustering_via_alignment(
                         },
                     )
                     .map(|(idx, cluster)| {
-                        let max_sim = cluster
+                        let mean_sim = cluster
                             .iter()
                             .map(|query| similarity[target][query])
-                            .max()
-                            .unwrap_or(-1);
-                        (idx, max_sim)
+                            .sum::<i64>()
+                            / cluster.len() as i64;
+                        (idx, mean_sim)
                     })
                     .max_by_key(|e| e.1)
                     .unwrap_or((0, -1));
@@ -286,7 +294,10 @@ impl<'a> ModelFactory<'a> {
                     .par_iter()
                     .zip(weights.par_iter())
                     .zip(fs.par_iter_mut())
-                    .map(|((cs, w), f)| f.generate_with_weight(&cs, &w, k))
+                    .map(|((cs, w), f)| {
+                        let m = f.generate_with_weight(&cs, &w, k);
+                        m
+                    })
                     .collect()
             })
             .collect();
@@ -353,7 +364,7 @@ pub fn clustering(
     assert_eq!(forbidden.len(), data.len());
     let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
     // let weights = soft_clustering_full(data, label, forbidden, k, cluster_num, contigs, answer, c);
-    //let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
+    // let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
     // Maybe we should use randomized choose.
     debug!("Prediction. Dump weights");
     for (weight, ans) in weights.iter().zip(answer).skip(border) {
@@ -418,21 +429,22 @@ pub fn variational_bayes(
         .map(|cl| mf.generate_model(&weights_of_reads, data, cl))
         .collect();
     let wor = &weights_of_reads;
-    let betas = get_schedule(data, contigs, wor, label, k, cluster_num, config);
+    let max_coverage = get_max_coverage(data, contigs);
+    let step = 1. + (BETA_STEP - 1.) * 2. / (max_coverage as f64).log10();
+    // let betas = get_schedule(data, &mut mf, contigs, wor, label, cluster_num, config);
+    let b = INIT_BETA;
+    let mut beta =
+        search_initial_beta_vb(&mut mf, wor, &data, b, label, cluster_num, config, FACTOR);
+    beta = beta.min(INIT_BETA);
     let mut alphas: Vec<_> = (0..cluster_num)
-        .map(|cl| {
-            let n_k = weights_of_reads.iter().map(|e| e[cl]).sum::<f64>();
-            (n_k + ALPHA - 1.) * betas[0] + 1.
-        })
+        .map(|cl| wor.iter().map(|e| e[cl]).sum::<f64>())
         .collect();
+    debug!("Alpha:{:?}", alphas);
     let mut log_ros = vec![vec![0.; cluster_num]; data.len()];
     debug!("THR:{}", soe_thr);
-    let mut assignments: Vec<u8> = get_assignments(&weights_of_reads);
-    for beta in betas {
-        let mut has_assignment_changed = true;
-        let mut count = 0;
-        while has_assignment_changed && count < 50 {
-            count += 1;
+    while beta <= 1. {
+        let mut soe;
+        for _ in 0..LOOP_NUM_VB {
             // Update weight of reads.
             let wor = &mut weights_of_reads;
             let lr = &mut log_ros;
@@ -448,17 +460,28 @@ pub fn variational_bayes(
                 .collect();
             let wr = &weights_of_reads;
             report(wr, border, answer, &alphas, &models, data, beta, 1., config);
-            let next_assignments = get_assignments(&weights_of_reads);
-            has_assignment_changed = assignments
-                .iter()
-                .zip(next_assignments.iter())
-                .any(|(a, b)| a != b);
-            assignments = next_assignments;
+            soe = wr.iter().map(|e| entropy(e)).sum::<f64>();
+            if soe < soe_thr && beta != 1.0 {
+                break;
+            }
         }
+        if beta == 1. {
+            break;
+        }
+        // let wr = &weights_of_reads;
+        beta = (beta * step).min(1.);
+        // let next_beta =
+        //     search_initial_beta_vb(&mut mf, &wr, &data, beta, label, cluster_num, config, step);
+        // beta = if next_beta < beta {
+        //     (beta * 1.02).min(1.)
+        // } else {
+        //     next_beta
+        // };
     }
     weights_of_reads
 }
 
+#[allow(dead_code)]
 fn get_assignments(wor: &[Vec<f64>]) -> Vec<u8> {
     wor.iter()
         .map(|weight| {
@@ -472,19 +495,21 @@ fn get_assignments(wor: &[Vec<f64>]) -> Vec<u8> {
         .collect()
 }
 
+#[allow(dead_code)]
 fn get_schedule(
     data: &[ERead],
+    mf: &mut ModelFactory,
     contigs: &[usize],
     wor: &[Vec<f64>],
     label: &[u8],
-    k: usize,
-    cluster_num: usize,
+    cluster: usize,
     config: &Config,
 ) -> Vec<f64> {
     let max_coverage = get_max_coverage(data, contigs);
-    let beta_step = 1. + (BETA_STEP - 1.) * 2. / (max_coverage as f64).log10();
+    let beta_step = 1. + (1.1 - 1.) * 2. / (max_coverage as f64).log10();
     info!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
-    let init_beta = search_initial_beta_vb(wor, data, label, k, cluster_num, contigs, config);
+    let init_beta =
+        search_initial_beta_vb(mf, wor, data, INIT_BETA, label, cluster, config, BETA_STEP);
     info!("Initial Beta {:.4} -> {:.4}", INIT_BETA, init_beta);
     (0..)
         .map(|i| init_beta * beta_step.powi(i - 2))
@@ -494,33 +519,33 @@ fn get_schedule(
 }
 
 fn search_initial_beta_vb(
+    mf: &mut ModelFactory,
     wor: &[Vec<f64>],
     data: &[ERead],
+    mut beta: f64,
     label: &[u8],
-    k: usize,
     cluster_num: usize,
-    contigs: &[usize],
     c: &Config,
+    factor: f64,
 ) -> f64 {
     let weight_of_read = wor.to_vec();
     let wor = &weight_of_read;
     let border = label.len();
     let datasize = data.len() as f64;
-    let mut mf = ModelFactory::new(contigs, data, k);
-    let mut beta = INIT_BETA;
     let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-    let mut diff = 0.;
+    let c_soe = soe_after_sampling_vb(beta, data, wor, border, cluster_num, mf, c);
+    let mut diff = soe - c_soe;
     let thr = SOE_PER_DATA_ENTROPY_VB * datasize * (cluster_num as f64).ln();
     debug!("Start serching initial beta...");
     while diff < thr {
-        beta *= FACTOR;
-        let c_soe = soe_after_sampling_vb(beta, data, wor, border, cluster_num, &mut mf, c);
+        beta *= factor;
+        let c_soe = soe_after_sampling_vb(beta, data, wor, border, cluster_num, mf, c);
         diff = soe - c_soe;
         debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, c_soe, diff);
     }
     while diff > thr {
-        beta /= FACTOR;
-        let c_soe = soe_after_sampling_vb(beta, data, wor, border, cluster_num, &mut mf, c);
+        beta /= factor;
+        let c_soe = soe_after_sampling_vb(beta, data, wor, border, cluster_num, mf, c);
         diff = soe - c_soe;
         debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, c_soe, diff);
     }
@@ -571,23 +596,25 @@ fn batch_vb(
                 .iter()
                 .zip(alphas.iter())
                 .zip(log_ros.iter_mut())
-                .for_each(|((ms, &w), log_ro)| {
+                .for_each(|((ms, &a), log_ro)| {
+                    let n_k = a - ALPHA;
                     let lk = read
                         .seq
                         .iter()
                         .map(|u| {
                             let model = &ms[u.contig()][u.unit()];
+                            // let weight = model.weight();
+                            // let coverage_offset = offset(weight, A, B);
                             let lk = model.forward(u.bases(), c);
-                            //let prior = c.null_model(u.bases()) + offset(model.weight(), A, B);
-                            //let diff = (prior - lk).exp();
-                            // This beta is for scaling/prior de Bruijn graph.
-                            //let n_k = w - ALPHA;
-                            //let weight = prev_beta * n_k / (BETA + n_k);
-                            // lk + (weight + (1. - weight) * diff).ln()
-                            lk
+                            // let lk = lk + coverage_offset; // - contained_offset;
+                            let prior = c.null_model(u.bases());
+                            let lk = lk.max(prior);
+                            let diff = (prior - lk).exp();
+                            let weight = n_k / (BETA + n_k);
+                            lk + (weight + (1. - weight) * diff).ln()
                         })
                         .sum::<f64>();
-                    let prior = digamma(w) - digamma(alpha_tot);
+                    let prior = digamma(a) - digamma(alpha_tot);
                     *log_ro = (prior + lk) * beta;
                 });
             let log_sum_ro = utils::logsumexp(&log_ros);
@@ -654,6 +681,7 @@ pub fn soft_clustering(
             &pick_probs,
             lr,
         );
+        debug!("SumOfEntropy:{:.3}\t{:.3}", last_sum_of_entropy, soe_thr);
         if last_sum_of_entropy < soe_thr {
             break;
         } else {
@@ -706,6 +734,8 @@ pub fn soft_clustering_full(
     let mut models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
         .map(|cl| mf.generate_model(&weight_of_read, data, cl))
         .collect();
+    let soe_thr =
+        SOE_PER_DATA_ENTROPY * (data.len() - label.len()) as f64 * (cluster_num as f64).ln();
     for beta in betas {
         let lr = LEARNING_RATE / beta * init_beta;
         for _ in 0..20 {
@@ -724,9 +754,13 @@ pub fn soft_clustering_full(
                 lr,
                 config,
             );
+            let wr = &weight_of_read;
+            report(&wr, border, answer, &ws, &models, data, beta, lr, config);
+            let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
+            if soe < soe_thr {
+                return weight_of_read;
+            }
         }
-        let wr = &weight_of_read;
-        report(&wr, border, answer, &ws, &models, data, beta, lr, config);
     }
     weight_of_read
 }
@@ -869,7 +903,7 @@ fn search_initial_beta(
     let mut beta = INIT_BETA / FACTOR;
     let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
     let mut diff = 0.;
-    let thr = SOE_PER_DATA_ENTROPY * datasize * (cluster_num as f64).ln();
+    let thr = SOE_PER_DATA_ENTROPY * (datasize - border as f64) * (cluster_num as f64).ln();
     while diff < thr {
         beta *= FACTOR;
         let c_soe = soe_after_sampling(beta, data, wor, border, &mut rng, cluster_num, &mut mf, c);

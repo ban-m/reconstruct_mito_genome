@@ -1,5 +1,5 @@
 #!/bin/bash
-REF=/grid/ban-m/arabidopsis_thaliana/enhanced_reference_mitogenome_repeatmasked.fa
+REF=/grid/ban-m/arabidopsis_thaliana/enhanced_reference_mitogenome.fa
 cargo run --release --bin main -- ${REF}
 mkdir -p ./data/flip_repeats/
 cat ./data/flip_repeats/forward_repeat.fasta |\

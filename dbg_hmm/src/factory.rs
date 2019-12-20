@@ -26,17 +26,17 @@ impl Factory {
     fn len(&self) -> usize {
         self.inner.len()
     }
-    fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.inner.clear();
         self.temp_index.clear();
         self.is_safe.clear();
-        self.edges.iter_mut().for_each(|e| e.clear());
+        self.edges.clear(); //iter_mut().for_each(|e| e.clear());
         self.fu.clear();
         self.dfs_stack.clear();
         self.dfs_flag.clear();
         self.buffer.clear();
     }
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
             && self.is_safe.is_empty()
             && self.temp_index.is_empty()
@@ -80,7 +80,7 @@ impl Factory {
     }
     pub fn generate_from_ref(&mut self, dataset: &[&[u8]], k: usize) -> DBGHMM {
         assert!(k <= 32, "k should be less than 32.");
-        assert!(self.is_empty());
+        // assert!(self.is_empty());
         let tk = 4u32.pow(k as u32) as usize;
         self.inner.clear();
         self.inner
