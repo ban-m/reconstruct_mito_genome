@@ -169,6 +169,35 @@ impl Factory {
         self.clear();
         DBGHMM::from(nodes, k, weight)
     }
+    pub fn generate_with_weight_prior(
+        &mut self,
+        dataset: &[&[u8]],
+        ws: &[f64],
+        k: usize,
+    ) -> DBGHMM {
+        assert!(k <= 32, "k should be less than 32.");
+        const PRIOR_COUNT: f64 = 1.0;
+        const TABLE: [u8; 4] = [b'A', b'C', b'G', b'T'];
+        let decode = |kmer| {
+            (0..k + 1)
+                .map(|digit| (kmer >> digit) & 0b11)
+                .map(|base| TABLE[base])
+                .collect::<Vec<u8>>()
+        };
+        // Enumerate all the (k+1)-mers.
+        let prior_kmer: Vec<Vec<u8>> = (0..(4usize).pow((k + 1) as u32))
+            .map(|kmer| decode(kmer))
+            .collect();
+        let ws: Vec<_> = ws
+            .iter()
+            .copied()
+            .chain(prior_kmer.iter().map(|_| PRIOR_COUNT))
+            .collect();
+        let prior_kmer = prior_kmer.iter().map(|e|e.as_slice());
+        let dataset: Vec<&[u8]> = dataset.iter().map(|&e| e).chain(prior_kmer).collect();
+        assert_eq!(dataset.len(), ws.len());
+        self.generate_with_weight(&dataset, &ws, k)
+    }
     fn clean_up_nodes(&mut self, nodes: Vec<Kmer>) -> Vec<Kmer> {
         let mut nodes = self.renaming_nodes(nodes);
         nodes.iter_mut().for_each(Kmer::finalize);
@@ -586,7 +615,7 @@ impl Factory {
         idx: usize,
     ) -> Option<usize> {
         match self.inner.get_mut(idx) {
-            Some(x) if x.0 < thr && rng.gen_bool(Self::prob(x.0 - thr)) => None,
+            Some(x) if rng.gen_bool(Self::prob(x.0 - thr)) => None,
             Some(x) if x.1 != std::usize::MAX => Some(x.1),
             Some(x) => {
                 x.1 = nodes.len();
