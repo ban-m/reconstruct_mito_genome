@@ -135,7 +135,7 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
     // should have either "Gap" or "Encode"
     let path = d3.path();
     let units = Array.from(read.units).reverse();
-    const r = read_radius; // + jitters();
+    const r = read_radius + (read['cluster'] + 1) * 10 ; // + jitters();
     let gap = 0;
     let unit = {};
     while(!unit.hasOwnProperty("Encode")){
@@ -379,12 +379,13 @@ const plotData = (dataset, repeats, unit_length) =>
               .attr("fill","none")
               .attr("opacity",0.3)
               .attr("stroke",read => {
-                  const identity = calcID(read,unit_length);
-                  if (identity.type == "Gap"){
-                      return "black";
-                  }else{
-                      return d3.schemeCategory10[identity.id % 10];
-                  }
+                  return d3.schemeCategory10[read['cluster'] + 1];
+                  // const identity = calcID(read,unit_length);
+                  // if (identity.type == "Gap"){
+                  //     return "black";
+                  // }else{
+                  //     return d3.schemeCategory10[identity.id % 10];
+                  // }
               });
           info.append("div")
               .attr("class","numofgapread")
@@ -482,11 +483,26 @@ const plotData = (dataset, repeats, unit_length) =>
       .then(ok => ok,
             why => console.log(why));
 
+
+// Below, critical object is a json ob
+// {'CP': {'contig1': {'contig': 0,
+//    'start_unit': 132,
+//    'end_unit': 500,
+//    'direction': 'UpStream'},
+//   'contig2': {'contig': 0,
+//    'start_unit': 1223,
+//    'end_unit': 2432,
+//    'direction': 'DownStream'}}}
+// {'CR': {'pos': {'contig': 0,
+//    'start_unit': 132,
+//    'end_unit': 500,
+//    'direction': 'UpStream'}}}
+
 const make_path_between = (cr, scales,unit_length)=>{
-    // Input: JSON object, JSON object
+    // Input: JSON object, JSON object, Integer
     // Output: String
     // Requirements: Critical region object, scales
-    // Return the path btw critical region, or just the point.
+    // Return the path btw critical region, or confluent path.
     let p = d3.path();
     const inner = cr.CP;
     const start1 = scales.start_pos[inner.contig1.contig] +
@@ -502,11 +518,6 @@ const make_path_between = (cr, scales,unit_length)=>{
     const hpy = handle_points_radius * Math.sin(hp);
     p.moveTo(read_radius * Math.cos(start1), read_radius * Math.sin(start1));
     p.lineTo(read_radius * Math.cos(start2), read_radius * Math.sin(start2));
-    // p.arc(0,0,read_radius, start1, end1);
-    // p.quadraticCurveTo(hpx,hpy,read_radius*Math.cos(start2), read_radius*Math.sin(start2));
-    // p.arc(0,0,read_radius, start2, end2);
-    // p.quadraticCurveTo(hpx,hpy, read_radius*Math.cos(start1), read_radius*Math.sin(start1));
-    // p.closePath();
     return p.toString();
 };
 

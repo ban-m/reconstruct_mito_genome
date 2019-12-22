@@ -22,6 +22,15 @@ fn to_u64(xs: &[u8]) -> usize {
     sum
 }
 
+fn decode(kmer: u64, k: usize) -> Vec<u8> {
+    const TABLE: [u8; 4] = [b'A', b'C', b'G', b'T'];
+    (0..k)
+        .rev()
+        .map(|digit| (kmer >> 2 * digit) & 0b11)
+        .map(|base| TABLE[base as usize])
+        .collect::<Vec<u8>>()
+}
+
 impl Factory {
     fn len(&self) -> usize {
         self.inner.len()
@@ -74,6 +83,7 @@ impl Factory {
                 nodes[x.1].is_head = true;
             }
         }
+        let nodes = Self::sort_nodes(nodes);
         let nodes = self.clean_up_nodes(nodes);
         let weight = dataset.len() as f64;
         DBGHMM::from(nodes, k, weight)
@@ -107,6 +117,7 @@ impl Factory {
                 nodes[x.1].is_head = true;
             }
         }
+        let nodes = Self::sort_nodes(nodes);
         let nodes = self.clean_up_nodes(nodes);
         let weight = dataset.len() as f64;
         self.clear();
@@ -162,6 +173,7 @@ impl Factory {
             let nodes = vec![];
             return DBGHMM { nodes, k, weight };
         }
+        let nodes = Self::sort_nodes(nodes);
         let thr = nodes.iter().map(|e| e.tot).sum::<f64>() / nodes.len() as f64 - THR;
         self.clear();
         let mut nodes = self.clean_up_nodes_exp(nodes, thr, &mut rng);
@@ -169,34 +181,111 @@ impl Factory {
         self.clear();
         DBGHMM::from(nodes, k, weight)
     }
+    fn sort_nodes(mut nodes: Vec<Kmer>) -> Vec<Kmer> {
+        let mut positions: Vec<(usize, bool)> =
+            nodes.iter().map(|e| e.is_head).enumerate().collect();
+        positions.sort_by(|e, f| match (e.1, f.1) {
+            (true, true) | (false, false) => std::cmp::Ordering::Equal,
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+        });
+        let next_position: Vec<usize> = {
+            let mut pos = vec![0; nodes.len()];
+            for (next_pos, (previous, _)) in positions.into_iter().enumerate() {
+                pos[previous] = next_pos;
+            }
+            pos
+        };
+        let mut result = vec![None; nodes.len()];
+        let mut idx = nodes.len();
+        while let Some(mut node) = nodes.pop() {
+            idx -= 1;
+            node.rename_by(&next_position);
+            result[next_position[idx]] = Some(node);
+        }
+        assert!(result.iter().all(|e| e.is_some()));
+        assert!(nodes.is_empty());
+        nodes.extend(result.into_iter().filter_map(|e| e));
+        nodes
+    }
     pub fn generate_with_weight_prior(
         &mut self,
         dataset: &[&[u8]],
         ws: &[f64],
         k: usize,
     ) -> DBGHMM {
+        let coverage = ws.iter().sum::<f64>();
+        if coverage < 1.0001 {
+            let (nodes, weight) = (vec![], coverage);
+            return DBGHMM { nodes, k, weight };
+        }
         assert!(k <= 32, "k should be less than 32.");
-        const PRIOR_COUNT: f64 = 1.0;
-        const TABLE: [u8; 4] = [b'A', b'C', b'G', b'T'];
-        let decode = |kmer| {
-            (0..k + 1)
-                .map(|digit| (kmer >> digit) & 0b11)
-                .map(|base| TABLE[base])
-                .collect::<Vec<u8>>()
-        };
-        // Enumerate all the (k+1)-mers.
-        let prior_kmer: Vec<Vec<u8>> = (0..(4usize).pow((k + 1) as u32))
-            .map(|kmer| decode(kmer))
-            .collect();
-        let ws: Vec<_> = ws
+        use super::PRIOR_FACTOR;
+        let tk = 4u32.pow(k as u32) as usize;
+        let weight = PRIOR_FACTOR * coverage;
+        self.inner
+            .extend(std::iter::repeat((weight, std::usize::MAX)).take(tk));
+        let mut edges: Vec<f64> = vec![weight; tk * 4];
+        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(dataset.len() as u64);
+        let ep = 0.00000001;
+        let mask = (1 << 2 * k) - 1;
+        let e_mask = (1 << 2 * (k + 1)) - 1;
+        // Record all the k-mers and k+1-mers.
+        dataset
             .iter()
-            .copied()
-            .chain(prior_kmer.iter().map(|_| PRIOR_COUNT))
-            .collect();
-        let prior_kmer = prior_kmer.iter().map(|e|e.as_slice());
-        let dataset: Vec<&[u8]> = dataset.iter().map(|&e| e).chain(prior_kmer).collect();
-        assert_eq!(dataset.len(), ws.len());
-        self.generate_with_weight(&dataset, &ws, k)
+            .zip(ws.iter())
+            .filter(|&(seq, &w)| w > ep && seq.len() >= k + 1)
+            .for_each(|(seq, w)| {
+                let mut node = to_u64(&seq[..k]);
+                self.inner[node].0 += w;
+                let mut edge = to_u64(&seq[..k]);
+                for &b in &seq[k..] {
+                    node = (node << 2 | BASE_TABLE[b as usize]) & mask;
+                    self.inner[node].0 += w;
+                    edge = (edge << 2 | BASE_TABLE[b as usize]) & e_mask;
+                    edges[edge] += w;
+                }
+            });
+        let thr = {
+            let mut lens: Vec<_> = self.inner.iter().map(|e| e.0).collect();
+            lens.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let top = lens.len() - (coverage as usize * 120).min(3000);
+            let thr = lens[lens.len() - top..].iter().sum::<f64>() / (top as f64);
+            thr
+        };
+        let mut nodes = Vec::with_capacity(1_000);
+        for (edge, w) in edges.into_iter().enumerate().filter(|&(_, w)| w > ep) {
+            let (from, to) = (edge >> 2, edge & mask);
+            let edge = decode(edge as u64, k + 1);
+            if let Some((from, to)) =
+                self.get_indices_exp(&edge, &mut nodes, thr, k, &mut rng, from, to)
+            {
+                assert!(nodes[from].kmer.len() == k);
+                nodes[from].push_edge_with_weight(edge[k], to, w);
+            }
+        }
+        for (seq, _) in dataset
+            .iter()
+            .zip(ws.iter())
+            .filter(|&(seq, &w)| w > ep && seq.len() > k)
+        {
+            let x = self.inner[to_u64(&seq[seq.len() - k..])];
+            if x.1 != std::usize::MAX {
+                nodes[x.1].is_tail = true;
+            }
+            let x = self.inner[to_u64(&seq[..k])];
+            if x.1 != std::usize::MAX {
+                nodes[x.1].is_head = true;
+            }
+        }
+        let nodes = Self::sort_nodes(nodes);
+        let thr = nodes.iter().map(|e| e.tot).sum::<f64>() / nodes.len() as f64 - THR;
+        self.clear();
+        let mut nodes = self.clean_up_nodes_exp(nodes, thr, &mut rng);
+        nodes.iter_mut().for_each(Kmer::finalize);
+        self.clear();
+        let weight = ws.iter().sum::<f64>();
+        DBGHMM::from(nodes, k, weight)
     }
     fn clean_up_nodes(&mut self, nodes: Vec<Kmer>) -> Vec<Kmer> {
         let mut nodes = self.renaming_nodes(nodes);
@@ -855,5 +944,17 @@ mod tests {
     fn kmertousize() {
         let xs = b"GGTGTT";
         assert!(to_u64(xs) <= 4096);
+    }
+    #[test]
+    fn decoding() {
+        let k = 8 as usize;
+        for kmer in 0..(4u64.pow(k as u32)) {
+            let kmer = kmer as usize;
+            let to_vec = decode(kmer as u64, k);
+            let to_int = to_u64(&to_vec);
+            let to_vec = decode(to_int as u64, k);
+            let to_int = to_u64(&to_vec);
+            assert_eq!(to_int, kmer);
+        }
     }
 }

@@ -3,12 +3,12 @@
 #$ -N DecTwo
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/last_decompose_gibbs.log
-#$ -o ./logfiles/last_decompose_gibbs.log
+#$ -e ./logfiles/last_decompose_gibbs_60K.log
+#$ -o ./logfiles/last_decompose_gibbs_60K.log
 #$ -V
 #$ -m e
 set -ue
-OUTPUT=./result/last_decompose_gibbs.txt
+OUTPUT=./result/last_decompose_gibbs_60K.txt
 
 # RUSTFLAGS="-C target-cpu=native" cargo build --release
 

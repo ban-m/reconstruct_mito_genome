@@ -17,9 +17,12 @@ use last_tiling::LastTAB;
 use log::Level;
 // mod assignments;
 mod eread;
-mod find_breakpoint;
+pub mod find_breakpoint;
 use dbg_hmm::*;
 pub use eread::*;
+pub use find_breakpoint::CriticalRegion;
+use find_breakpoint::ReadClassify;
+use last_tiling::repeat::RepeatPairs;
 mod digamma;
 use digamma::digamma;
 use rand::seq::SliceRandom;
@@ -74,12 +77,12 @@ const K: usize = 6;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
 /// TODO: make a procedure to filter out contained reads.
-/// TODO: make a procedure to mask critical regions.
-/// TODO: introdce repeats when create critical regions.
+/// TODO: Make a procedure to remove chimeric reads.
 pub fn decompose(
     read: Vec<fasta::Record>,
     alignments: Vec<LastTAB>,
     contigs: Vec<fasta::Record>,
+    repeats: Vec<RepeatPairs>,
 ) -> Vec<(String, u8)> {
     let config = error_profile::summarize_tab(&alignments, &read, &contigs);
     let contigs = last_tiling::Contigs::new(contigs);
@@ -87,7 +90,7 @@ pub fn decompose(
     let encoded_reads = last_tiling::encoding(&read, &contigs, &alignments);
     // We convert these reads into ERead, a lightweight mode.
     let encoded_reads: Vec<_> = encoded_reads.into_iter().map(ERead::new).collect();
-    let critical_regions = critical_regions(&encoded_reads, &contigs, &vec![]);
+    let critical_regions = critical_regions(&encoded_reads, &contigs, &repeats);
     if log_enabled!(Level::Debug) {
         for c in &critical_regions {
             debug!("{:?}", c);
@@ -98,11 +101,10 @@ pub fn decompose(
     let mut assigned_reads: Vec<_> = vec![];
     let mut labels: Vec<_> = vec![];
     for read in encoded_reads {
-        // TODO
         let matched_cluster = critical_regions
             .iter()
             .enumerate()
-            .filter(|(_idx, _cr)| false)
+            .filter(|(_, cr)| cr.along_with(&read))
             .nth(0);
         if let Some((idx, _)) = matched_cluster {
             assigned_reads.push(read);
@@ -115,23 +117,43 @@ pub fn decompose(
     assert_eq!(assigned_reads.len() + unassigned_reads.len(), datasize);
     let forbidden = {
         let mut forbidden = vec![vec![]; labels.len()];
-        forbidden.extend(unassigned_reads.iter().map(|_read| {
+        forbidden.extend(unassigned_reads.iter().map(|read| {
             critical_regions
                 .iter()
                 .enumerate()
-                .filter_map(|(_idx, _cr)| {
-                    // TODO
-                    // if cr.crossed(read) {
-                    //     Some(idx as u8)
-                    // } else {n
-                    None
-                    //}
+                .filter_map(|(idx, cr)| {
+                    if cr.is_spanned_by(&read) {
+                        Some(idx as u8)
+                    } else {
+                        None
+                    }
                 })
                 .collect::<Vec<u8>>()
         }));
         forbidden
     };
-    let dataset: Vec<_> = assigned_reads.into_iter().chain(unassigned_reads).collect();
+    let answer = vec![0; unassigned_reads.len()];
+    let masked_region = get_masked_region(&critical_regions, &contigs);
+    let dataset: Vec<_> = assigned_reads
+        .into_iter()
+        .chain(unassigned_reads)
+        .map(|mut read| {
+            let seq = read
+                .seq()
+                .iter()
+                .filter(|unit| !masked_region[unit.contig as usize][unit.unit as usize])
+                .cloned()
+                .collect();
+            *read.seq_mut() = seq;
+            read
+        })
+        .collect();
+    let total_units = dataset.iter().map(|read| read.seq().len()).sum::<usize>();
+    debug!(
+        "There are {} reads and {} units.",
+        dataset.len(),
+        total_units
+    );
     let contigs: Vec<_> = (0..contigs.get_num_of_contigs())
         .map(|e| contigs.get_last_unit(e as u16).unwrap() as usize + 1)
         .collect();
@@ -142,7 +164,7 @@ pub fn decompose(
         K,
         critical_regions.len(),
         &contigs,
-        &vec![],
+        &answer,
         &config,
     );
     dataset
@@ -150,6 +172,38 @@ pub fn decompose(
         .zip(labels.iter().chain(predicts.iter()))
         .map(|(read, cl)| (read.id().to_string(), *cl))
         .collect()
+}
+
+fn get_masked_region(
+    critical_regions: &[CriticalRegion],
+    contigs: &last_tiling::Contigs,
+) -> Vec<Vec<bool>> {
+    let mut masked: Vec<Vec<_>> = contigs
+        .get_last_units()
+        .into_iter()
+        .map(|len| vec![false; len as usize + 1])
+        .collect();
+    let ranges: Vec<_> = critical_regions
+        .iter()
+        .flat_map(|cr| match cr {
+            CriticalRegion::CP(ref cp) => vec![
+                (cp.contig1().contig(), cp.contig1().range()),
+                (cp.contig1().contig(), cp.contig2().range()),
+            ],
+            CriticalRegion::CR(ref cr) => vec![(cr.contig().contig(), cr.contig().range())],
+        })
+        .collect();
+    for (c, (s, t)) in ranges {
+        let (s, t) = (s as usize, t as usize);
+        let c = c as usize;
+        if s <= t {
+            masked[c][s..t].iter_mut().for_each(|e| *e = true);
+        } else {
+            masked[c][s..].iter_mut().for_each(|e| *e = true);
+            masked[c][..t].iter_mut().for_each(|e| *e = true);
+        }
+    }
+    masked
 }
 
 use std::collections::HashMap;
@@ -367,7 +421,7 @@ pub fn clustering(
     // let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
     // Maybe we should use randomized choose.
     debug!("Prediction. Dump weights");
-    for (weight, ans) in weights.iter().zip(answer).skip(border) {
+    for (weight, ans) in weights.iter().skip(border).zip(answer) {
         let weights: String = weight
             .iter()
             .map(|e| format!("{:.3},", e))
@@ -731,6 +785,7 @@ pub fn soft_clustering_full(
     assert_eq!(ws.len(), cluster_num);
     // Cluster -> Contig -> Unit -> DBG/Vec<CUnit>
     let mut mf = ModelFactory::new(contigs, data, k);
+    #[allow(unused_assignments)]
     let mut models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
         .map(|cl| mf.generate_model(&weight_of_read, data, cl))
         .collect();

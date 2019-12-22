@@ -97,6 +97,26 @@ fn determine_weight(b: &mut Bencher) {
     b.iter(|| test::black_box(m.forward(&q, &DEFAULT_CONFIG)));
 }
 
+#[bench]
+fn determine_weight_prior(b: &mut Bencher) {
+    let bases = b"ACTG";
+    let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+    let template: Vec<_> = (0..150)
+        .filter_map(|_| bases.choose(&mut rng))
+        .copied()
+        .collect();
+    let model1: Vec<Vec<_>> = (0..40)
+        .map(|_| introduce_randomness(&template, &mut rng))
+        .collect();
+    let model1: Vec<_> = model1.iter().map(|e| e.as_slice()).collect();
+    let k = 6;
+    let weight = vec![1.; model1.len()];
+    let mut f = Factory::new();
+    let m = f.generate_with_weight_prior(&model1, &weight, k);
+    let q = introduce_randomness(&template, &mut rng);
+    b.iter(|| test::black_box(m.forward(&q, &DEFAULT_CONFIG)));
+}
+
 enum Op {
     Match,
     MisMatch,

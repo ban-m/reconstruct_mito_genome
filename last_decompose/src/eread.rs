@@ -187,6 +187,9 @@ impl ERead {
             .filter(|unit| unit.contig == contig)
             .any(|unit| start < unit.unit && unit.unit < end)
     }
+    pub fn seq_mut(&mut self) -> &mut Vec<CUnit> {
+        self.seq.as_mut()
+    }
 }
 
 /// A chunk of sequence. It is "canonicalized".

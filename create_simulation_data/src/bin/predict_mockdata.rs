@@ -68,9 +68,10 @@ fn main() -> std::io::Result<()> {
     let (training, testset): (Vec<_>, Vec<_>) = if args[4] == "random" {
         debug!("Random mode");
         let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1893749823);
-        let (training, testset): (Vec<_>, Vec<_>) =
-            reads.into_iter().partition(|_| rng.gen_bool(0.2));
-        // let testset: Vec<_> = testset.into_iter().filter(|_| rng.gen_bool(0.3)).collect();
+        let (training, testset): (Vec<_>, Vec<_>) = reads
+            .into_iter()
+            .filter(|r| r.len() > 15_000)
+            .partition(|_| rng.gen_bool(0.2));
         (training, testset)
     } else {
         debug!("Half mode");

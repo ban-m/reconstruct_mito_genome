@@ -10,7 +10,7 @@ fn main() -> std::io::Result<()> {
     // Deprecated options.
     let _self_alignments = last_tiling::parse_tab_file(&args[4])?;
     let output_path = &args[5];
-    let decomposed = last_decompose::decompose(read, alignments, contigs);
+    let decomposed = last_decompose::decompose(read, alignments, contigs, vec![]);
     for (_idx, _reads) in decomposed.into_iter().enumerate() {
         let _path = format!("{}/{}.rs", output_path, _idx);
     }

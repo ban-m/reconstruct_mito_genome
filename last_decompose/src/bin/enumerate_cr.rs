@@ -25,6 +25,11 @@ fn main() -> std::io::Result<()> {
         .collect();
     debug!("Start");
     let result = last_decompose::critical_regions(&reads, &contigs, &repeats);
+    use last_decompose::find_breakpoint::ReadClassify;
+    for cr in &result {
+        let num = reads.iter().filter(|r| cr.along_with(r)).count();
+        debug!("{:?} has {} reads.", cr, num);
+    }
     let wtr = std::io::stdout();
     let mut wtr = std::io::BufWriter::new(wtr.lock());
     serde_json::ser::to_writer_pretty(&mut wtr, &result).unwrap();

@@ -19,8 +19,6 @@ fn main() -> std::io::Result<()> {
     info!("Read num\t{}", fasta.len());
     let repeats = last_tiling::repeat::open(&args[4])?;
     info!("Repeats:{:?}", repeats.len());
-    // let alignments = last_tiling::remove_repeats(alignments, &contigs, &repeats);
-    // info!("Filter repeat:{}", alignments.len());
     let encoded_reads = last_tiling::encoding_w_repeat(&fasta, &contigs, &alignments, &repeats);
     info!("Encoded:\t{}", encoded_reads.len());
     let mut wtr = std::fs::File::create(&args[5])?;

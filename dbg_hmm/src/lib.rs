@@ -15,16 +15,18 @@ extern crate rand;
 extern crate rand_xoshiro;
 extern crate test;
 // Whether or not to use 'pseudo count' in the out-dgree.
-const PSEUDO_COUNT: bool = true;
+const PSEUDO_COUNT: f64 = 1.0;
 const THR_ON: bool = true;
 // This 2.5 is good for prediction for a new query,
 // but very bad for exisiting(i.e., the reads used as model) query.
+// const THR: f64 = 2.0;
 const THR: f64 = 2.0;
 // This is tuned for clustering.
 // const THR: f64 = 3.;
 const WEIGHT_THR: f64 = 2.0;
 const LOW_LIKELIHOOD: f64 = -100_000.;
 const SCALE: f64 = 3.;
+const PRIOR_FACTOR: f64 = 0.5 / 35.;
 mod find_union;
 pub mod gen_sample;
 mod kmer;
@@ -463,14 +465,14 @@ mod tests {
             assert!(likelihood1 < likelihood2, "{},{}", likelihood1, likelihood2);
         }
     }
-
     #[test]
     fn single_error_test() {
         let bases = b"ACTG";
         let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1234565);
         let coverage = 50;
+        let start = 7;
         let mut f = Factory::new();
-        let results: Vec<_> = (7..coverage)
+        let results: Vec<_> = (start..coverage)
             .step_by(2)
             .map(|cov| {
                 let template1: Vec<_> = (0..150)
@@ -494,6 +496,7 @@ mod tests {
         for (cov, res) in results {
             eprintln!("Cov:{},Sub:{},Del:{},Ins:{}", cov, res.0, res.1, res.2);
         }
+        eprintln!("Tot:{}", (start..coverage).step_by(2).count() * 100);
         eprintln!("Sub:{},Del:{},Ins:{}", sub, del, ins);
         assert!(false);
     }
@@ -541,6 +544,78 @@ mod tests {
         correct
     }
 
+    #[test]
+    fn single_error_prior_test() {
+        let bases = b"ACTG";
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1234565);
+        let coverage = 50;
+        let start = 7;
+        let mut f = Factory::new();
+        let results: Vec<_> = (start..coverage)
+            .step_by(2)
+            .map(|cov| {
+                let template1: Vec<_> = (0..150)
+                    .filter_map(|_| bases.choose(&mut rng))
+                    .copied()
+                    .collect();
+                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 1, 0, 0);
+                let sub = check_prior(&template1, &template2, &mut rng, cov, &mut f);
+                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 1, 0);
+                let del = check_prior(&template1, &template2, &mut rng, cov, &mut f);
+                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 0, 1);
+                let ins = check_prior(&template1, &template2, &mut rng, cov, &mut f);
+                (cov, (sub, del, ins))
+            })
+            .collect();
+        let (sub, del, ins) = results
+            .iter()
+            .fold((0, 0, 0), |(x, y, z), &(_, (a, b, c))| {
+                (x + a, y + b, z + c)
+            });
+        for (cov, res) in results {
+            eprintln!("Cov:{},Sub:{},Del:{},Ins:{}", cov, res.0, res.1, res.2);
+        }
+        eprintln!("Sub:{},Del:{},Ins:{}", sub, del, ins);
+        eprintln!("Tot:{}", (start..coverage).step_by(2).count() * 100);
+        assert!(false);
+    }
+    fn check_prior<R: rand::Rng>(
+        t1: &[u8],
+        t2: &[u8],
+        rng: &mut R,
+        cov: usize,
+        f: &mut Factory,
+    ) -> usize {
+        let model1: Vec<_> = (0..cov)
+            .map(|_| introduce_randomness(&t1, rng, &PROFILE))
+            .collect();
+        let model2: Vec<_> = (0..cov)
+            .map(|_| introduce_randomness(&t2, rng, &PROFILE))
+            .collect();
+        let seqs: Vec<_> = model1
+            .iter()
+            .chain(model2.iter())
+            .map(|e| e.as_slice())
+            .collect();
+        let weight1 = vec![vec![1.; cov], vec![0.; cov]].concat();
+        let weight2 = vec![vec![0.; cov], vec![1.; cov]].concat();
+        let k = 6;
+        let m1 = f.generate_with_weight_prior(&seqs, &weight1, k);
+        let m2 = f.generate_with_weight_prior(&seqs, &weight2, k);
+        eprintln!("{}\t{}\t{}", cov, m1, m2);
+        let correct = (0..100)
+            .filter(|e| {
+                if e % 2 == 0 {
+                    let q = introduce_randomness(&t1, rng, &PROFILE);
+                    m1.forward(&q, &DEFAULT_CONFIG) > m2.forward(&q, &DEFAULT_CONFIG)
+                } else {
+                    let q = introduce_randomness(&t2, rng, &PROFILE);
+                    m1.forward(&q, &DEFAULT_CONFIG) < m2.forward(&q, &DEFAULT_CONFIG)
+                }
+            })
+            .count();
+        correct
+    }
     #[test]
     fn low_coverage_test() {
         let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(121212);

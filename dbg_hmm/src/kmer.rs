@@ -51,13 +51,9 @@ impl Kmer {
         let last = *kmer.last().unwrap();
         // Prior
         let mut weight = [0.; 8];
-        if PSEUDO_COUNT {
-            for i in 0..4 {
-                weight[i] = 1.;
-            }
+        for i in 0..4 {
+            weight[i] = PSEUDO_COUNT;
         }
-        // let weight = if PSEUDO_COUNT { [1.; 4] } else { [0.; 4] };
-        // let transition = [0f64; 4];
         let tot = 0.;
         let edges = [None; 4];
         let is_tail = false;
@@ -75,11 +71,7 @@ impl Kmer {
         }
     }
     pub fn finalize(&mut self) {
-        let tot_for_weight = if PSEUDO_COUNT {
-            self.tot + 4.
-        } else {
-            self.tot
-        };
+        let tot_for_weight = self.tot + 4. * PSEUDO_COUNT;
         if self.tot > 0. {
             for i in 0..4 {
                 self.weight[i] /= tot_for_weight;
@@ -142,7 +134,7 @@ impl Kmer {
         self.tot += w;
         self.weight[i] += w;
         //self.transition[i] += w;
-        self.weight[i+4] += w;
+        self.weight[i + 4] += w;
     }
     // return [mat, ins, del, mism]
     pub fn calc_score(&self, tip: &[u8]) -> [u8; 4] {
@@ -183,11 +175,8 @@ mod tests {
         kmer.push_edge_with(b'C', 34);
         kmer.push_edge_with(b'G', 32);
         kmer.push_edge_with(b'A', 12);
-        if PSEUDO_COUNT {
-            assert_eq!(&kmer.weight[..4], &[1. + 1. + 1., 1. + 1., 1. + 1., 1.]);
-        } else {
-            assert_eq!(&kmer.weight[..4], &[1. + 1., 1., 1., 0.]);
-        }
+        let p = PSEUDO_COUNT;
+        assert_eq!(&kmer.weight[..4], &[p + 1. + 1., p + 1., p + 1., p]);
         assert_eq!(kmer.edges, [Some(12), Some(34), Some(32), None]);
     }
     #[test]

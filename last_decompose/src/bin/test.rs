@@ -11,7 +11,8 @@ fn main() -> std::io::Result<()> {
     let read = bio_utils::fasta::parse_into_vec(&args[1])?;
     let alignments = last_tiling::parse_tab_file(&args[2])?;
     let contigs = bio_utils::fasta::parse_into_vec(&args[3])?;
-    let decomposed = last_decompose::decompose(read, alignments, contigs);
+    let repeats = last_tiling::repeat::open(&args[4])?;
+    let decomposed = last_decompose::decompose(read, alignments, contigs, repeats);
     for (id, cluster) in decomposed {
         debug!("{}\t{}", id, cluster);
     }

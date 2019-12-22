@@ -31,7 +31,7 @@ fn main() {
     } else {
         (200, 0, vec![2f64.recip(); 2], 2, 11920981)
     };
-    let chain_len = 40;
+    let chain_len = 400;
     let k = 6;
     let len = 150;
     let p = &gen_sample::Profile {

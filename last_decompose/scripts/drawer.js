@@ -47,6 +47,9 @@ const start_stop_layer = svg.append("g")
 const read_layer = svg.append("g")
       .attr("transform", `translate(${width/2},${height/2})`)
       .attr("class","read");
+const critiral_region_layer = svg.append("g")
+      .attr("transform", `translate(${width/2},${height/2})`)
+      .attr("class","critical-region");
 const info = d3.select("#info");
 
 const calcScale = (contigs) => {
@@ -168,18 +171,6 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
             path.lineTo(r * Math.cos(radian), r*Math.sin(radian));
         }else{
             // Change contig. Connect them.
-            // If there are remaining gap, clean them.
-            // if (gap != 0){
-            //     const control_radian = start_pos[contig] - Math.PI/2;
-            //     const new_radian = control_radian - gap_position;
-            //     const control_x = handle_points_radius * Math.cos(control_radian);
-            //     const control_y = handle_points_radius * Math.sin(control_radian);
-            //     const jt = gap_jitters();
-            //     path.quadraticCurveTo(control_x, control_y, r * Math.cos(new_radian), r * Math.sin(new_radian));
-            //     path.moveTo(gap_scale(gap) * Math.cos(new_radian + jt), gap_scale(gap)*Math.sin(new_radian + jt));
-            //     path.lineTo(r * Math.cos(new_radian), r * Math.sin(new_radian));
-            // }
-            // gap = 0;
             const new_radian = start_pos[unit.Encode[0]];
             radian = new_radian + bp_scale(unit_length*unit.Encode[1]) - Math.PI/2;
             // Bezier Curve to new point from here.
@@ -485,67 +476,3 @@ const plotData = (dataset, repeats, unit_length) =>
       .then(ok => ok,
             why => console.log(why));
 
-const make_path_between = (cr, scales,unit_length)=>{
-    // Input: JSON object, JSON object
-    // Output: String
-    // Requirements: Critical region object, scales
-    // Return the path btw critical region, or just the point.
-    let p = d3.path();
-    const inner = cr.CP;
-    const start1 = scales.start_pos[inner.contig1.contig] +
-          scales.bp_scale(inner.contig1.start_unit * unit_length) - Math.PI/2;
-    const end1 = scales.start_pos[inner.contig1.contig] +
-          scales.bp_scale(inner.contig1.start_unit * unit_length) - Math.PI/2;
-    const start2 = scales.start_pos[inner.contig2.contig] +
-          scales.bp_scale(inner.contig2.start_unit * unit_length) - Math.PI/2;
-    const end2 = scales.start_pos[inner.contig2.contig] +
-          scales.bp_scale(inner.contig2.start_unit * unit_length) - Math.PI/2;
-    const hp = scales.handle_points[inner.contig1.contig][inner.contig2.contig] - Math.PI/2;
-    const hpx = handle_points_radius * Math.cos(hp);
-    const hpy = handle_points_radius * Math.sin(hp);
-    p.moveTo(read_radius * Math.cos(start1), read_radius * Math.sin(start1));
-    p.lineTo(read_radius * Math.cos(start2), read_radius * Math.sin(start2));
-    // p.arc(0,0,read_radius, start1, end1);
-    // p.quadraticCurveTo(hpx,hpy,read_radius*Math.cos(start2), read_radius*Math.sin(start2));
-    // p.arc(0,0,read_radius, start2, end2);
-    // p.quadraticCurveTo(hpx,hpy, read_radius*Math.cos(start1), read_radius*Math.sin(start1));
-    // p.closePath();
-    return p.toString();
-};
-
-const overlay_cr = (scales,critical_regions, unit_length) =>
-      d3.json(critical_regions)
-      .then(critical_regions => {
-          console.log(scales);
-          console.log(critical_regions);
-          contigs_layer
-              .selectAll("critical_region")
-              .data(critical_regions.filter(d => d.hasOwnProperty("CP")))
-              .enter()
-              .append("path")
-              .attr("class","critical_region")
-              .attr("d", cr => make_path_between(cr, scales,unit_length))
-              .attr("stroke-width",4)
-              .attr("stroke", "yellow");
-          contigs_layer
-              .selectAll("critical_region")
-              .data(critical_regions.filter(d => d.hasOwnProperty("RJ")))
-              .enter()
-              .append("path")
-              .attr("class","critical_region")
-              .attr("d", d => {
-                  const inner = d.RJ.pos;
-                  const r = scales.start_pos[inner.contig];
-                  const start = r+ scales.bp_scale(unit_length*inner.start_unit);
-                  const end = r + scales.bp_scale(unit_length*inner.end_unit);
-                  const arc = d3.arc()
-                        .innerRadius(read_radius - 10)
-                        .outerRadius(read_radius)
-                        .startAngle(start)
-                        .endAngle(end);
-                  return arc();
-              })
-              .attr("fill", "yellow");
-      })
-      .then(ok => console.log("OK"),
-            why => console.log(why));

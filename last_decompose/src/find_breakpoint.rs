@@ -44,8 +44,8 @@ impl ReadClassify for CriticalRegion {
     }
     fn along_with(&self, r: &ERead) -> bool {
         match self {
-            CriticalRegion::CP(ref cp) => cp.contains(r),
-            CriticalRegion::CR(ref cr) => cr.contains(r),
+            CriticalRegion::CP(ref cp) => cp.along_with(r),
+            CriticalRegion::CR(ref cr) => cr.along_with(r),
         }
     }
 }
@@ -75,8 +75,27 @@ impl Position {
             direction,
         }
     }
-    fn range(&self) -> (i32, i32) {
+    pub fn range(&self) -> (i32, i32) {
         (self.start_unit as i32, self.end_unit as i32)
+    }
+    pub fn contig(&self) -> u16 {
+        self.contig
+    }
+    fn is_spanned_by(&self, r: &ERead) -> bool {
+        let s = self.start_unit;
+        let t = self.end_unit;
+        let (s_thr, t_thr) = (s.max(CHECK_THR) - CHECK_THR, t + CHECK_THR);
+        r.does_touch(self.contig, s_thr, s) && r.does_touch(self.contig, t, t_thr)
+    }
+    fn along_with(&self, r: &ERead) -> bool {
+        let s = self.start_unit;
+        let t = self.end_unit;
+        let (s_thr, t_thr) = (s.max(CHECK_THR) - CHECK_THR, t + CHECK_THR);
+        let c = self.contig;
+        match self.direction {
+            Direction::DownStream => !r.does_touch(c, s_thr, s) && r.does_touch(c, t, t_thr),
+            Direction::UpStream => r.does_touch(c, s_thr, s) && !r.does_touch(c, t, t_thr),
+        }
     }
 }
 
@@ -116,15 +135,9 @@ impl ReadClassify for ContigPair {
     // it return false.
     fn is_spanned_by(&self, r: &ERead) -> bool {
         // Check if r spans A->B.
-        let c1 = self.contig1.contig;
-        let (c1_min, c1_max) = get_max_min_unit(r, c1);
-        let (c1_s, c1_e) = self.contig1.range();
-        let span_ab = c1_min < c1_s && c1_e < c1_max;
+        let span_ab = self.contig1.is_spanned_by(r);
         // Check if r spans C->D.
-        let c2 = self.contig2.contig;
-        let (c2_min, c2_max) = get_max_min_unit(r, c2);
-        let (c2_s, c2_e) = self.contig2.range();
-        let span_cd = c2_min < c2_s && c2_e < c2_max;
+        let span_cd = self.contig2.is_spanned_by(r);
         span_ab || span_cd
     }
     // Return whether self contains the read.
@@ -145,32 +158,19 @@ impl ReadClassify for ContigPair {
     // Check wether this read is along with self.
     // Note that this method is direction-sensitive.
     fn along_with(&self, r: &ERead) -> bool {
-        // Check if r is along with contig1.
-        let along_with_1 = {
-            let (c1_s, c1_e) = self.contig1.range();
-            let (c1_min, c1_max) = get_max_min_unit(r, self.contig1.contig);
-            match self.contig1.direction {
-                Direction::UpStream => c1_min <= c1_s && c1_s <= c1_max,
-                Direction::DownStream => c1_min <= c1_e && c1_e <= c1_max,
-            }
-        };
-        // Check if r is along with contig2.
-        let along_with_2 = {
-            let (c2_s, c2_e) = self.contig2.range();
-            let (c2_min, c2_max) = get_max_min_unit(r, self.contig2.contig);
-            match self.contig2.direction {
-                Direction::UpStream => c2_min <= c2_s && c2_s <= c2_max,
-                Direction::DownStream => c2_min <= c2_e && c2_e <= c2_max,
-            }
-        };
-        let is_spanned = self.is_spanned_by(r);
-        !is_spanned && along_with_1 && along_with_2
+        self.contig1.along_with(r) && self.contig2.along_with(r)
     }
 }
 
 impl ContigPair {
     pub fn new(contig1: Position, contig2: Position) -> Self {
         Self { contig1, contig2 }
+    }
+    pub fn contig1(&self) -> &Position {
+        &self.contig1
+    }
+    pub fn contig2(&self) -> &Position {
+        &self.contig2
     }
 }
 
@@ -184,6 +184,9 @@ impl ConfluentRegion {
     fn new(pos: Position) -> Self {
         Self { pos }
     }
+    pub fn contig(&self) -> &Position {
+        &self.pos
+    }
 }
 
 impl ReadClassify for ConfluentRegion {
@@ -192,9 +195,7 @@ impl ReadClassify for ConfluentRegion {
     // Even thoguth this function return false,
     // It does not garantee that `r` is along with this junction.
     fn is_spanned_by(&self, r: &ERead) -> bool {
-        let (min, max) = get_max_min_unit(r, self.pos.contig);
-        let (start, end) = self.pos.range();
-        min <= start && end <= max
+        self.pos.is_spanned_by(r)
     }
     fn contains(&self, r: &ERead) -> bool {
         let (min, max) = get_max_min_unit(r, self.pos.contig);
@@ -202,12 +203,7 @@ impl ReadClassify for ConfluentRegion {
         start < min && max < end
     }
     fn along_with(&self, r: &ERead) -> bool {
-        let (min, max) = get_max_min_unit(r, self.pos.contig);
-        let (start, end) = self.pos.range();
-        match self.pos.direction {
-            Direction::UpStream => min <= start && max <= end,
-            Direction::DownStream => start <= min && end <= max,
-        }
+        self.pos.along_with(r)
     }
 }
 

@@ -18,7 +18,7 @@ REFERENCE=$3
 CONTIGS=${OUTPATH}/contigs.fasta
 
 
-## ---- Setup ----
+# ---- Setup ----
 rm -rf ${OUTPATH}
 mkdir -p ${OUTPATH}
 ROOT=${PWD}
@@ -60,17 +60,17 @@ cargo run --release --bin split_repeat \
       > ${CONTIGS}
 
 ## Next, map all reads into collpsed contigs.
-cd ${OUTPATH}/last_db
-lastalign ${CONTIGS} ${CONTIGS} no_repeat no_repeat_self
-lastalign ${CONTIGS} ${READ} no_repeat no_repeat_reads
-cd ${ROOT}
+# cd ${OUTPATH}/last_db
+# lastalign ${CONTIGS} ${CONTIGS} no_repeat no_repeat_self
+# lastalign ${CONTIGS} ${READ} no_repeat no_repeat_reads
+# cd ${ROOT}
 
 
 ### 2. create circos plots and vizualize.
 mkdir -p ${OUTPATH}/circos
 LASTTAB=${OUTPATH}/last_db/initial.tab
 SELF_LASTTAB=${OUTPATH}/last_db/self.tab
-cd ../last_tiling
+cd ../last_decompose
 
 # ---- Outputs -----
 cargo run --release --bin annotate_dotplot -- ${REFERENCE} ${SELF_LASTTAB} \
@@ -80,20 +80,21 @@ cargo run --release --bin encode \
       ${OUTPATH}/circos/contig.json ${OUTPATH}/circos/reads.json 
 cargo run --release --bin convert_to_d3_data \
       -- ${OUTPATH}/circos/contig.json ${OUTPATH}/circos/reads.json \
+      ${OUTPATH}/circos/repeats.json \
       > ${OUTPATH}/circos/d3.json
 cat ./scripts/template.html | sed -e "s@/data/SED_@./@g" > ${OUTPATH}/circos/viewer.html
 
 
-LASTTAB=${OUTPATH}/last_db/no_repeat_reads.tab
-SELF_LASTTAB=${OUTPATH}/last_db/no_repeat_self.tab
-cargo run --release --bin annotate_dotplot -- ${CONTIGS} ${SELF_LASTTAB} \
-      > ${OUTPATH}/circos/wo_rep_repeats.json
-cargo run --release --bin encode \
-      -- ${LASTTAB} ${CONTIGS} ${READ} ${OUTPATH}/circos/wo_rep_repeats.json \
-      ${OUTPATH}/circos/wo_rep_contig.json ${OUTPATH}/circos/wo_rep_reads.json 
-cargo run --release --bin convert_to_d3_data \
-      -- ${OUTPATH}/circos/wo_rep_contig.json ${OUTPATH}/circos/wo_rep_reads.json \
-      > ${OUTPATH}/circos/wo_rep_d3.json
-cat ./scripts/template.html | \
-    sed -e "s@/data/SED@./wo_rep@g" > \
-        ${OUTPATH}/circos/wo_rep_viewer.html
+# LASTTAB=${OUTPATH}/last_db/no_repeat_reads.tab
+# SELF_LASTTAB=${OUTPATH}/last_db/no_repeat_self.tab
+# cargo run --release --bin annotate_dotplot -- ${CONTIGS} ${SELF_LASTTAB} \
+#       > ${OUTPATH}/circos/wo_rep_repeats.json
+# cargo run --release --bin encode \
+#       -- ${LASTTAB} ${CONTIGS} ${READ} ${OUTPATH}/circos/wo_rep_repeats.json \
+#       ${OUTPATH}/circos/wo_rep_contig.json ${OUTPATH}/circos/wo_rep_reads.json 
+# cargo run --release --bin convert_to_d3_data \
+#       -- ${OUTPATH}/circos/wo_rep_contig.json ${OUTPATH}/circos/wo_rep_reads.json \
+#       > ${OUTPATH}/circos/wo_rep_d3.json
+# cat ./scripts/template.html | \
+#     sed -e "s@/data/SED@./wo_rep@g" > \
+#         ${OUTPATH}/circos/wo_rep_viewer.html

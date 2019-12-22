@@ -1,16 +1,18 @@
 #!/bin/bash
 #$ -S /bin/bash
-#$ -N decompose
+#$ -N Convert
 #$ -cwd
-#$ -pe smp 1
-#$ -e ./log
-#$ -o ./out
+#$ -pe smp 12
+#$ -e ./logfiles/convert.log
+#$ -o ./logfiles/convert.out
 #$ -V
-#$ -m e
-READ=../create_dataset_and_circos_plots/result/forward_repeat/filtered_read.fasta
-ALIGN=../create_dataset_and_circos_plots/result/forward_repeat/last_db/initial.tab
-CONTIG=../create_dataset_and_circos_plots/result/NC_037304_1_split.fa
-REPEAT=../create_dataset_and_circos_plots/result/forward_repeat/circos/repeats.json
-# cargo run --release --bin test -- ${READ} ${ALIGN} ${CONTIG}
-cargo run --release --bin enumerate_cr -- ${READ} ${ALIGN} ${CONTIG} ${REPEAT} \
-      > ./logfiles/cr.json
+set -ue
+ROOT=/grid/ban-m/arabidopsis_thaliana/sequel/assemble/pacbio_w_reference/
+READ=${ROOT}/filtered_read.fasta
+REFERENCE=${ROOT}/mito.fa
+mkdir -p ./data/reference/
+SELF_LASTTAB=${ROOT}/last_db/self.tab
+PREFIX=./data/mine_to_reference
+LASTTAB=${ROOT}/last_db/initial.tab
+cargo run --release --bin main \
+      -- ${LASTTAB} ${REFERENCE} ${READ}
