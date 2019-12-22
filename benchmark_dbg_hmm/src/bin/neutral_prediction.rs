@@ -23,8 +23,15 @@ fn main() {
     let data3: Vec<Vec<_>> = (0..num_seq)
         .map(|_| gen_sample::introduce_randomness(&template3, &mut rng, p))
         .collect();
-    let model2 = DBGHMM::new(&data2, k);
-    let model3 = DBGHMM::new(&data3, k);
+    let weight = vec![1.; num_seq];
+    let model2 = {
+        let data2: Vec<_> = data2.iter().map(|e| e.as_slice()).collect();
+        DBGHMM::new_with_weight_prior(&data2, &weight, k)
+    };
+    let model3 = {
+        let data3: Vec<_> = data3.iter().map(|e| e.as_slice()).collect();
+        DBGHMM::new_with_weight_prior(&data3, &weight, k)
+    };
     let tests: Vec<_> = (0..test_num)
         .map(|_| gen_sample::introduce_randomness(&template1, &mut rng, p))
         .collect();

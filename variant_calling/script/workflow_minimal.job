@@ -1,0 +1,33 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N VariantCalling
+#$ -cwd
+#$ -pe smp 24
+#$ -o ./logfiles/workflow.out
+#$ -e ./logfiles/variant_calling.log
+#$ -V
+#$ -m e
+# Minimal workflow. Should be run after ./../create_dataset_and_circos_plots/script/real_dataset.sh
+
+## ---- Variables ----
+##
+set -ue
+CORES=24
+READ=$1
+OUTPATH=$2
+REFERENCE=$3
+TAB=$4
+MAF=$5
+
+mkdir -p ${OUTPATH}
+
+cd ../mito_assembler/
+cargo run --release --bin \
+      calc_error_profile -- \
+      ${TAB} ${READ} ${REFERENCE} > ${OUTPATH}/error_profile.tsv
+cd ../variant_calling/
+
+cargo run --release --bin \
+      variant_calling -- \
+      ${MAF} 0.012 ${OUTPATH}/minor_allel_freq.tsv \
+      > ${OUTPATH}/variant_called.tsv

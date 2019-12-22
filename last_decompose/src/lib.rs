@@ -26,13 +26,18 @@ use last_tiling::repeat::RepeatPairs;
 mod digamma;
 use digamma::digamma;
 use rand::seq::SliceRandom;
-use rand::Rng;
 use rand::SeedableRng;
+use rand::{thread_rng, Rng};
 use rand_xoshiro::Xoshiro256StarStar;
 pub mod error_profile;
+const PRIOR: bool = true;
 // These A and B are to offset the low-coverage region. For THR=2.0;
 const A: f64 = -0.245;
 const B: f64 = 3.6;
+// These A and B are to offset the low-coverage region. For THR=2.0,
+// And tuned for PRIOR_FACTOR: f64 = 0.5 / 35.
+const A_PRIOR: f64 = -0.3;
+const B_PRIOR: f64 = 1.8;
 // These are for THR=3.0;
 // const A: f64 = -0.3223992;
 // const B: f64 = 3.7831344;
@@ -56,7 +61,7 @@ const MAX_BETA: f64 = 1.;
 // This is the parameter for Diriclet prior.
 const ALPHA: f64 = 0.001;
 // This is the parameter for de Bruijn prior.
-const BETA: f64 = 0.5;
+// const BETA: f64 = 0.5;
 // Loop number for Gibbs sampling.
 const LOOP_NUM: usize = 4;
 // Loop number for variational Bayes.
@@ -68,7 +73,9 @@ const MAX_PICK_PROB: f64 = 0.08;
 const MINIMUM_PROB: f64 = 0.001;
 // const LEARNING_RATE: f64 = 0.1;
 // This is good parameter for THR=2.0 in dbghmm.
-const LEARNING_RATE: f64 = 0.6;
+// const LEARNING_RATE: f64 = 0.6;
+// This is good parameter for PRIOR = true;
+const LEARNING_RATE: f64 = 0.2;
 const MOMENT: f64 = 0.2;
 const SEED: u64 = 100;
 const SOE_PER_DATA_ENTROPY: f64 = 0.05;
@@ -292,7 +299,7 @@ pub fn clustering_via_alignment(
     predictions
 }
 
-struct ModelFactory<'a> {
+pub struct ModelFactory<'a> {
     // Contig -> Unit -> Seqs
     chunks: Vec<Vec<Vec<&'a [u8]>>>,
     weights: Vec<Vec<Vec<f64>>>,
@@ -302,7 +309,7 @@ struct ModelFactory<'a> {
 }
 
 impl<'a> ModelFactory<'a> {
-    fn new(contigs: &[usize], data: &'a [ERead], k: usize) -> Self {
+    pub fn new(contigs: &[usize], data: &'a [ERead], k: usize) -> Self {
         let mut chunks: Vec<Vec<Vec<&[u8]>>> = contigs.iter().map(|&e| vec![vec![]; e]).collect();
         let weights: Vec<Vec<Vec<f64>>> = contigs.iter().map(|&e| vec![vec![]; e]).collect();
         for read in data.iter() {
@@ -321,7 +328,12 @@ impl<'a> ModelFactory<'a> {
             k,
         }
     }
-    fn generate_model(&mut self, ws: &[Vec<f64>], reads: &[ERead], cl: usize) -> Vec<Vec<DBGHMM>> {
+    pub fn generate_model(
+        &mut self,
+        ws: &[Vec<f64>],
+        reads: &[ERead],
+        cl: usize,
+    ) -> Vec<Vec<DBGHMM>> {
         for contig in self.weights.iter() {
             assert!(!contig.is_empty());
             for unit in contig.iter() {
@@ -349,7 +361,11 @@ impl<'a> ModelFactory<'a> {
                     .zip(weights.par_iter())
                     .zip(fs.par_iter_mut())
                     .map(|((cs, w), f)| {
-                        let m = f.generate_with_weight(&cs, &w, k);
+                        let m = if PRIOR {
+                            f.generate_with_weight_prior(&cs, &w, k)
+                        } else {
+                            f.generate_with_weight(&cs, &w, k)
+                        };
                         m
                     })
                     .collect()
@@ -394,7 +410,13 @@ impl<'a> ModelFactory<'a> {
                     .zip(weights.par_iter())
                     .zip(fs.par_iter_mut())
                     .zip(ms.par_iter_mut())
-                    .for_each(|(((cs, w), f), m)| *m = f.generate_with_weight(&cs, &w, k))
+                    .for_each(|(((cs, w), f), m)| {
+                        *m = if PRIOR {
+                            f.generate_with_weight_prior(&cs, &w, k)
+                        } else {
+                            f.generate_with_weight(&cs, &w, k)
+                        }
+                    });
             });
         for contig in self.weights.iter_mut() {
             for unit in contig.iter_mut() {
@@ -416,9 +438,10 @@ pub fn clustering(
 ) -> Vec<u8> {
     let border = label.len();
     assert_eq!(forbidden.len(), data.len());
-    let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
+    debug!("Summary\tID\tLK\tSoE\tPi\tBeta\tLR\tCorrect\tAcc");
+    // let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
     // let weights = soft_clustering_full(data, label, forbidden, k, cluster_num, contigs, answer, c);
-    // let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
+    let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
     // Maybe we should use randomized choose.
     debug!("Prediction. Dump weights");
     for (weight, ans) in weights.iter().skip(border).zip(answer) {
@@ -472,6 +495,7 @@ pub fn variational_bayes(
     answer: &[u8],
     config: &Config,
 ) -> Vec<Vec<f64>> {
+    let id: u64 = thread_rng().gen();
     let border = label.len();
     let mut weights_of_reads: Vec<Vec<f64>> =
         construct_initial_weights(label, forbidden, cluster_num, data.len(), data.len() as u64);
@@ -491,7 +515,8 @@ pub fn variational_bayes(
         search_initial_beta_vb(&mut mf, wor, &data, b, label, cluster_num, config, FACTOR);
     beta = beta.min(INIT_BETA);
     let mut alphas: Vec<_> = (0..cluster_num)
-        .map(|cl| wor.iter().map(|e| e[cl]).sum::<f64>())
+        .map(|cl| wor.iter().map(|e| e[cl]).sum::<f64>() + ALPHA)
+        .map(|alpha| (alpha - 1.) * beta + 1.)
         .collect();
     debug!("Alpha:{:?}", alphas);
     let mut log_ros = vec![vec![0.; cluster_num]; data.len()];
@@ -513,24 +538,18 @@ pub fn variational_bayes(
                 .map(|alpha| (alpha - 1.) * beta + 1.)
                 .collect();
             let wr = &weights_of_reads;
-            report(wr, border, answer, &alphas, &models, data, beta, 1., config);
+            report(
+                id, wr, border, answer, &alphas, &models, data, beta, 1., config,
+            );
             soe = wr.iter().map(|e| entropy(e)).sum::<f64>();
-            if soe < soe_thr && beta != 1.0 {
+            if soe < soe_thr {
                 break;
             }
         }
         if beta == 1. {
             break;
         }
-        // let wr = &weights_of_reads;
         beta = (beta * step).min(1.);
-        // let next_beta =
-        //     search_initial_beta_vb(&mut mf, &wr, &data, beta, label, cluster_num, config, step);
-        // beta = if next_beta < beta {
-        //     (beta * 1.02).min(1.)
-        // } else {
-        //     next_beta
-        // };
     }
     weights_of_reads
 }
@@ -651,21 +670,20 @@ fn batch_vb(
                 .zip(alphas.iter())
                 .zip(log_ros.iter_mut())
                 .for_each(|((ms, &a), log_ro)| {
-                    let n_k = a - ALPHA;
                     let lk = read
                         .seq
                         .iter()
                         .map(|u| {
                             let model = &ms[u.contig()][u.unit()];
-                            // let weight = model.weight();
-                            // let coverage_offset = offset(weight, A, B);
+                            let weight = model.weight();
+                            let coverage_offset = if PRIOR {
+                                offset(weight, A_PRIOR, B_PRIOR)
+                            } else {
+                                offset(weight, A, B)
+                            };
                             let lk = model.forward(u.bases(), c);
-                            // let lk = lk + coverage_offset; // - contained_offset;
-                            let prior = c.null_model(u.bases());
-                            let lk = lk.max(prior);
-                            let diff = (prior - lk).exp();
-                            let weight = n_k / (BETA + n_k);
-                            lk + (weight + (1. - weight) * diff).ln()
+                            let lk = lk + coverage_offset; // - contained_offset;
+                            lk.max(c.null_model(u.bases()))
                         })
                         .sum::<f64>();
                     let prior = digamma(a) - digamma(alpha_tot);
@@ -810,7 +828,7 @@ pub fn soft_clustering_full(
                 config,
             );
             let wr = &weight_of_read;
-            report(&wr, border, answer, &ws, &models, data, beta, lr, config);
+            report(0, &wr, border, answer, &ws, &models, data, beta, lr, config);
             let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
             if soe < soe_thr {
                 return weight_of_read;
@@ -875,7 +893,7 @@ fn from_weight_of_read(
                 );
             }
             let wr = &weight_of_read;
-            report(&wr, border, answer, &ws, &models, data, beta, lr, config);
+            report(0, &wr, border, answer, &ws, &models, data, beta, lr, config);
             let c_soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
             soe_diff = soe - c_soe;
             soe = c_soe;
@@ -1018,6 +1036,7 @@ fn soe_after_sampling<R: Rng>(
 }
 
 fn report(
+    id: u64,
     weight_of_read: &[Vec<f64>],
     border: usize,
     answer: &[u8],
@@ -1035,13 +1054,18 @@ fn report(
         .filter(|&(weights, &ans)| weights.iter().all(|&g| g <= weights[ans as usize]))
         .count();
     let acc = correct as f64 / answer.len() as f64;
+    let ws: Vec<_> = ws
+        .iter()
+        .enumerate()
+        .map(|(cl, _)| weight_of_read.iter().map(|r| r[cl]).sum::<f64>())
+        .collect();
     let pi: Vec<_> = ws.iter().map(|e| format!("{:.2}", *e)).collect();
     let pi = pi.join("\t");
     let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
     let lk = likelihood_of_models(&models, data, &ws, c);
     info!(
-        "Summary\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{}\t{:.2}",
-        lk, soe, pi, beta, lr, correct, acc
+        "Summary\t{}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{}\t{:.2}",
+        id, lk, soe, pi, beta, lr, correct, acc
     );
 }
 
@@ -1315,7 +1339,12 @@ fn compute_log_probs(
                 .map(|u| {
                     let model = &model[u.contig()][u.unit()];
                     let lk = model.forward(u.bases(), c);
-                    lk + offset(model.weight(), A, B)
+                    let offset = if PRIOR {
+                        offset(model.weight(), A_PRIOR, B_PRIOR)
+                    } else {
+                        offset(model.weight(), A, B)
+                    };
+                    lk + offset
                 })
                 .sum::<f64>()
                 + w.ln()
@@ -1351,7 +1380,13 @@ pub fn construct_with_weights(
             chunks
                 .into_iter()
                 .zip(weights.into_iter())
-                .map(|(cs, ws)| f.generate_with_weight(&cs, &ws, k))
+                .map(|(cs, ws)| {
+                    if PRIOR {
+                        f.generate_with_weight_prior(&cs, &ws, k)
+                    } else {
+                        f.generate_with_weight(&cs, &ws, k)
+                    }
+                })
                 .collect::<Vec<_>>()
         })
         .collect()

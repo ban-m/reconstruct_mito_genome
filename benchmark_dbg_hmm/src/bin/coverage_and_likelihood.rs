@@ -31,7 +31,7 @@ fn main() {
                     .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
                     .collect();
                 let data: Vec<_> = data.iter().map(|e| e.as_slice()).collect();
-                let m = f.generate_with_weight(&data, &vec![1.; 500], k);
+                let m = f.generate_with_weight_prior(&data, &vec![1.; 500], k);
                 tests
                     .iter()
                     .map(|q| m.forward(&q, &DEFAULT_CONFIG))
@@ -42,7 +42,7 @@ fn main() {
             for &cov in &covs {
                 let m: Vec<_> = data[..cov].iter().map(|e| e.as_slice()).collect();
                 let w = vec![1.; cov];
-                let m = f.generate_with_weight(&m, &w, k);
+                let m = f.generate_with_weight_prior(&m, &w, k);
                 let _offset = (-0.2446704 * cov as f64 + 3.6172581).exp();
                 let samples = tests
                     .par_iter()

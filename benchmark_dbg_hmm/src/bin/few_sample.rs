@@ -15,7 +15,7 @@ fn main() {
         .unwrap();
     let args: Vec<_> = std::env::args().collect();
     let len = 150;
-    let num_seq = (5..15).collect::<Vec<usize>>();
+    let num_seq = (5..50).collect::<Vec<usize>>();
     let test_num = 1000;
     let k = 6;
     let sample_num: Vec<u64> = (0..100).collect();
@@ -48,6 +48,7 @@ fn main() {
         println!("{}\t{}\t{}\t{}\t{}", hmm, whmm, aln, dist, num_seq);
     }
 }
+
 fn benchmark(
     p: &gen_sample::Profile,
     s: &gen_sample::Profile,
@@ -101,8 +102,8 @@ fn benchmark(
         .collect();
     let weight1 = vec![vec![1.; num_seq], vec![0.; num_seq]].concat();
     let weight2 = vec![vec![0.; num_seq], vec![1.; num_seq]].concat();
-    let model1 = f.generate_with_weight(&data, &weight1, k);
-    let model2 = f.generate_with_weight(&data, &weight2, k);
+    let model1 = f.generate_with_weight_prior(&data, &weight1, k);
+    let model2 = f.generate_with_weight_prior(&data, &weight2, k);
     let correct = tests
         .iter()
         .filter(|&(ans, ref test)| {

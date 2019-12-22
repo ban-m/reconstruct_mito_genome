@@ -26,7 +26,7 @@ const THR: f64 = 2.0;
 const WEIGHT_THR: f64 = 2.0;
 const LOW_LIKELIHOOD: f64 = -100_000.;
 const SCALE: f64 = 3.;
-const PRIOR_FACTOR: f64 = 0.5 / 35.;
+const PRIOR_FACTOR: f64 = 0.01;
 mod find_union;
 pub mod gen_sample;
 mod kmer;
@@ -81,7 +81,10 @@ impl DeBruijnGraphHiddenMarkovModel {
         let mut f = Factory::new();
         f.generate_with_weight(dataset, ws, k)
     }
-
+    pub fn new_with_weight_prior(dataset: &[&[u8]], ws: &[f64], k: usize) -> Self {
+        let mut f = Factory::new();
+        f.generate_with_weight_prior(dataset, ws, k)
+    }
     // Calc hat. Return (c,d)
     fn is_non_zero(idx: usize, xs: &[f64]) -> bool {
         xs[idx * 3..(idx + 1) * 3].iter().any(|&e| e > 0.00001)
@@ -464,6 +467,60 @@ mod tests {
             let likelihood2 = model2.forward(&template2, &DEFAULT_CONFIG);
             assert!(likelihood1 < likelihood2, "{},{}", likelihood1, likelihood2);
         }
+    }
+    #[test]
+    fn mix_test_prior() {
+        let bases = b"ACTG";
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
+        let template1: Vec<_> = (0..150)
+            .filter_map(|_| bases.choose(&mut rng))
+            .copied()
+            .collect();
+        let p = Profile {
+            sub: 0.003,
+            ins: 0.003,
+            del: 0.003,
+        };
+        let template2 = introduce_randomness(&template1, &mut rng, &p);
+        let model1: Vec<Vec<_>> = (0..25)
+            .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
+            .collect();
+        let model2: Vec<Vec<_>> = (0..25)
+            .map(|_| introduce_randomness(&template2, &mut rng, &PROFILE))
+            .collect();
+        let dataset: Vec<_> = model1
+            .iter()
+            .map(|e| e.as_slice())
+            .chain(model2.iter().map(|e| e.as_slice()))
+            .collect();
+        let mut f = Factory::new();
+        let k = 6;
+        let weight1 = vec![vec![0.8; 25], vec![0.2; 25]].concat();
+        let weight2 = vec![vec![0.2; 25], vec![0.8; 25]].concat();
+        let model1 = f.generate_with_weight_prior(&dataset, &weight1, k);
+        let model2 = f.generate_with_weight_prior(&dataset, &weight2, k);
+        let num = 50;
+        let correct = (0..num)
+            .filter(|_| {
+                let q = introduce_randomness(&template1, &mut rng, &PROFILE);
+                let lk1 = model1.forward(&q, &DEFAULT_CONFIG);
+                let lk2 = model2.forward(&q, &DEFAULT_CONFIG);
+                lk1 > lk2
+            })
+            .count();
+        // assert!(lk1 > lk2, "{},{},{}", lk1, lk2, i);
+        //}
+        assert!(correct >= num * 4 / 5, "{}", correct);
+        let correct = (0..num)
+            .filter(|_| {
+                let q = introduce_randomness(&template2, &mut rng, &PROFILE);
+                let lk1 = model1.forward(&q, &DEFAULT_CONFIG);
+                let lk2 = model2.forward(&q, &DEFAULT_CONFIG);
+                lk1 < lk2
+                //assert!(lk1 < lk2, "{},{},{}", lk1, lk2, i);
+            })
+            .count();
+        assert!(correct >= num *4  / 5, "{}", correct);
     }
     #[test]
     fn single_error_test() {

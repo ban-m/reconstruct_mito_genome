@@ -156,8 +156,8 @@ fn cross_validation(data1: &[Vec<u8>], data2: &[Vec<u8>]) -> Vec<(usize, f64, f6
         let ds: Vec<_> = data1.iter().chain(data2.iter()).copied().collect();
         let w1 = vec![vec![1.; len - 1], vec![0.; len - 1]].concat();
         let w2 = vec![vec![0.; len - 1], vec![1.; len - 1]].concat();
-        let m1 = f.generate_with_weight(&ds, &w1, k);
-        let m2 = f.generate_with_weight(&ds, &w2, k);
+        let m1 = f.generate_with_weight_prior(&ds, &w1, k);
+        let m2 = f.generate_with_weight_prior(&ds, &w2, k);
         let s2 = Instant::now();
         let m1_for_1 = m1.forward(test1, &DEFAULT_CONFIG);
         let m1_for_2 = m1.forward(test2, &DEFAULT_CONFIG);

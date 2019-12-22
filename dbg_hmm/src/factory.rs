@@ -257,11 +257,8 @@ impl Factory {
                 }
             });
         let thr = {
-            let mut lens: Vec<_> = self.inner.iter().map(|e| e.0).collect();
-            lens.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            let top = lens.len() - (coverage as usize * 120).min(3000);
-            let thr = lens[lens.len() - top..].iter().sum::<f64>() / (top as f64);
-            thr
+            let sum = self.inner.iter().map(|e| e.0).sum::<f64>();
+            sum / self.inner.len() as f64
         };
         let mut nodes = Vec::with_capacity(1_000);
         let mut edge = vec![];

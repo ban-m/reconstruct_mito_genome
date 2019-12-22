@@ -2,24 +2,23 @@
 extern crate dbg_hmm;
 extern crate test;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng}; // 0.2%, 0.65%, 0.65%.
-const SUB: f64 = 0.002;
-const DEL: f64 = 0.0065;
-const IN: f64 = 0.0065;
+const SUB: f64 = 0.02;
+const DEL: f64 = 0.065;
+const IN: f64 = 0.065;
 use dbg_hmm::DEFAULT_CONFIG;
 use dbg_hmm::*;
 use test::Bencher;
-
+const LEN:usize = 150;
+const COV:usize = 30;
 #[bench]
 fn determine(b: &mut Bencher) {
     let bases = b"ACTG";
     let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
-    let len = 150;
-    let num = 30;
-    let template: Vec<_> = (0..len)
+    let template: Vec<_> = (0..LEN)
         .filter_map(|_| bases.choose(&mut rng))
         .copied()
         .collect();
-    let model1: Vec<Vec<_>> = (0..num)
+    let model1: Vec<Vec<_>> = (0..COV)
         .map(|_| introduce_randomness(&template, &mut rng))
         .collect();
     let k = 6;
@@ -31,11 +30,11 @@ fn determine(b: &mut Bencher) {
 fn new(b: &mut Bencher) {
     let bases = b"ACTG";
     let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
-    let template: Vec<_> = (0..30)
+    let template: Vec<_> = (0..LEN)
         .filter_map(|_| bases.choose(&mut rng))
         .copied()
         .collect();
-    let model1: Vec<Vec<_>> = (0..20)
+    let model1: Vec<Vec<_>> = (0..COV)
         .map(|_| introduce_randomness(&template, &mut rng))
         .collect();
     let k = 7;
@@ -46,11 +45,11 @@ fn new(b: &mut Bencher) {
 fn new2(b: &mut Bencher) {
     let bases = b"ACTG";
     let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
-    let template: Vec<_> = (0..30)
+    let template: Vec<_> = (0..LEN)
         .filter_map(|_| bases.choose(&mut rng))
         .copied()
         .collect();
-    let model1: Vec<Vec<_>> = (0..20)
+    let model1: Vec<Vec<_>> = (0..COV)
         .map(|_| introduce_randomness(&template, &mut rng))
         .collect();
     let k = 7;
@@ -62,11 +61,11 @@ fn new2(b: &mut Bencher) {
 fn new_weight(b: &mut Bencher) {
     let bases = b"ACTG";
     let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
-    let template: Vec<_> = (0..150)
+    let template: Vec<_> = (0..LEN)
         .filter_map(|_| bases.choose(&mut rng))
         .copied()
         .collect();
-    let model1: Vec<Vec<_>> = (0..100)
+    let model1: Vec<Vec<_>> = (0..COV)
         .map(|_| introduce_randomness(&template, &mut rng))
         .collect();
     let model1: Vec<_> = model1.iter().map(|e| e.as_slice()).collect();
@@ -81,11 +80,11 @@ fn new_weight(b: &mut Bencher) {
 fn new_prior(b: &mut Bencher) {
     let bases = b"ACTG";
     let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
-    let template: Vec<_> = (0..150)
+    let template: Vec<_> = (0..LEN)
         .filter_map(|_| bases.choose(&mut rng))
         .copied()
         .collect();
-    let model1: Vec<Vec<_>> = (0..100)
+    let model1: Vec<Vec<_>> = (0..COV)
         .map(|_| introduce_randomness(&template, &mut rng))
         .collect();
     let model1: Vec<_> = model1.iter().map(|e| e.as_slice()).collect();
@@ -100,11 +99,11 @@ fn new_prior(b: &mut Bencher) {
 fn determine_weight(b: &mut Bencher) {
     let bases = b"ACTG";
     let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
-    let template: Vec<_> = (0..150)
+    let template: Vec<_> = (0..LEN)
         .filter_map(|_| bases.choose(&mut rng))
         .copied()
         .collect();
-    let model1: Vec<Vec<_>> = (0..30)
+    let model1: Vec<Vec<_>> = (0..COV)
         .map(|_| introduce_randomness(&template, &mut rng))
         .collect();
     let model1: Vec<_> = model1.iter().map(|e| e.as_slice()).collect();
@@ -112,6 +111,7 @@ fn determine_weight(b: &mut Bencher) {
     let weight = vec![1.; model1.len()];
     let mut f = Factory::new();
     let m = f.generate_with_weight(&model1, &weight, k);
+    eprintln!("{}",m);
     let q = introduce_randomness(&template, &mut rng);
     b.iter(|| test::black_box(m.forward(&q, &DEFAULT_CONFIG)));
 }
@@ -120,11 +120,11 @@ fn determine_weight(b: &mut Bencher) {
 fn determine_weight_prior(b: &mut Bencher) {
     let bases = b"ACTG";
     let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
-    let template: Vec<_> = (0..150)
+    let template: Vec<_> = (0..LEN)
         .filter_map(|_| bases.choose(&mut rng))
         .copied()
         .collect();
-    let model1: Vec<Vec<_>> = (0..30)
+    let model1: Vec<Vec<_>> = (0..COV)
         .map(|_| introduce_randomness(&template, &mut rng))
         .collect();
     let model1: Vec<_> = model1.iter().map(|e| e.as_slice()).collect();
@@ -132,6 +132,7 @@ fn determine_weight_prior(b: &mut Bencher) {
     let weight = vec![1.; model1.len()];
     let mut f = Factory::new();
     let m = f.generate_with_weight_prior(&model1, &weight, k);
+    eprintln!("{}",m);
     let q = introduce_randomness(&template, &mut rng);
     b.iter(|| test::black_box(m.forward(&q, &DEFAULT_CONFIG)));
 }

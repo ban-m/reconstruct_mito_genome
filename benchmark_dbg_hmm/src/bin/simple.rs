@@ -19,17 +19,17 @@ fn main() {
         let data1: Vec<_> = data1.iter().map(|e| e.as_slice()).collect();
         // DBGHMM::new_from_ref(&data1, k)
         let weight = vec![1.; num_seq];
-        DBGHMM::new_with_weight(&data1, &weight, k)
+        DBGHMM::new_with_weight_prior(&data1, &weight, k)
     };
-    // {
-    //     let q = introduce_randomness(&template1, &mut rng, &PROFILE);
-    //     let q = m1.forward(&q, &DEFAULT_CONFIG);
-    let data = &data1[3];
-    let r = m1.forward(&data, &DEFAULT_CONFIG);
-    eprintln!("{}", r);
-    let data = &data1[0];
-    let r = m1.forward(&data, &DEFAULT_CONFIG);
-    eprintln!("{}", r);
-    // eprintln!("{:.4}\t{:.4}", q, r);
-    //    }
+    for data in data1 {
+        let q = introduce_randomness(&template1, &mut rng, &PROFILE);
+        let q = m1.forward(&q, &DEFAULT_CONFIG);
+        // let data = &data1[3];
+        let r = m1.forward(&data, &DEFAULT_CONFIG);
+        // eprintln!("{}", r);
+        // let data = &data1[0];
+        // let r = m1.forward(&data, &DEFAULT_CONFIG);
+        // eprintln!("{}", r);
+        eprintln!("{:.4}\t{:.4}", q, r);
+    }
 }

@@ -36,7 +36,7 @@ g <-  dataset %>%
     filter(Dist > 0) %>%
     select(-WHMM, -HMM, -Aln) %>% 
     gather(key = Type, value = Improvement,-Dist,-Coverage ) %>%
-    ggplot() + geom_smooth(aes(x = Coverage, y = Improvement, color = Type))  + facet_wrap(.~Dist)
+    ggplot() + geom_point(aes(x = Coverage, y = Improvement, color = Type))  + facet_wrap(.~Dist)
 
 g <-  dataset %>%
     mutate(Improvement = WHMM-Aln) %>%

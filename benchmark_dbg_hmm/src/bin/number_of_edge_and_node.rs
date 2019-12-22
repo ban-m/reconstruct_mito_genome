@@ -9,7 +9,7 @@ use rand::{rngs::StdRng, SeedableRng};
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let len = 150;
-    let num_seq = 100;
+    let num_seq = 500;
     let mut rng: StdRng = SeedableRng::seed_from_u64(12_121_899_892);
     let template: Vec<_> = generate_seq(&mut rng, len);
     let data: Vec<Vec<_>> = (0..num_seq)
@@ -21,9 +21,9 @@ fn main() {
     for i in 1..num_seq {
         let ms: Vec<_> = data[..i].iter().map(|e| e.as_slice()).collect();
         let w = vec![1.; i];
-        let m = f.generate_with_weight(&ms, &w, k);
+        let m = f.generate_with_weight_prior(&ms, &w, k);
         println!("{}\t{}\t{}\t{}\tW", i, m.node_num(), m.edge_num(), m.weight());
-        // let m = f.generate_from_ref(&ms, k);
-        // println!("{}\t{}\t{}\t{}\tH", i, m.node_num(), m.edge_num(), m.weight());
+        let m = f.generate_from_ref(&ms, k);
+        println!("{}\t{}\t{}\t{}\tH", i, m.node_num(), m.edge_num(), m.weight());
     }
 }

@@ -217,7 +217,7 @@ fn naive_pred(
 fn construct_model(dataset: &[Vec<u8>], ws: &[f64], k: usize) -> DBGHMM {
     let mut f = Factory::new();
     let d: Vec<_> = dataset.iter().map(|e| e.as_slice()).collect();
-    f.generate_with_weight(&d, ws, k)
+    f.generate_with_weight_prior(&d, ws, k)
 }
 
 fn calc_lk(dataset: &[Vec<u8>], m0: &DBGHMM, m1: &DBGHMM, w0: f64, w1: f64, c: &Config) -> f64 {

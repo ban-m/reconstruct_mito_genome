@@ -19,7 +19,7 @@ fn main() {
         .build_global()
         .unwrap();
     let args: Vec<_> = std::env::args().collect();
-    let (test_num, coverage, prob) = if args.len() > 3 {
+    let (test_num, coverage, _prob) = if args.len() > 3 {
         let tn = args[1].parse::<usize>().unwrap();
         let cov = args[2].parse::<usize>().unwrap();
         let prob = args[3].parse::<f64>().unwrap();
@@ -35,14 +35,8 @@ fn main() {
         ins: 0.002,
         del: 0.002,
     };
-    use std::time::Instant;
     let seed = 11920981;
-    let s = Instant::now();
-    let (hmm, dist) = benchmark(seed, p, coverage, test_num, chain_len, k, len, prob);
-    eprintln!("{:?}", Instant::now() - s);
-    info!("Cov:{}", coverage);
-    info!("Acc:{:.4}", hmm);
-    info!("Dist:{} out of {}", dist, chain_len);
+    benchmark(seed, p, coverage, test_num, chain_len, k, len);
 }
 
 fn benchmark(
@@ -53,8 +47,7 @@ fn benchmark(
     chain_len: usize,
     k: usize,
     len: usize,
-    prob: f64,
-) -> (f64, u32) {
+) {
     let seed = 1003437 + seed;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let template1: Vec<_> = (0..chain_len)
@@ -64,55 +57,69 @@ fn benchmark(
         .iter()
         .map(|e| gen_sample::introduce_randomness(e, &mut rng, &p))
         .collect();
-    let dist = template1
-        .iter()
-        .zip(template2.iter())
-        .map(|(t1, t2)| edlib_sys::global_dist(t1, t2))
-        .sum::<u32>();
-    template1
-        .iter()
-        .zip(template2.iter())
+    let (dataset, _label, _answer, _border) = generate_mul_data(
+        &[template1.clone(), template2.clone()],
+        coverage,
+        test_num,
+        &mut rng,
+        &[0.5, 0.5],
+    );
+    let data: Vec<_> = dataset
+        .into_iter()
         .enumerate()
-        .for_each(|(idx, (t1, t2))| debug!("{}\t{}", idx, edlib_sys::global_dist(t1, t2)));
-    let (dataset, label, answer, border) =
-        generate_dataset(&template1, &template2, coverage, test_num, &mut rng, prob);
-    {
-        let m0: Vec<_> = label
-            .iter()
-            .chain(answer.iter())
-            .map(|&e| if e == 0 { 1. } else { 0. })
-            .collect();
-        let w0 = m0.iter().sum::<f64>() / m0.len() as f64;
-        let m1: Vec<_> = label
-            .iter()
-            .chain(answer.iter())
-            .map(|&e| if e == 1 { 1. } else { 0. })
-            .collect();
-        let m0 = construct_with_weights(&dataset, &m0, k);
-        let m1 = construct_with_weights(&dataset, &m1, k);
-        let obj = calc_lk(&dataset[coverage..], &m0, &m1, w0, 1. - w0);
-        debug!("OBJLK:{:.4}", obj);
+        .map(|(idx, e)| {
+            let id = format!("{}", idx);
+            last_decompose::ERead::new_with_lowseq(e, &id)
+        })
+        .collect();
+    let contigs = vec![chain_len];
+    let mut mf = last_decompose::ModelFactory::new(&contigs, &data, k);
+    let weights: Vec<_> = (0..data.len()).map(|_| vec![0.5, 0.5]).collect();
+    let models = mf.generate_model(&weights, &data, 0);
+    for read in &data {
+        for u in read.seq.iter() {
+            let model = &models[u.contig()][u.unit()];
+            let lk = model.forward(u.bases(), &dbg_hmm::DEFAULT_CONFIG);
+            debug!("LK\t{:.3}\t{:.3}", model.weight(), lk);
+        }
     }
-    let em_pred = em_solve(&dataset, &label, border, k, &answer);
-    let pos = answer.iter().filter(|&&e| e == 0).count();
-    let neg = answer.len() - pos;
-    let tp = em_pred
+    let mut f = Factory::new();
+    let weights = vec![1.; data.len()];
+    let chunks = {
+        let mut res = vec![vec![]; chain_len];
+        for read in &data {
+            for chunk in read.seq.iter() {
+                res[chunk.unit()].push(chunk.bases());
+            }
+        }
+        res
+    };
+    let models: Vec<_> = chunks
         .iter()
-        .zip(answer.iter())
-        .filter(|&(&p, &a)| a == p && a == 0)
-        .count();
-    let tn = em_pred
-        .iter()
-        .zip(answer.iter())
-        .filter(|&(&p, &a)| a == p && a == 1)
-        .count();
-    debug!("Pos\tNeg\tTP\tTN");
-    debug!("{}\t{}\t{}\t{}", pos, neg, tp, tn);
-    let correct = em_pred
-        .iter()
-        .zip(answer.iter())
-        .filter(|(p, a)| a == p)
-        .count();
-    let hmm = correct as f64 / test_num as f64;
-    (hmm, dist)
+        .map(|chunks| f.generate_with_weight_prior(chunks, &weights, k))
+        .collect();
+    for m in &models {
+        debug!("Model\t{}", m);
+    }
+    for read in &data {
+        for u in read.seq.iter() {
+            let model = &models[u.unit()];
+            let lk = model.forward(u.bases(), &DEFAULT_CONFIG);
+            debug!("NN\t{:.3}\t{:.3}", model.weight(), lk);
+        }
+    }
+    let i = 3;
+    let chunks: Vec<_> = data.iter().map(|read| read.seq[i].bases()).collect();
+    let m = f.generate_with_weight_prior(&chunks, &vec![0.5; chunks.len()], k);
+    debug!("TT\t{}", m);
+    for e in 0..100 {
+        let temp = if e % 2 == 0 {
+            &template1[i]
+        } else {
+            &template2[i]
+        };
+        let q = gen_sample::introduce_randomness(temp, &mut rng, &gen_sample::PROFILE);
+        let lk = m.forward(&q, &DEFAULT_CONFIG);
+        debug!("TT\t{:.3}\t{:.3}", m.weight(), lk);
+    }
 }
