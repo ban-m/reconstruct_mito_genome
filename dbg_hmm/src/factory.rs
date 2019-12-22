@@ -21,14 +21,24 @@ fn to_u64(xs: &[u8]) -> usize {
     }
     sum
 }
-
+const TABLE: [u8; 4] = [b'A', b'C', b'G', b'T'];
+#[allow(dead_code)]
 fn decode(kmer: u64, k: usize) -> Vec<u8> {
-    const TABLE: [u8; 4] = [b'A', b'C', b'G', b'T'];
     (0..k)
         .rev()
         .map(|digit| (kmer >> 2 * digit) & 0b11)
         .map(|base| TABLE[base as usize])
         .collect::<Vec<u8>>()
+}
+
+fn decode_to(kmer: u64, k: usize, buf: &mut Vec<u8>) {
+    buf.clear();
+    buf.extend(
+        (0..k)
+            .rev()
+            .map(|digit| (kmer >> 2 * digit) & 0b11)
+            .map(|base| TABLE[base as usize]),
+    );
 }
 
 impl Factory {
@@ -254,9 +264,10 @@ impl Factory {
             thr
         };
         let mut nodes = Vec::with_capacity(1_000);
-        for (edge, w) in edges.into_iter().enumerate().filter(|&(_, w)| w > ep) {
-            let (from, to) = (edge >> 2, edge & mask);
-            let edge = decode(edge as u64, k + 1);
+        let mut edge = vec![];
+        for (e, w) in edges.into_iter().enumerate().filter(|&(_, w)| w > ep) {
+            let (from, to) = (e >> 2, e & mask);
+            decode_to(e as u64, k + 1, &mut edge);
             if let Some((from, to)) =
                 self.get_indices_exp(&edge, &mut nodes, thr, k, &mut rng, from, to)
             {
