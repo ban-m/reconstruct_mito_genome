@@ -37,7 +37,7 @@ const B: f64 = 3.6;
 // These A and B are to offset the low-coverage region. For THR=2.0,
 // And tuned for PRIOR_FACTOR: f64 = 0.5 / 35.
 const A_PRIOR: f64 = -0.3;
-const B_PRIOR: f64 = 1.8;
+const B_PRIOR: f64 = 2.2;
 // These are for THR=3.0;
 // const A: f64 = -0.3223992;
 // const B: f64 = 3.7831344;
@@ -46,26 +46,26 @@ const B_PRIOR: f64 = 1.8;
 // const CONTAINED_SCALE: f64 = 4.26264183;
 // This is the initial reverse temprature.
 // Note that, from this rev-temprature, we adjust the start beta by doubling-search.
-const INIT_BETA: f64 = 0.02;
+const INIT_BETA: f64 = 0.01;
 // This is the search factor for the doubling-step.
 const FACTOR: f64 = 1.4;
 // Sampling times for variationl bayes.
-const SAMPLING_VB: usize = 5;
+const SAMPLING_VB: usize = 10;
 // Sampling times for Gibbs sampling.
 const SAMPING: usize = 100;
 // This is the factor we multiply at each iteration for beta.
 // Note that this factor also scaled for the maximum coverage.
-const BETA_STEP: f64 = 1.2;
+const BETA_STEP: f64 = 1.1;
 // Maximum beta. Until this beta, we multiply beta_step for the current beta.
 const MAX_BETA: f64 = 1.;
 // This is the parameter for Diriclet prior.
-const ALPHA: f64 = 0.001;
+const ALPHA: f64 = 0.01;
 // This is the parameter for de Bruijn prior.
 // const BETA: f64 = 0.5;
 // Loop number for Gibbs sampling.
 const LOOP_NUM: usize = 4;
 // Loop number for variational Bayes.
-const LOOP_NUM_VB: usize = 15;
+const LOOP_NUM_VB: usize = 20;
 // Initial picking probability.
 const INIT_PICK_PROB: f64 = 0.02;
 const PICK_PROB_STEP: f64 = 1.05;
@@ -305,6 +305,7 @@ pub struct ModelFactory<'a> {
     weights: Vec<Vec<Vec<f64>>>,
     // Contig -> Unit
     factories: Vec<Vec<Factory>>,
+    buffers: Vec<Vec<Vec<f64>>>,
     k: usize,
 }
 
@@ -321,10 +322,15 @@ impl<'a> ModelFactory<'a> {
             .iter()
             .map(|&e| (0..e).map(|_| Factory::new()).collect())
             .collect();
+        let buffers: Vec<Vec<_>> = contigs
+            .iter()
+            .map(|&e| (0..e).map(|_| vec![]).collect())
+            .collect();
         Self {
             chunks,
             weights,
             factories,
+            buffers,
             k,
         }
     }
@@ -353,16 +359,18 @@ impl<'a> ModelFactory<'a> {
             .iter()
             .zip(self.weights.iter())
             .zip(self.factories.iter_mut())
-            .map(|((chunks, weights), fs)| {
+            .zip(self.buffers.iter_mut())
+            .map(|(((chunks, weights), fs), bufs)| {
                 assert_eq!(chunks.len(), weights.len());
                 assert_eq!(chunks.len(), fs.len());
                 chunks
                     .par_iter()
                     .zip(weights.par_iter())
                     .zip(fs.par_iter_mut())
-                    .map(|((cs, w), f)| {
+                    .zip(bufs.par_iter_mut())
+                    .map(|(((cs, w), f), mut buf)| {
                         let m = if PRIOR {
-                            f.generate_with_weight_prior(&cs, &w, k)
+                            f.generate_with_weight_prior(&cs, &w, k, &mut buf)
                         } else {
                             f.generate_with_weight(&cs, &w, k)
                         };
@@ -401,20 +409,22 @@ impl<'a> ModelFactory<'a> {
             .zip(self.weights.iter())
             .zip(self.factories.iter_mut())
             .zip(models.iter_mut())
-            .for_each(|(((chunks, weights), fs), ms)| {
+            .zip(self.buffers.iter_mut())
+            .for_each(|((((chunks, weights), fs), ms), bufs)| {
                 assert_eq!(chunks.len(), weights.len());
                 assert_eq!(chunks.len(), fs.len());
                 assert_eq!(chunks.len(), ms.len());
                 chunks
                     .par_iter()
+                    .zip(bufs.par_iter_mut())
                     .zip(weights.par_iter())
                     .zip(fs.par_iter_mut())
                     .zip(ms.par_iter_mut())
-                    .for_each(|(((cs, w), f), m)| {
+                    .for_each(|((((cs,mut  buf), w), f), m)| {
                         *m = if PRIOR {
-                            f.generate_with_weight_prior(&cs, &w, k)
+                            f.generate_with_weight_prior(cs, &w, k, &mut buf)
                         } else {
-                            f.generate_with_weight(&cs, &w, k)
+                            f.generate_with_weight(cs, &w, k)
                         }
                     });
             });
@@ -438,7 +448,6 @@ pub fn clustering(
 ) -> Vec<u8> {
     let border = label.len();
     assert_eq!(forbidden.len(), data.len());
-    debug!("Summary\tID\tLK\tSoE\tPi\tBeta\tLR\tCorrect\tAcc");
     // let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
     // let weights = soft_clustering_full(data, label, forbidden, k, cluster_num, contigs, answer, c);
     let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
@@ -497,8 +506,9 @@ pub fn variational_bayes(
 ) -> Vec<Vec<f64>> {
     let id: u64 = thread_rng().gen();
     let border = label.len();
+    let seed = data.len() as u64 * 20437;
     let mut weights_of_reads: Vec<Vec<f64>> =
-        construct_initial_weights(label, forbidden, cluster_num, data.len(), data.len() as u64);
+        construct_initial_weights(label, forbidden, cluster_num, data.len(), seed);
     let soe_thr =
         SOE_PER_DATA_ENTROPY_VB * (data.len() - label.len()) as f64 * (cluster_num as f64).ln();
     let mut mf = ModelFactory::new(contigs, data, k);
@@ -509,7 +519,6 @@ pub fn variational_bayes(
     let wor = &weights_of_reads;
     let max_coverage = get_max_coverage(data, contigs);
     let step = 1. + (BETA_STEP - 1.) * 2. / (max_coverage as f64).log10();
-    // let betas = get_schedule(data, &mut mf, contigs, wor, label, cluster_num, config);
     let b = INIT_BETA;
     let mut beta =
         search_initial_beta_vb(&mut mf, wor, &data, b, label, cluster_num, config, FACTOR);
@@ -522,7 +531,6 @@ pub fn variational_bayes(
     let mut log_ros = vec![vec![0.; cluster_num]; data.len()];
     debug!("THR:{}", soe_thr);
     while beta <= 1. {
-        let mut soe;
         for _ in 0..LOOP_NUM_VB {
             // Update weight of reads.
             let wor = &mut weights_of_reads;
@@ -541,15 +549,16 @@ pub fn variational_bayes(
             report(
                 id, wr, border, answer, &alphas, &models, data, beta, 1., config,
             );
-            soe = wr.iter().map(|e| entropy(e)).sum::<f64>();
-            if soe < soe_thr {
+            let soe = wr.iter().map(|e| entropy(e)).sum::<f64>();
+            if soe < soe_thr && beta != 1. {
                 break;
             }
         }
         if beta == 1. {
             break;
+        } else {
+            beta = (beta * step).min(1.);
         }
-        beta = (beta * step).min(1.);
     }
     weights_of_reads
 }
@@ -1377,12 +1386,13 @@ pub fn construct_with_weights(
         .zip(weights.into_par_iter())
         .map(|(chunks, weights)| {
             let mut f = Factory::new();
+            let mut buf = vec![];
             chunks
                 .into_iter()
                 .zip(weights.into_iter())
                 .map(|(cs, ws)| {
                     if PRIOR {
-                        f.generate_with_weight_prior(&cs, &ws, k)
+                        f.generate_with_weight_prior(&cs, &ws, k, &mut buf)
                     } else {
                         f.generate_with_weight(&cs, &ws, k)
                     }

@@ -35,9 +35,9 @@ fn main() {
     let k = 6;
     let len = 150;
     let p = &gen_sample::Profile {
-        sub: 0.003,
-        ins: 0.003,
-        del: 0.003,
+        sub: 0.0025,
+        ins: 0.0025,
+        del: 0.0025,
     };
     use std::time::Instant;
     println!("TestNum:{}\tLabeled:{}", test_num, coverage);

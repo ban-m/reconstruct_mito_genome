@@ -26,7 +26,7 @@ const THR: f64 = 2.0;
 const WEIGHT_THR: f64 = 2.0;
 const LOW_LIKELIHOOD: f64 = -100_000.;
 const SCALE: f64 = 3.;
-const PRIOR_FACTOR: f64 = 0.01;
+const PRIOR_FACTOR: f64 = 0.05;
 mod find_union;
 pub mod gen_sample;
 mod kmer;
@@ -83,7 +83,8 @@ impl DeBruijnGraphHiddenMarkovModel {
     }
     pub fn new_with_weight_prior(dataset: &[&[u8]], ws: &[f64], k: usize) -> Self {
         let mut f = Factory::new();
-        f.generate_with_weight_prior(dataset, ws, k)
+        let mut buf = vec![];
+        f.generate_with_weight_prior(dataset, ws, k, &mut buf)
     }
     // Calc hat. Return (c,d)
     fn is_non_zero(idx: usize, xs: &[f64]) -> bool {
@@ -494,11 +495,12 @@ mod tests {
             .chain(model2.iter().map(|e| e.as_slice()))
             .collect();
         let mut f = Factory::new();
+        let mut buf = vec![];
         let k = 6;
         let weight1 = vec![vec![0.8; 25], vec![0.2; 25]].concat();
         let weight2 = vec![vec![0.2; 25], vec![0.8; 25]].concat();
-        let model1 = f.generate_with_weight_prior(&dataset, &weight1, k);
-        let model2 = f.generate_with_weight_prior(&dataset, &weight2, k);
+        let model1 = f.generate_with_weight_prior(&dataset, &weight1, k, &mut buf);
+        let model2 = f.generate_with_weight_prior(&dataset, &weight2, k, &mut buf);
         let num = 50;
         let correct = (0..num)
             .filter(|_| {
@@ -643,6 +645,7 @@ mod tests {
         cov: usize,
         f: &mut Factory,
     ) -> usize {
+        let mut buf  = vec![];
         let model1: Vec<_> = (0..cov)
             .map(|_| introduce_randomness(&t1, rng, &PROFILE))
             .collect();
@@ -657,8 +660,8 @@ mod tests {
         let weight1 = vec![vec![1.; cov], vec![0.; cov]].concat();
         let weight2 = vec![vec![0.; cov], vec![1.; cov]].concat();
         let k = 6;
-        let m1 = f.generate_with_weight_prior(&seqs, &weight1, k);
-        let m2 = f.generate_with_weight_prior(&seqs, &weight2, k);
+        let m1 = f.generate_with_weight_prior(&seqs, &weight1, k, &mut buf);
+        let m2 = f.generate_with_weight_prior(&seqs, &weight2, k, &mut buf);
         eprintln!("{}\t{}\t{}", cov, m1, m2);
         let correct = (0..100)
             .filter(|e| {

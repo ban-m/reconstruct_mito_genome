@@ -91,8 +91,9 @@ fn new_prior(b: &mut Bencher) {
     let k = 6;
     let weight = vec![1.; model1.len()];
     let mut f = Factory::new();
+    let muf buf = vec![];
     f.generate_with_weight(&model1, &weight, k);
-    b.iter(|| test::black_box(f.generate_with_weight_prior(&model1, &weight, k)));
+    b.iter(|| test::black_box(f.generate_with_weight_prior(&model1, &weight, k,&mut buf)));
 }
 
 #[bench]
@@ -131,7 +132,8 @@ fn determine_weight_prior(b: &mut Bencher) {
     let k = 6;
     let weight = vec![1.; model1.len()];
     let mut f = Factory::new();
-    let m = f.generate_with_weight_prior(&model1, &weight, k);
+    let mut buf = vec![];
+    let m = f.generate_with_weight_prior(&model1, &weight, k, &mut buf);
     eprintln!("{}",m);
     let q = introduce_randomness(&template, &mut rng);
     b.iter(|| test::black_box(m.forward(&q, &DEFAULT_CONFIG)));

@@ -9,22 +9,18 @@
 #$ -m e
 set -ue
 OUTPUT=./result/last_decompose_vb_prior.txt
-
+OUTLOG_PREFIX=./logfiles/last_decompose_vb_prior
 # RUSTFLAGS="-C target-cpu=native" cargo build --release
 
 echo "-----start-----" >> ${OUTPUT}
-
-# ./target/release/test_last_decompose_multiple \
-#     100 0 0 0.5 0.5 >> ${OUTPUT}
-
-
 TEST_NUM=100
 COVERAGE=0
 PROBS="0.2 0.8"
 for seed in 10 20 30 40 50
 do
     ./target/release/test_last_decompose_multiple \
-        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
+        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT} \
+        2>> ${OUTLOG_PREFIX}.skew.100.log
 done
 
 TEST_NUM=100
@@ -33,18 +29,9 @@ PROBS="0.5 0.5"
 for seed in 10 20 30 40 50
 do
     ./target/release/test_last_decompose_multiple \
-        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
+        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT} \
+        2>> ${OUTLOG_PREFIX}.even.100.log
 done
-
- 
-# TEST_NUM=100
-# COVERAGE=4
-# PROBS="0.2 0.8"
-# for seed in 10 20 30 40 50
-# do
-#     ./target/release/test_last_decompose_multiple \
-#         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
-# done
 
 
 TEST_NUM=300
@@ -53,23 +40,9 @@ PROBS="0.5 0.5"
 for seed in 10 20 30 40 50
 do
     ./target/release/test_last_decompose_multiple \
-        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
+        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT} \
+        2>> ${OUTLOG_PREFIX}.even.300.log
 done
-
-
-# ./target/release/test_last_decompose_multiple \
-#     300 0 10 0.2 0.8 >> ${OUTPUT}
-
-
-# TEST_NUM=300
-# COVERAGE=4
-# PROBS="0.2 0.8"
-# for seed in 10 20 30 40 50
-# do
-#     ./target/release/test_last_decompose_multiple \
-#         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
-# done
-
 
 TEST_NUM=300
 COVERAGE=0
@@ -77,7 +50,8 @@ PROBS="0.2 0.8"
 for seed in 10 20 30 40 50
 do
     ./target/release/test_last_decompose_multiple \
-        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}
+        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}\
+        2>> ${OUTLOG_PREFIX}.skew.300.log
 done
 
 

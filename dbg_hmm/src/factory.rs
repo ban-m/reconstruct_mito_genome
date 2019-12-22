@@ -21,6 +21,7 @@ fn to_u64(xs: &[u8]) -> usize {
     }
     sum
 }
+
 const TABLE: [u8; 4] = [b'A', b'C', b'G', b'T'];
 #[allow(dead_code)]
 fn decode(kmer: u64, k: usize) -> Vec<u8> {
@@ -49,7 +50,7 @@ impl Factory {
         self.inner.clear();
         self.temp_index.clear();
         self.is_safe.clear();
-        self.edges.clear(); //iter_mut().for_each(|e| e.clear());
+        self.edges.clear();
         self.fu.clear();
         self.dfs_stack.clear();
         self.dfs_flag.clear();
@@ -223,7 +224,9 @@ impl Factory {
         dataset: &[&[u8]],
         ws: &[f64],
         k: usize,
+        buf: &mut Vec<f64>,
     ) -> DBGHMM {
+        buf.clear();
         let coverage = ws.iter().sum::<f64>();
         if coverage < 1.0001 {
             let (nodes, weight) = (vec![], coverage);
@@ -235,7 +238,7 @@ impl Factory {
         let weight = PRIOR_FACTOR * coverage;
         self.inner
             .extend(std::iter::repeat((weight, std::usize::MAX)).take(tk));
-        let mut edges: Vec<f64> = vec![weight; tk * 4];
+        buf.extend(std::iter::repeat(weight).take(tk * 4));
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(dataset.len() as u64);
         let ep = 0.00000001;
         let mask = (1 << 2 * k) - 1;
@@ -253,7 +256,7 @@ impl Factory {
                     node = (node << 2 | BASE_TABLE[b as usize]) & mask;
                     self.inner[node].0 += w;
                     edge = (edge << 2 | BASE_TABLE[b as usize]) & e_mask;
-                    edges[edge] += w;
+                    buf[edge] += w;
                 }
             });
         let thr = {
@@ -262,7 +265,7 @@ impl Factory {
         };
         let mut nodes = Vec::with_capacity(1_000);
         let mut edge = vec![];
-        for (e, w) in edges.into_iter().enumerate().filter(|&(_, w)| w > ep) {
+        for (e, &w) in buf.iter().enumerate().filter(|&(_, &w)| w > ep) {
             let (from, to) = (e >> 2, e & mask);
             decode_to(e as u64, k + 1, &mut edge);
             if let Some((from, to)) =

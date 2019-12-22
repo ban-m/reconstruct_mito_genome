@@ -135,7 +135,7 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
     // should have either "Gap" or "Encode"
     let path = d3.path();
     let units = Array.from(read.units).reverse();
-    const r = read_radius + (read['cluster'] + 1) * 10 ; // + jitters();
+    const r = read_radius; //  + (read['cluster'] + 1) * 10 ; // + jitters();
     let gap = 0;
     let unit = {};
     while(!unit.hasOwnProperty("Encode")){
@@ -379,13 +379,13 @@ const plotData = (dataset, repeats, unit_length) =>
               .attr("fill","none")
               .attr("opacity",0.3)
               .attr("stroke",read => {
-                  return d3.schemeCategory10[read['cluster'] + 1];
-                  // const identity = calcID(read,unit_length);
-                  // if (identity.type == "Gap"){
-                  //     return "black";
-                  // }else{
-                  //     return d3.schemeCategory10[identity.id % 10];
-                  // }
+                  // return d3.schemeCategory10[read['cluster'] + 1];
+                  const identity = calcID(read,unit_length);
+                  if (identity.type == "Gap"){
+                      return "black";
+                  }else{
+                      return d3.schemeCategory10[identity.id % 10];
+                  }
               });
           info.append("div")
               .attr("class","numofgapread")

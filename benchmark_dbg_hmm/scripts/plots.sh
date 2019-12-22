@@ -11,12 +11,8 @@ Rscript ./scripts/plot_few_sample.R \
 
 Rscript ./scripts/plot_neutral_prediction.R
 
-Rscript ./scripts/plot_em_clustering.R \
-        ./result/em_clustering_default.tsv em_clustering_default
-
-Rscript ./scripts/plot_em_clustering.R \
-        ./result/em_clustering_pacbio.tsv em_clustering_pacbio
-
 
 Rscript ./scripts/plot_coverage_and_likelihood.R
+Rscript ./scripts/plot_coverage_and_contained.R
 Rscript ./scripts/plot_number_of_edge_and_node.R
+

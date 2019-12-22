@@ -14,3 +14,4 @@ rand_xoshiro = "*"
 rayon = "*"
 log = "*"
 env_logger = "*"
+last_decompose = {path = "../last_decompose"}

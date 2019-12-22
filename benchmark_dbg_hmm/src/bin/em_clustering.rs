@@ -1,5 +1,6 @@
 extern crate dbg_hmm;
 extern crate edlib_sys;
+extern crate last_decompose;
 extern crate rand;
 extern crate rand_xoshiro;
 extern crate rayon;
@@ -21,9 +22,9 @@ fn main() {
     let len = 150;
     let k = 6;
     // (num_seq, test_num, sample_num);
-    let params: Vec<_> = (6..20)
+    let params: Vec<_> = (10..11)
         .flat_map(|x| {
-            (20..300)
+            (20..21)
                 .step_by(15)
                 .flat_map(|y| (0..20).map(|z| (x, y, z)).collect::<Vec<_>>())
                 .collect::<Vec<_>>()
@@ -89,7 +90,7 @@ fn benchmark(
     let d = edlib_sys::global_dist(&template1, &template2);
     let pred = naive_pred(&dataset, &answers, training, k, config);
     // assert!(dataset.len() == pred.len());
-    let em_pred = em_pred(&dataset, &pred, k, config, training);
+    let em_pred = em_pred(&dataset, &answers[..training], k, config);
     let naive = pred
         .iter()
         .zip(answers.iter())
@@ -105,54 +106,21 @@ fn benchmark(
     (em / test_num as f64, naive / test_num as f64, d)
 }
 
-fn em_pred(dataset: &[Vec<u8>], pred: &[bool], k: usize, c: &Config, border: usize) -> Vec<bool> {
-    let (mut w0, mut w1) = {
-        let w0 = pred.iter().filter(|&&e| e).count();
-        let w1 = pred.iter().filter(|&&e| !e).count();
-        let len = pred.len() as f64;
-        (w0 as f64 / len, w1 as f64 / len)
-    };
-    let mut gamma0: Vec<_> = pred.iter().map(|&e| if e { 1. } else { 0. }).collect();
-    let mut gamma1: Vec<_> = pred.iter().map(|&e| if !e { 1. } else { 0. }).collect();
-    assert_eq!(gamma0.len(), dataset.len());
-    let mut model0 = construct_model(&dataset, &gamma0, k);
-    let mut model1 = construct_model(&dataset, &gamma1, k);
-    let mut lk = calc_lk(&dataset[border..], &model0, &model1, w0, w1, c);
-    let ep = 0.001;
-    debug!("Start");
-    debug!("{}\t{}", model0, model1);
-    debug!("{:.4}\t{:.4}", w0, w1);
-    debug!("LK:{:.4}", lk);
-    for _ in 0..10 {
-        // for (g0, g1) in gamma0.iter().zip(gamma1.iter()) {
-        //     debug!("{:.3}\t{:.3}", g0, g1);
-        // }
-        for (idx, chunk) in dataset.iter().enumerate().skip(border) {
-            let log_m0 = model0.forward(chunk, c);
-            let log_m1 = model1.forward(chunk, c);
-            // debug!("Time:{:?}", Instant::now() - s);
-            let w = logsum(log_m0, log_m1, w0, w1);
-            gamma0[idx] = (w0.ln() + log_m0 - w).exp();
-            gamma1[idx] = (w1.ln() + log_m1 - w).exp();
-            assert!((gamma0[idx] + gamma1[idx] - 1.).abs() < 0.001);
-        }
-        let tot = gamma0.iter().chain(gamma1.iter()).sum::<f64>();
-        w0 = gamma0.iter().sum::<f64>() / tot;
-        w1 = gamma1.iter().sum::<f64>() / tot;
-        model0 = construct_model(&dataset, &gamma0, k);
-        model1 = construct_model(&dataset, &gamma1, k);
-        let next_lk = calc_lk(&dataset[border..], &model0, &model1, w0, w1, c);
-        if (lk - next_lk).abs() < ep {
-            break;
-        } else {
-            lk = next_lk;
-        }
-        debug!("Update");
-        debug!("{}\t{}", model0, model1);
-        debug!("{}\t{}", w0, w1);
-        debug!("LK:{:.4}", lk);
-    }
-    gamma0.iter().map(|&f| f > 0.5).collect()
+fn em_pred(dataset: &[Vec<u8>], label: &[bool], k: usize, c: &Config) -> Vec<bool> {
+    let label: Vec<_> = label.iter().map(|&e| if e { 0 } else { 1 }).collect();
+    let data:Vec<_> = dataset
+        .iter()
+        .map(|chunk| {
+            let read = vec![chunk.to_vec()];
+            last_decompose::ERead::new_with_lowseq(read, "test")
+        })
+        .collect();
+    let forbidden = vec![vec![]; data.len()];
+    let answer = vec![0; data.len()];
+    last_decompose::clustering(&data, &label, &forbidden, k, 2, &[1], &answer, c)
+        .into_iter()
+        .map(|e| e == 0)
+        .collect()
 }
 
 fn naive_pred(
@@ -214,27 +182,3 @@ fn naive_pred(
     }
 }
 
-fn construct_model(dataset: &[Vec<u8>], ws: &[f64], k: usize) -> DBGHMM {
-    let mut f = Factory::new();
-    let d: Vec<_> = dataset.iter().map(|e| e.as_slice()).collect();
-    f.generate_with_weight_prior(&d, ws, k)
-}
-
-fn calc_lk(dataset: &[Vec<u8>], m0: &DBGHMM, m1: &DBGHMM, w0: f64, w1: f64, c: &Config) -> f64 {
-    dataset
-        .iter()
-        .map(|chunk| {
-            let m0 = m0.forward(chunk, c);
-            let m1 = m1.forward(chunk, c);
-            logsum(m0, m1, w0, w1)
-        })
-        .sum::<f64>()
-}
-
-fn logsum(l0: f64, l1: f64, w0: f64, w1: f64) -> f64 {
-    // Log (w0 * exp(l0) + w1 * exp(l1))
-    let f1 = w0.ln() + l0;
-    let f2 = w1.ln() + l1;
-    let m = f1.max(f2);
-    m + ((f1 - m).exp() + (f2 - m).exp()).ln()
-}

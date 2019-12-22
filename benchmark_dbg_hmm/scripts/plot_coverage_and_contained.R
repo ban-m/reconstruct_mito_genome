@@ -1,9 +1,16 @@
 library("tidyverse")
+loadNamespace("cowplot")
+generalplot <- function(g,name){
+    cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
+                    plot = g + cowplot::theme_cowplot())
+    cowplot::ggsave(filename = paste0("./png/",name,".png"),
+                    plot = g + cowplot::theme_cowplot())
+}
 dataset <- read_tsv("./result/coverage_and_contained_self.tsv")
 g <- dataset %>% filter(Coverage > 1) %>% sample_frac(0.1) %>%
     gather(key = Type, value = LK, -Coverage, -Seed) %>%
     ggplot() + geom_point(aes(x=Coverage, y = LK, color= Type),alpha=0.3)
-
+generalplot(g,"coverage_and_contained_overview")
 
 tempdf <- dataset %>%
     mutate(diff = ContainedSelf - NotContained) %>%
@@ -28,4 +35,4 @@ g <- dataset %>% filter(Coverage > 1) %>% sample_frac(0.1) %>%
     mutate(ContainedSelf = ContainedSelf - exp(param[1]*Coverage + param[2])) %>% 
     gather(key = Type, value = LK, -Coverage, -Seed) %>%
     ggplot() + geom_point(aes(x=Coverage, y = LK, color= Type),alpha=0.3)
-
+generalplot(g, "coverage_and_contained_calib")
