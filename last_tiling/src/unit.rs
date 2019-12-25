@@ -47,10 +47,6 @@ impl EncodedRead {
             _ => false,
         })
     }
-    // pub fn to_forward(&self)->Self{
-    // }
-    // pub fn fill_gap(&self)->Self{
-    // }
     /// Determine the direction of this read with respect to given contig.
     /// Note that it can be happen that this read is forward wrt contig0,
     /// while reverse wrt contig1.(contig representation is ambiguous).

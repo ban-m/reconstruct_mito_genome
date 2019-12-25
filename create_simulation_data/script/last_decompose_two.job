@@ -3,13 +3,13 @@
 #$ -N DecTwo
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/last_decompose_vb_prior.log
-#$ -o ./logfiles/last_decompose_vb_prior.log
+#$ -e ./logfiles/last_decompose_vb_ave.log
+#$ -o ./logfiles/last_decompose_vb_ave.log
 #$ -V
 #$ -m e
 set -ue
-OUTPUT=./result/last_decompose_vb_prior.txt
-OUTLOG_PREFIX=./logfiles/last_decompose_vb_prior
+OUTPUT=./result/last_decompose_vb_ave.txt
+OUTLOG_PREFIX=./logfiles/last_decompose_vb_ave
 # RUSTFLAGS="-C target-cpu=native" cargo build --release
 
 echo "-----start-----" >> ${OUTPUT}

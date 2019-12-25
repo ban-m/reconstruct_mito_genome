@@ -15,9 +15,10 @@ outputname <- args[2]
 
 dataset <- read_tsv(filename,col_names = FALSE) %>% 
     nest(-X1) %>% select(-c(1)) %>% 
-    mutate(class = factor(row_number())) %>%
-    mutate(data = map(data, function(x) x %>% mutate(iter = 1:dim(x)[1]))) %>% 
-    unnest()
+    mutate(Replicate = factor(row_number())) %>%
+    mutate(data = map(data, function(x) x %>% mutate(Iteration = 1:dim(x)[1]))) %>% 
+    unnest() %>%
+    rename(LogLikelihood = X2) 
 
-g <- dataset %>% ggplot() + geom_line(aes(x = iter, y = X2, color = class))
+g <- dataset %>% ggplot() + geom_line(aes(x = Iteration, y = LogLikelihood, color = Replicate))
 generalplot(g, outputname)

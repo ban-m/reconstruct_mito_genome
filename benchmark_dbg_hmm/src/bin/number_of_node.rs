@@ -21,7 +21,7 @@ fn main() {
     for i in 1..num_seq {
         let ms: Vec<_> = data[..i].iter().map(|e| e.as_slice()).collect();
         let w = vec![1.; i];
-        let m = f.generate_with_weight_prior(&ms, &w, k);
+        let m = f.generate_with_weight_prior(&ms, &w, k, &mut vec![]);
         println!("{}\t{}\t{}\t{}\tW", i, m.node_num(), m.edge_num(), m.weight());
     }
 }

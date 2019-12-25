@@ -35,9 +35,9 @@ fn main() {
                         .zip(tests.chunks_exact(coverage))
                         .flat_map(|(data, test)| {
                             let m1: Vec<_> = data.iter().map(|e| e.as_slice()).collect();
-                            let m1 = f.generate_with_weight_prior(&m1, &weight[..coverage], k);
+                            let m1 = f.generate_with_weight_prior(&m1, &weight[..coverage], k, &mut vec![]);
                             let m2: Vec<_> = test.iter().map(|e| e.as_slice()).collect();
-                            let m2 = f.generate_with_weight_prior(&m2, &weight[..coverage], k);
+                            let m2 = f.generate_with_weight_prior(&m2, &weight[..coverage], k, &mut vec![]);
                             test.iter()
                                 .map(|t| {
                                     let m1 = m1.forward(t, &DEFAULT_CONFIG);

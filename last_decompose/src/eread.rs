@@ -100,6 +100,7 @@ impl ERead {
                     && is_gap_size_moderate
                 {
                     // we can fill the gap!
+                    debug!("Fill gap!");
                     let contig = prev.contig;
                     let unit = if prev.is_forward() {
                         prev.unit + 1
@@ -121,8 +122,6 @@ impl ERead {
             None
         });
         e_seq.extend(e_read);
-        // Check whether it has head clip.
-        // maybe we should rescue the first short gap as a... NO?
         let has_tail_clip = match seq.last() {
             Some(ChunkedUnit::Gap(ref gap)) if gap.len() > CLIP_THR => true,
             Some(ChunkedUnit::Gap(_)) => false,
@@ -132,7 +131,6 @@ impl ERead {
             }
             None => false,
         };
-
         Self {
             id,
             seq: e_seq,

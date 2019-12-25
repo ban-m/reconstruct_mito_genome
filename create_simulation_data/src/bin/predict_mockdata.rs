@@ -2,7 +2,6 @@ extern crate bio_utils;
 extern crate create_simulation_data;
 extern crate dbg_hmm;
 extern crate last_tiling;
-extern crate rayon;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
@@ -10,13 +9,11 @@ extern crate last_decompose;
 extern crate rand;
 extern crate rand_xoshiro;
 use bio_utils::fasta::Record;
-use create_simulation_data::*;
 use last_decompose::clustering;
 use last_tiling::Contigs;
 use last_tiling::LastTAB;
 use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoroshiro128StarStar;
-use rayon::prelude::*;
 use std::collections::HashMap;
 use std::io::{BufWriter, Write};
 const K: usize = 6;
@@ -68,10 +65,8 @@ fn main() -> std::io::Result<()> {
     let (training, testset): (Vec<_>, Vec<_>) = if args[4] == "random" {
         debug!("Random mode");
         let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1893749823);
-        let (training, testset): (Vec<_>, Vec<_>) = reads
-            .into_iter()
-            .filter(|r| r.len() > 15_000)
-            .partition(|_| rng.gen_bool(0.2));
+        let (training, testset): (Vec<_>, Vec<_>) =
+            reads.into_iter().partition(|_| rng.gen_bool(0.27));
         (training, testset)
     } else {
         debug!("Half mode");
@@ -120,7 +115,7 @@ fn predict(
     ans: &HashMap<String, bool>,
     config: &dbg_hmm::Config,
 ) -> Option<Vec<(String, u8)>> {
-    let (_is_original, data, border) = setup(training, tests, alignments, contig);
+    let (data, border) = setup(training, tests, alignments, contig);
     let answer: Vec<_> = data.iter().map(|e| ans[e.id()]).collect::<Vec<_>>();
     let label: Vec<u8> = answer[..border]
         .iter()
@@ -131,8 +126,6 @@ fn predict(
         .map(|e| contig.get_last_unit(e as u16).unwrap() as usize + 1)
         .collect();
     debug!("{:?}", contigs);
-
-    //    let c = &BADREAD_CONFIG;
     let result = {
         let answer: Vec<_> = answer
             .iter()
@@ -157,19 +150,7 @@ fn setup(
     tests: Vec<Record>,
     alns: Vec<LastTAB>,
     contig: &Contigs,
-) -> (Vec<bool>, Vec<last_decompose::ERead>, usize) {
-    let is_original: Vec<_> = training
-        .iter()
-        .map(|read| {
-            read.desc()
-                .unwrap()
-                .split(',')
-                .nth(0)
-                .unwrap()
-                .contains("sample1")
-        })
-        .chain(vec![false; tests.len()])
-        .collect();
+) -> (Vec<last_decompose::ERead>, usize) {
     let mut training: Vec<_> = last_tiling::encoding(&training, &contig, &alns);
     let mut tests: Vec<_> = last_tiling::encoding(&tests, contig, &alns);
     tests.sort_by_key(|read| {
@@ -182,79 +163,9 @@ fn setup(
     });
     let training_size = training.len();
     training.append(&mut tests);
-    //let data: Vec<_> = training.into_iter().map(ERead::new).collect();
     let data: Vec<_> = training
         .into_iter()
-        .map(last_decompose::ERead::new)
+        .map(last_decompose::ERead::new_no_gapfill)
         .collect();
-    (is_original, data, training_size)
-}
-
-#[allow(dead_code)]
-fn compute_likelihood(data: &[ERead], is_original: &[bool], len: usize) -> Vec<f64> {
-    let chunks = construct_predictors_simple(data, is_original, len);
-    is_original
-        .par_iter()
-        .zip(data.par_iter())
-        .map(|(is_ori, read)| {
-            read.seq()
-                .iter()
-                .filter_map(|e| {
-                    let u = e.unit as usize;
-                    let ref refs = if *is_ori { &chunks[u].0 } else { &chunks[u].1 };
-                    if refs.len() < 10 {
-                        return None;
-                    }
-                    let query = e.bases();
-                    Some(unit_predict(&query, &refs, K))
-                })
-                .sum::<f64>()
-        })
-        .collect()
-}
-
-#[allow(dead_code)]
-fn compute_likelihood_diff(data: &[ERead], is_original: &[bool], len: usize) -> Vec<f64> {
-    let chunks = construct_predictors_simple(data, is_original, len);
-    is_original
-        .par_iter()
-        .zip(data.par_iter())
-        .map(|(is_ori, read)| {
-            read.seq()
-                .iter()
-                .filter_map(|e| {
-                    let u = e.unit as usize;
-                    let (ref ori, ref muta) = &chunks[u];
-                    if ori.len() < 10 || muta.len() < 10 {
-                        return None;
-                    }
-                    let query = e.bases();
-                    let o = unit_predict(&query, &ori, K);
-                    let m = unit_predict(&query, &muta, K);
-                    let diff = if *is_ori { o - m } else { m - o };
-                    Some(diff)
-                })
-                .sum::<f64>()
-        })
-        .collect()
-}
-
-fn construct_predictors_simple<'a>(
-    data: &'a [ERead],
-    is_original: &[bool],
-    len: usize,
-) -> Vec<(Vec<&'a [u8]>, Vec<&'a [u8]>)> {
-    let mut chunks = vec![(vec![], vec![]); len];
-    for (&is_original, read) in is_original.iter().zip(data.iter()) {
-        for unit in read.seq().iter() {
-            let u = unit.unit as usize;
-            let seq = unit.bases();
-            if is_original {
-                chunks[u].0.push(seq);
-            } else {
-                chunks[u].1.push(seq);
-            }
-        }
-    }
-    chunks
+    (data, training_size)
 }

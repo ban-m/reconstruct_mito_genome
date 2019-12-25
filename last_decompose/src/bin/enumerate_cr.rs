@@ -33,5 +33,32 @@ fn main() -> std::io::Result<()> {
     let wtr = std::io::stdout();
     let mut wtr = std::io::BufWriter::new(wtr.lock());
     serde_json::ser::to_writer_pretty(&mut wtr, &result).unwrap();
+    debug!("Enumerating all co-occurence of Critical Regions");
+    use last_decompose::CriticalRegion;
+    use std::collections::HashMap;
+    let result: HashMap<Vec<&CriticalRegion>, u32> = reads
+        .iter()
+        .filter_map(|read| {
+            let mut along_crs: Vec<&CriticalRegion> =
+                result.iter().filter(|cr| cr.along_with(read)).collect();
+            along_crs.sort();
+            if along_crs.len() > 1 {
+                Some(along_crs)
+            } else {
+                None
+            }
+        })
+        .fold(HashMap::new(), |mut current, x| {
+            current.entry(x).and_modify(|e| *e += 1).or_insert(1);
+            current
+        });
+    info!("Dump Critical regions which co-occured in reads with counts.");
+    for (crs, count) in result.into_iter().filter(|&(_, count)| count > 5) {
+        info!("The CR below appeared in {} times in the dataset.", count);
+        for cr in crs {
+            eprintln!("{}  ->", cr);
+        }
+        info!("");
+    }
     Ok(())
 }

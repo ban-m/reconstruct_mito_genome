@@ -26,6 +26,6 @@ do
     DATA_DIR=${ROOT}/result/${accession}
     lastalign ${DATA_DIR}/filtered_read.fasta ${DATA_DIR}/last_db/reference \
               ${DATA_DIR}/last_db/reference.matrix \
-              ${DATA_DIR}/alignments.maf
+              ${DATA_DIR}/last_db/initial.maf
 done
 

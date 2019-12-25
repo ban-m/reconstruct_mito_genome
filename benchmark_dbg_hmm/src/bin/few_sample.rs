@@ -102,8 +102,8 @@ fn benchmark(
         .collect();
     let weight1 = vec![vec![1.; num_seq], vec![0.; num_seq]].concat();
     let weight2 = vec![vec![0.; num_seq], vec![1.; num_seq]].concat();
-    let model1 = f.generate_with_weight_prior(&data, &weight1, k);
-    let model2 = f.generate_with_weight_prior(&data, &weight2, k);
+    let model1 = f.generate_with_weight_prior(&data, &weight1, k,&mut vec![]);
+    let model2 = f.generate_with_weight_prior(&data, &weight2, k, &mut vec![]);
     let correct = tests
         .iter()
         .filter(|&(ans, ref test)| {

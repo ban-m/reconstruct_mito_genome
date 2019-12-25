@@ -1,11 +1,14 @@
 extern crate last_tiling;
 #[macro_use]
 extern crate serde;
+extern crate env_logger;
 extern crate last_decompose;
+extern crate log;
 extern crate serde_json;
 use last_decompose::find_breakpoint::ReadClassify;
 use std::io::{BufReader, BufWriter};
 fn main() -> std::io::Result<()> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let args: Vec<_> = std::env::args().collect();
     let contigs: last_tiling::Contigs =
         serde_json::de::from_reader(std::fs::File::open(&args[1]).map(BufReader::new)?).unwrap();
@@ -19,6 +22,9 @@ fn main() -> std::io::Result<()> {
             .collect();
         last_decompose::critical_regions(&reads, &contigs, &repeats)
     };
+    for cr in &cr {
+        eprintln!("CR:{:?}", cr);
+    }
     let contigs = summarize_contig(&contigs, &reads);
     let reads = summarize_reads(&reads, &cr);
     let summary = Summary {
@@ -103,8 +109,8 @@ struct Read {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 enum Unit {
     // The size of the gap
-    Gap(usize),
-    Encode(u16, u16),
+    G(usize),
+    E(u16, u16),
 }
 
 fn summarize_reads(
@@ -119,8 +125,8 @@ fn summarize_reads(
                 .seq()
                 .into_iter()
                 .map(|e| match e {
-                    last_tiling::unit::ChunkedUnit::Gap(gp) => Unit::Gap(gp.len()),
-                    last_tiling::unit::ChunkedUnit::En(en) => Unit::Encode(en.contig, en.unit),
+                    last_tiling::unit::ChunkedUnit::Gap(gp) => Unit::G(gp.len()),
+                    last_tiling::unit::ChunkedUnit::En(en) => Unit::E(en.contig, en.unit),
                 })
                 .collect(),
             cluster: get_cluster(read, cr),

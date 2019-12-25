@@ -9,8 +9,8 @@ const REP1: (usize, usize) = (4193, 199_390);
 const REP2: (usize, usize) = (56_409, 258_637);
 // 0.1%, 0.45%, 0.45%.
 const SUB: f64 = 0.003;
-const DEL: f64 = 0.003;
-const IN: f64 = 0.003;
+const DEL: f64 = 0.004;
+const IN: f64 = 0.004;
 
 fn main() -> std::io::Result<()> {
     let args: Vec<_> = std::env::args().collect();

@@ -57,10 +57,11 @@ impl std::fmt::Display for DBGHMM {
             .sum::<usize>();
         write!(
             f,
-            "K:{}\tNodes:{}\tEdges:{}",
+            "K:{}\tNodes:{}\tEdges:{}\tWeight:{:.3}",
             self.k,
             self.nodes.len(),
-            edges
+            edges,
+            self.weight
         )
     }
 }
@@ -522,7 +523,7 @@ mod tests {
                 //assert!(lk1 < lk2, "{},{},{}", lk1, lk2, i);
             })
             .count();
-        assert!(correct >= num *4  / 5, "{}", correct);
+        assert!(correct >= num * 4 / 5, "{}", correct);
     }
     #[test]
     fn single_error_test() {
@@ -645,7 +646,7 @@ mod tests {
         cov: usize,
         f: &mut Factory,
     ) -> usize {
-        let mut buf  = vec![];
+        let mut buf = vec![];
         let model1: Vec<_> = (0..cov)
             .map(|_| introduce_randomness(&t1, rng, &PROFILE))
             .collect();

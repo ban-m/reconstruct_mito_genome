@@ -3,37 +3,62 @@ extern crate env_logger;
 extern crate rayon;
 #[macro_use]
 extern crate log;
-use rayon::prelude::*;
+// use rayon::prelude::*;
 const SD: f64 = 8.;
-use std::collections::HashMap;
+// use std::collections::HashMap;
 use std::io::{BufWriter, Write};
-use std::sync::{Arc, Mutex};
+// use std::sync::{Arc, Mutex};
 fn main() -> std::io::Result<()> {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let args: Vec<_> = std::env::args().collect();
+    let mismatch_prob: f64 = args[2].parse().unwrap();
     let maf: Vec<_> = bio_utils::maf::Reader::from_file(&args[1])?
         .records()
         .filter_map(|e| e.ok())
         .collect();
-    let mismatch_prob: f64 = args[2].parse().unwrap();
-    let alns: Vec<_> = maf.into_iter().filter_map(Aln::new).collect();
+    let subst: Vec<_> = maf.clone().into_iter().filter_map(Aln::new).collect();
+    let ins: Vec<_> = maf.clone().into_iter().filter_map(Ins::new).collect();
+    let del: Vec<_> = maf.clone().into_iter().filter_map(Del::new).collect();
     let mut pileups: Vec<_> = (0..1_000_000).map(PileUp::new).collect();
-    debug!("Converted {} alignments into minimal mode", alns.len());
+    let mut pileups_ins: Vec<_> = (0..1_000_000).map(PileUp::new).collect();
+    let mut pileups_del: Vec<_> = (0..1_000_000).map(PileUp::new).collect();
+    debug!("Converted {} alignments into minimal mode", subst.len());
     debug!("Register each alignment into pileups");
-    for aln in &alns {
+    let mut max = 0;
+    for aln in &subst {
         for (idx, base) in aln.seq.iter().enumerate() {
             pileups
                 .get_mut(idx + aln.start)
                 .map(|e| e.push(*base))
                 .unwrap();
+            max = idx.max(max);
+        }
+    }
+    for aln in ins {
+        for &(idx, base) in aln.seq.iter() {
+            pileups_ins.get_mut(idx).map(|e| e.push(base)).unwrap();
+        }
+    }
+    for aln in del {
+        for &(idx, base) in aln.seq.iter() {
+            pileups_del.get_mut(idx).map(|e| e.push(base)).unwrap();
         }
     }
     debug!("Write information on {}", &args[3]);
+    let mut wtr = BufWriter::new(std::fs::File::create(&args[3])?);
+    writeln!(&mut wtr, "Pos\tMAF\tCoverage\tType")?;
+    for ((s, i), d) in pileups
+        .iter()
+        .take_while(|e| e.pos <= max)
+        .zip(pileups_ins.iter())
+        .zip(pileups_del.iter())
     {
-        let mut wtr = BufWriter::new(std::fs::File::create(&args[3])?);
-        for v in pileups.iter().filter(|&e| e.coverage() > 20) {
-            writeln!(&mut wtr, "{}\t{}", v.pos, v.maf())?;
-        }
+        assert!(s.pos == i.pos && i.pos == d.pos);
+        writeln!(&mut wtr, "{}\t{}\t{}\tSub", s.pos, s.maf(), s.coverage())?;
+        let ins = i.coverage() as f64 / (s.coverage() + i.coverage()) as f64;
+        writeln!(&mut wtr, "{}\t{}\t{}\tIns", i.pos, ins, i.coverage())?;
+        let del = d.coverage() as f64 / (s.coverage() + d.coverage()) as f64;
+        writeln!(&mut wtr, "{}\t{}\t{}\tDel", d.pos, del, d.coverage())?;
     }
     // debug!("Calling Variants");
     // let variants: Vec<_> = pileups
@@ -116,11 +141,8 @@ impl std::fmt::Display for PileUp {
         )
     }
 }
-
+const BASES: &[u8; 4] = b"ACGT";
 impl PileUp {
-    // fn nonzero(&self) -> bool {
-    //     self.composition.iter().sum::<usize>() != 0
-    // }
     fn coverage(&self) -> usize {
         self.composition.iter().sum::<usize>()
     }
@@ -190,7 +212,7 @@ struct Aln {
     seq: Vec<u8>,
 }
 
-const BASES: [u8; 5] = *b"ACGT-";
+// const BASES: [u8; 5] = *b"ACGT-";
 impl Aln {
     fn new(aln: bio_utils::maf::Record) -> Option<Self> {
         if aln.score()? < 1_000. {
@@ -220,5 +242,88 @@ impl Aln {
     }
     fn is_minor(&self, v: &PileUp, b: u8) -> bool {
         self.seq[v.pos - self.start] == b
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Ins {
+    start: usize,
+    seq: Vec<(usize, u8)>,
+}
+
+impl Ins {
+    fn new(aln: bio_utils::maf::Record) -> Option<Self> {
+        if aln.score()? < 1_000. {
+            return None;
+        };
+        let start = aln.sequence()[0].start() as usize;
+        let mut pos = start;
+        let mut is_ins = false;
+        let seq = aln.sequence()[0]
+            .text()
+            .iter()
+            .zip(aln.sequence()[1].text().iter())
+            .filter_map(|(&rfr, &qry)| match (rfr == b'-', is_ins) {
+                (true, false) => {
+                    is_ins = true;
+                    Some((pos, qry.to_ascii_uppercase()))
+                }
+                (false, true) => {
+                    is_ins = false;
+                    pos += 1;
+                    None
+                }
+                (true, true) => None,
+                (false, false) => {
+                    pos += 1;
+                    None
+                }
+            })
+            .collect();
+        Some(Self { seq, start })
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Del {
+    start: usize,
+    seq: Vec<(usize, u8)>,
+}
+
+impl Del {
+    fn new(aln: bio_utils::maf::Record) -> Option<Self> {
+        if aln.score()? < 1_000. {
+            return None;
+        };
+        let start = aln.sequence()[0].start() as usize;
+        let mut pos = start;
+        let mut is_del = false;
+        let seq = aln.sequence()[0]
+            .text()
+            .iter()
+            .zip(aln.sequence()[1].text().iter())
+            .filter_map(|(&rfr, &qry)| match (qry == b'-', is_del) {
+                (true, false) => {
+                    is_del = true;
+                    pos += 1;
+                    Some((pos - 1, rfr.to_ascii_uppercase()))
+                }
+                (false, true) => {
+                    is_del = false;
+                    pos += (rfr != b'-') as usize;
+                    None
+                }
+                (true, true) => {
+                    pos += 1;
+                    None
+                }
+                (false, false) => {
+                    is_del = false;
+                    pos += (rfr != b'-') as usize;
+                    None
+                }
+            })
+            .collect();
+        Some(Self { seq, start })
     }
 }

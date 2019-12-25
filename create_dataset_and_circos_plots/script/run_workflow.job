@@ -31,9 +31,8 @@ function lastalign () {
     lastdb -P ${CORES} -c $3 $1
     last-train -P ${CORES} $3 $2 > $3.matrix
     lastal -f TAB -P ${CORES} -Q0 -p $3.matrix $3 $2 > $4.tab
+    lastal -f MAF -P ${CORES} -Q0 -p $3.matrix $3 $2 > $4.maf
 }
-
-
 
 ### 0. Selecting reads ###
 
@@ -50,20 +49,21 @@ READ=${OUTPATH}/filtered_read.fasta
 mkdir -p ${OUTPATH}/last_db
 cd ${OUTPATH}/last_db
 
-## Map reads into reference.
+# Map reads into reference.
 lastalign ${REFERENCE} ${REFERENCE} reference self
 lastalign ${REFERENCE} ${READ} reference initial
 cd ${ROOT}
 cd ../mito_assembler/
-cargo run --release --bin split_repeat \
-      -- ${REFERENCE} ${OUTPATH}/last_db/self.tab \
-      > ${CONTIGS}
 
-## Next, map all reads into collpsed contigs.
-# cd ${OUTPATH}/last_db
-# lastalign ${CONTIGS} ${CONTIGS} no_repeat no_repeat_self
-# lastalign ${CONTIGS} ${READ} no_repeat no_repeat_reads
-# cd ${ROOT}
+
+# cargo run --release --bin split_repeat \
+#       -- ${REFERENCE} ${OUTPATH}/last_db/self.tab \
+#       > ${CONTIGS}
+# ## Next, map all reads into collpsed contigs.
+# # cd ${OUTPATH}/last_db
+# # lastalign ${CONTIGS} ${CONTIGS} no_repeat no_repeat_self
+# # lastalign ${CONTIGS} ${READ} no_repeat no_repeat_reads
+# # cd ${ROOT}
 
 
 ### 2. create circos plots and vizualize.

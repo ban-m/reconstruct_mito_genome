@@ -34,33 +34,37 @@ fn main() {
     let chain_len = 40;
     let k = 6;
     let len = 150;
-    let p = &gen_sample::Profile {
-        sub: 0.0015,
-        ins: 0.0015,
-        del: 0.0015,
-    };
-    use std::time::Instant;
-    println!("TestNum:{}\tLabeled:{}", test_num, coverage);
-    let s = Instant::now();
-    let (hmm, dists) = benchmark(
-        seed, p, coverage, test_num, chain_len, k, len, &probs, clusters,
-    );
-    debug!("Elapsed {:?}", Instant::now() - s);
-    for (idx, preds) in hmm.into_iter().enumerate() {
-        let tp = preds[idx];
-        let tot = preds.iter().sum::<u32>();
-        print!("Predicted as {}:", idx);
-        for ans in preds {
-            print!("{}\t", ans);
+    for p in 1..10 {
+        let p = p as f64 / 6000. + 0.001;
+        println!("ErrorRate:{:3}", p * 6.);
+        let p = &gen_sample::Profile {
+            sub: p,
+            ins: p,
+            del: p,
+        };
+        use std::time::Instant;
+        println!("TestNum:{}\tLabeled:{}", test_num, coverage);
+        let s = Instant::now();
+        let (hmm, dists) = benchmark(
+            seed, p, coverage, test_num, chain_len, k, len, &probs, clusters,
+        );
+        debug!("Elapsed {:?}", Instant::now() - s);
+        for (idx, preds) in hmm.into_iter().enumerate() {
+            let tp = preds[idx];
+            let tot = preds.iter().sum::<u32>();
+            print!("Predicted as {}:", idx);
+            for ans in preds {
+                print!("{}\t", ans);
+            }
+            println!("Total:{:.4}", tp as f64 / tot as f64);
         }
-        println!("Total:{:.4}", tp as f64 / tot as f64);
-    }
-    for (idx, ds) in dists.into_iter().enumerate() {
-        print!("Distance from {}:", idx);
-        for d in ds {
-            print!("{}\t", d);
+        for (idx, ds) in dists.into_iter().enumerate() {
+            print!("Distance from {}:", idx);
+            for d in ds {
+                print!("{}\t", d);
+            }
+            println!();
         }
-        println!();
     }
 }
 
@@ -116,22 +120,9 @@ fn benchmark(
             ERead::new_with_lowseq(e, &id)
         })
         .collect();
-    {
-        let answer: Vec<_> = label.iter().chain(answer.iter()).copied().collect();
-        let objlk = likelihood_of_assignments(&data, &answer, k, clusters, &contigs, c);
-        debug!("ObjLK:{}", objlk);
-    }
-    {
-        let probs: Vec<_> = probs.iter().map(|e| format!("{:3}", e)).collect();
-        debug!("Probs:[{}]", probs.join(","));
-    };
     let forbidden = vec![vec![]; data.len()];
     let em_pred = clustering(&data, &label, &forbidden, k, clusters, &contigs, &answer, c);
     let mut result = vec![vec![0; clusters]; clusters];
-    for i in 0..clusters {
-        let tot = answer.iter().filter(|&&e| e as usize == i).count();
-        debug!("Cluster {}:{}", i, tot);
-    }
     for (pred, ans) in em_pred.into_iter().zip(answer) {
         result[pred as usize][ans as usize] += 1;
     }

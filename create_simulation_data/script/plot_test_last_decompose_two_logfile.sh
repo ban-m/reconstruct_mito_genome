@@ -4,6 +4,7 @@ do
     for readnum in 100 300
     do
         cat ./logfiles/last_decompose_vb_prior.${frac}.${readnum}.log |\
+            grep Summary |\
             grep -v ID |\
             cut -f 2- > ./result/last_decompose_vb_prior_${frac}_${readnum}_log.tsv
         Rscript --vanilla --slave ./script/plot_test_last_decompose_two_logfile.R \
@@ -12,13 +13,12 @@ do
     done
 done
 
-exit 0;
-
 for frac in skew even
 do
     for readnum in 100 300
     do
         cat ./logfiles/last_decompose_multi_vb_prior.${frac}.${readnum}.log |\
+            grep Summary |\
             grep -v ID |\
             cut -f 2- > ./result/last_decompose_multi_vb_prior_${frac}_${readnum}_log.tsv
         Rscript --vanilla --slave ./script/plot_test_last_decompose_two_logfile.R \

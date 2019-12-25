@@ -10,9 +10,9 @@ fn main() -> std::io::Result<()> {
     let seed = 2312789;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let p = &gen_sample::Profile {
-        sub: 0.003,
-        ins: 0.003,
-        del: 0.003,
+        sub: 0.004,
+        ins: 0.004,
+        del: 0.004,
     };
     let reference_len: usize = args[1].parse().unwrap();
     let template1 = gen_sample::generate_seq(&mut rng, reference_len);

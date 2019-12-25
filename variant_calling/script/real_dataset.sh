@@ -9,11 +9,11 @@ do
     mkdir -p ${OUTPATH}
     REFERENCE=${DATA_DIR}/NC_037304_1_split.fa
     TAB=${DATA_DIR}/${accession}/last_db/initial.tab
-    MAF=${DATA_DIR}/${accession}/alignments.maf
+    MAF=${DATA_DIR}/${accession}/last_db/initial.maf
     qsub -sync yes ./script/workflow_minimal.job \
-            ${READ}\
-            ${OUTPATH}\
-            ${REFERENCE} \
-            ${TAB}\
-            ${MAF}
+         ${READ}\
+         ${OUTPATH}\
+         ${REFERENCE} \
+         ${TAB}\
+         ${MAF}
 done

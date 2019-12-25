@@ -37,9 +37,9 @@ fn main() {
         .map(|i| {
             let w = vec![1.; i];
             let m: Vec<_> = data[..i].iter().map(|e| e.as_slice()).collect();
-            let m = f.generate_with_weight_prior(&m, &w, k);
+            let m = f.generate_with_weight_prior(&m, &w, k, &mut vec![]);
             let d: Vec<_> = data_diff[..i].iter().map(|e| e.as_slice()).collect();
-            let d = f.generate_with_weight_prior(&d, &w, k);
+            let d = f.generate_with_weight_prior(&d, &w, k, &mut vec![]);
             let correct = (0..100)
                 .map(|_| {
                     let q = introduce_randomness(&template, &mut rng, &PROFILE);

@@ -20,6 +20,17 @@ pub const DEFAULT_CONFIG: Config = Config {
     p_del_to_ins: 0.06,
 };
 
+pub const STRICT_CONFIG: Config = Config {
+    mismatch: 0.02,
+    base_freq: [0.25, 0.25, 0.25, 0.25],
+    p_match: 0.95,
+    p_ins: 0.03,
+    p_del: 0.02,
+    p_extend_ins: 0.03,
+    p_extend_del: 0.02,
+    p_del_to_ins: 0.02,
+};
+
 pub const PACBIO_CONFIG: Config = Config {
     mismatch: 0.0341,
     base_freq: [0.28, 0.22, 0.22, 0.28],

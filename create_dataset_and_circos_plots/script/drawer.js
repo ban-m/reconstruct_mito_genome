@@ -1,7 +1,7 @@
 const width = 1000;
 const height = 1000;
 // Margin in radian
-const theta_margin = 0.15;
+const theta_margin = 0.01;
 // const theta_margin = 0;
 const gap_position = 0.05;
 // the height of a contigs.
@@ -132,24 +132,24 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
     // Input: JSON object, Array[Array[Num]], d3.scale, Array[Num], Num
     // Output: String
     // Requirements: read should have units attribute, each of which elements
-    // should have either "Gap" or "Encode"
+    // should have either "G"(for Gap) or "E"(for Encode)
     let path = d3.path();
     let units = Array.from(read.units).reverse();
-    const r = read_radius; //  + (read['cluster'] + 1) * 10 ; // + jitters();
+    const r = read_radius - (read['cluster'] + 1) ; // + jitters();
     let gap = 0;
     let unit = {};
-    while(!unit.hasOwnProperty("Encode")){
+    while(!unit.hasOwnProperty("E")){
         unit = units.pop();
         if (unit == undefined){
             return "";
-        }else if (unit.hasOwnProperty("Gap")){
-            gap = unit.Gap;
+        }else if (unit.hasOwnProperty("G")){
+            gap = unit.G;
         }
     };
     // Current ID of the contig 
-    let contig = unit.Encode[0];
+    let contig = unit.E[0];
     let start = start_pos[contig] - Math.PI/2;
-    let radian = start + bp_scale(unit_length*unit.Encode[1]);
+    let radian = start + bp_scale(unit_length*unit.E[1]);
     if (gap != 0){
         path.moveTo(gap_scale(gap) * Math.cos(radian), gap_scale(gap)*Math.sin(radian));
         path.lineTo(read_radius * Math.cos(radian), read_radius * Math.sin(radian));
@@ -158,14 +158,14 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
     }
     // gap = 0;
     for (unit of units.reverse()){
-        if (unit.hasOwnProperty("Gap")){
-            // if (unit.Gap > unit_length * 2){
-            //     gap = unit.Gap;
+        if (unit.hasOwnProperty("G")){
+            // if (unit.G > unit_length * 2){
+            //     gap = unit.G;
             // }
             continue;
         }
-        if (unit.Encode[0] == contig){
-            radian = start + bp_scale(unit_length*unit.Encode[1]);
+        if (unit.E[0] == contig){
+            radian = start + bp_scale(unit_length*unit.E[1]);
             path.lineTo(r * Math.cos(radian), r*Math.sin(radian));
         }else{
             // Change contig. Connect them.
@@ -181,13 +181,13 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
             //     path.lineTo(r * Math.cos(new_radian), r * Math.sin(new_radian));
             // }
             // gap = 0;
-            const new_radian = start_pos[unit.Encode[0]];
-            radian = new_radian + bp_scale(unit_length*unit.Encode[1]) - Math.PI/2;
+            const new_radian = start_pos[unit.E[0]];
+            radian = new_radian + bp_scale(unit_length*unit.E[1]) - Math.PI/2;
             // Bezier Curve to new point from here.
-            const control_radius = handle_points[contig][unit.Encode[0]] - Math.PI/2;
+            const control_radius = handle_points[contig][unit.E[0]] - Math.PI/2;
             const control_x = handle_points_radius*Math.cos(control_radius);
             const control_y = handle_points_radius*Math.sin(control_radius);
-            contig = unit.Encode[0];
+            contig = unit.E[0];
             start = start_pos[contig] - Math.PI/2;
             path.quadraticCurveTo(control_x,control_y,r*Math.cos(radian),r*Math.sin(radian));
         }
@@ -203,12 +203,12 @@ const calcID = (read,unit_length)=>{
     // Returns the most assigned type of given read.
     const gap = read
           .units
-          .filter(unit => unit.hasOwnProperty("Gap"))
-          .reduce((g, unit) => g + unit.Gap,0);
+          .filter(unit => unit.hasOwnProperty("G"))
+          .reduce((g, unit) => g + unit.G,0);
     const summary = read
           .units
-          .filter(unit => unit.hasOwnProperty("Encode"))
-          .map(unit => unit.Encode[0])
+          .filter(unit => unit.hasOwnProperty("E"))
+          .map(unit => unit.E[0])
           .reduce((map,ctg)=>{
               if (map.has(ctg)){
                   map.set(ctg,map.get(ctg)+unit_length);
@@ -241,8 +241,8 @@ const selectRead = (read,unitlen) => {
     // Filter read as you like.
     const from = 0;
     const to = 1;
-    const set = new Set(read.units.filter(u => u.hasOwnProperty("Encode")).map(u => u.Encode[0]));
-    const max_gap = Math.max(...read.units.filter(u => u.hasOwnProperty("Gap")).map(u => u.Gap));
+    const set = new Set(read.units.filter(u => u.hasOwnProperty("E")).map(u => u.E[0]));
+    const max_gap = Math.max(...read.units.filter(u => u.hasOwnProperty("G")).map(u => u.G));
     return true;
     // return set.has(4) && set.size == 1;
     // return set.has(from) && set.has(to) && read.units.length > 15 ;
@@ -260,7 +260,7 @@ const getNumOfGapRead = reads => {
     return reads.filter(read => {
         let units = Array.from(read.units);
         let unit = {};
-        while(!unit.hasOwnProperty("Encode")){
+        while(!unit.hasOwnProperty("E")){
             unit = units.pop();
             if (unit == undefined){
                 return true;
@@ -379,13 +379,13 @@ const plotData = (dataset, repeats, unit_length) =>
               .attr("fill","none")
               .attr("opacity",0.3)
               .attr("stroke",read => {
-                  // return d3.schemeCategory10[read['cluster'] + 1];
-                  const identity = calcID(read,unit_length);
-                  if (identity.type == "Gap"){
-                      return "black";
-                  }else{
-                      return d3.schemeCategory10[identity.id % 10];
-                  }
+                  return d3.schemeCategory10[(read['cluster'] + 1) % 10];
+                  // const identity = calcID(read,unit_length);
+                  // if (identity.type == "Gap"){
+                  //     return "black";
+                  // }else{
+                  //     return d3.schemeCategory10[identity.id % 10];
+                  // }
               });
           info.append("div")
               .attr("class","numofgapread")

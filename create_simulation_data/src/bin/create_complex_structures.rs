@@ -14,8 +14,8 @@ fn main() -> std::io::Result<()> {
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let p = &gen_sample::Profile {
         sub: 0.003,
-        ins: 0.003,
-        del: 0.003,
+        ins: 0.004,
+        del: 0.004,
     };
     let reference_len: usize = args[1].parse::<usize>().unwrap() / 4;
     let outpath = &args[2];

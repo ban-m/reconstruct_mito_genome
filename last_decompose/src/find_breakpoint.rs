@@ -2,18 +2,28 @@ use super::ERead;
 use last_tiling::repeat::RepeatPairs;
 use last_tiling::Contigs;
 use serde::{Deserialize, Serialize};
+use std::cmp::{Ord, Ordering, PartialOrd};
 use std::collections::HashSet;
+use std::fmt::{Display, Formatter};
 /// The threshould used to determine whether two regions would be regarded as pairs.
-const READ_NUM: usize = 4;
+const READ_NUM: usize = 10;
 /// How many reads are needed to construct a separate class.
 /// Note that it should be more than 1, since there is a
 /// danger of chimeric reads.
 const CHECK_THR: u16 = 10;
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum CriticalRegion {
     CP(ContigPair),
     CR(ConfluentRegion),
-    // RJ(RepeatJunction),
+}
+
+impl Display for CriticalRegion {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match self {
+            CriticalRegion::CP(ref cp) => write!(f, "{}", cp),
+            CriticalRegion::CR(ref cr) => write!(f, "{}", cr),
+        }
+    }
 }
 
 // A trait to classify a given read.
@@ -51,7 +61,7 @@ impl ReadClassify for CriticalRegion {
 }
 
 /// The position at contigs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct Position {
     contig: u16,
     start_unit: u16,
@@ -59,7 +69,33 @@ pub struct Position {
     direction: Direction,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl Ord for Position {
+    fn cmp(&self, other: &Self) -> Ordering {
+        use Ordering::*;
+        if self.contig < other.contig {
+            return Less;
+        } else if self.contig > other.contig {
+            return Greater;
+        }
+        match (
+            self.start_unit.cmp(&other.start_unit),
+            self.end_unit.cmp(&other.end_unit),
+        ) {
+            (Less, _) | (Equal, Less) => return Less,
+            (Greater, _) | (Equal, Greater) => return Greater,
+            (Equal, Equal) => {}
+        }
+        self.direction.cmp(&other.direction)
+    }
+}
+
+impl PartialOrd for Position {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub enum Direction {
     UpStream,
     DownStream,
@@ -81,16 +117,31 @@ impl Position {
     pub fn contig(&self) -> u16 {
         self.contig
     }
+    fn format(&self, name: &str) -> String {
+        let (header, footer) = match self.direction {
+            Direction::DownStream => ("     ", "<--->"),
+            Direction::UpStream => ("<--->", "     "),
+        };
+        let s = format!("{:5}", self.start_unit);
+        let t = format!("{:5}", self.end_unit);
+        format!("{}{}:{}:{}{}", header, s, name, t, footer)
+    }
     fn is_spanned_by(&self, r: &ERead) -> bool {
         let s = self.start_unit;
         let t = self.end_unit;
-        let (s_thr, t_thr) = (s.max(CHECK_THR) - CHECK_THR, t + CHECK_THR);
+        let (s_thr, t_thr) = (
+            s.max(CHECK_THR as u16) - CHECK_THR as u16,
+            t + CHECK_THR as u16,
+        );
         r.does_touch(self.contig, s_thr, s) && r.does_touch(self.contig, t, t_thr)
     }
     fn along_with(&self, r: &ERead) -> bool {
         let s = self.start_unit;
         let t = self.end_unit;
-        let (s_thr, t_thr) = (s.max(CHECK_THR) - CHECK_THR, t + CHECK_THR);
+        let (s_thr, t_thr) = (
+            s.max(CHECK_THR as u16) - CHECK_THR as u16,
+            t + CHECK_THR as u16,
+        );
         let c = self.contig;
         match self.direction {
             Direction::DownStream => !r.does_touch(c, s_thr, s) && r.does_touch(c, t, t_thr),
@@ -99,10 +150,31 @@ impl Position {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct ContigPair {
     contig1: Position,
     contig2: Position,
+}
+
+impl Display for ContigPair {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        writeln!(f, "{}", self.contig1.format("Recom"))?;
+        write!(f, "{}", self.contig2.format("Recom"))
+    }
+}
+
+impl Ord for ContigPair {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.contig1.cmp(&other.contig1) {
+            Ordering::Equal => self.contig1.cmp(&other.contig2),
+            x => x,
+        }
+    }
+}
+impl PartialOrd for ContigPair {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 /// Return the maximum/minumum index of encoded read's unit with contig of `contig`.
@@ -174,10 +246,27 @@ impl ContigPair {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct ConfluentRegion {
     // Contains start and end position.
     pos: Position,
+}
+
+impl Display for ConfluentRegion {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.pos.format("Entry"))
+    }
+}
+
+impl Ord for ConfluentRegion {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.pos.cmp(&other.pos)
+    }
+}
+impl PartialOrd for ConfluentRegion {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl ConfluentRegion {
@@ -216,6 +305,7 @@ pub fn critical_regions(
     let num_of_contig = contigs.get_num_of_contigs() as u16;
     let mut regions = vec![];
     debug!("There are {} contigs", num_of_contig);
+    debug!("There are {} reads", reads.len());
     for c in contigs.names().iter() {
         debug!("->{}({}len)", c, contigs.get(c).unwrap().len());
     }
@@ -227,14 +317,6 @@ pub fn critical_regions(
             regions.extend(res);
         }
         debug!("Inner end");
-        // for to in from + 1..num_of_contig {
-        //     if let Some(res) = critical_regions_between(from, to, reads, contigs) {
-        //         for c in &res {
-        //             debug!("{:?}", c);
-        //         }
-        //         regions.extend(res);
-        //     }
-        // }
         debug!("Confluent region");
         if let Some(res) = critical_region_confluent(from, reads, contigs) {
             for c in &res {
@@ -282,30 +364,16 @@ fn critical_region_within(
     }
     let inner_region = {
         let inner_counts = inner_count.iter().map(|e| e.len()).collect::<Vec<_>>();
-        let inner_region = calculate_average_more_than(&inner_counts, READ_NUM as i32);
-        let inner_region = merge_overlap_and_remove_contained(inner_region);
-        let inner_region: Vec<_> = inner_region
+        let inner_region: Vec<_> = peak_detection(&inner_counts, READ_NUM)
             .into_iter()
-            .map(|(s, e)| tighten_up(s, e, &inner_counts))
-            .collect();
-        let repetitive_regions: Vec<_> = repeats
-            .iter()
-            .flat_map(|repeats| {
+            .chain(repeats.iter().flat_map(|repeats| {
                 (repeats
                     .inner()
                     .iter()
                     .map(|r| (r.start_in_unit() as usize, r.end_in_unit() as usize)))
-            })
-            .map(|(s, t)| (s.max(2) - 2, (t + 2).min(last_unit)))
+            }))
             .collect();
-        let inner_region: Vec<_> = inner_region.into_iter().chain(repetitive_regions).collect();
-        let inner_region = merge_overlap_and_remove_contained(inner_region);
-        let inner_region = inner_region
-            .into_iter()
-            .map(|(s, e)| (s.max(2) - 2, (e + 2).min(last_unit)))
-            .map(|(s, e)| (s as u16, e as u16))
-            .collect::<Vec<_>>();
-        merge_circular_genome(inner_region, last_unit)
+        merge_overlap_and_remove_contained(inner_region)
     };
     debug!("Aggregated!");
     debug!("Start\tEnd");
@@ -321,6 +389,9 @@ fn critical_region_within(
             if !is_ordered {
                 // (s,t) contains (x,y) or vise versa.
                 continue;
+            } else if x - t < 100 {
+                // Too near.
+                continue;
             }
             // Let's move on to case exhaution.
             // ----s||||t-----
@@ -335,51 +406,30 @@ fn critical_region_within(
             // we double check it.
             debug!("S-T:{}-{}\tX-Y:{}-{}", s, t, x, y);
             let (s_thr, t_thr) = (s.max(CHECK_THR) - CHECK_THR, t + CHECK_THR);
-            let st_region: Vec<_> = if s < t {
-                inner_count[s as usize..t as usize].iter().collect()
-            } else {
-                inner_count[..t as usize]
-                    .iter()
-                    .chain(inner_count[s as usize..].iter())
-                    .collect()
-            };
-            let st_upstream: HashSet<_> = st_region
+            let st_upstream: HashSet<_> = reads
                 .iter()
-                .flat_map(|reads| {
-                    reads.iter().filter(|r| {
-                        r.does_touch(contig, s_thr, s) && !r.does_touch(contig, t, t_thr)
-                    })
+                .filter(|read| {
+                    read.does_touch(contig, s_thr, s) && !read.does_touch(contig, t, t_thr)
                 })
-                .copied()
                 .collect();
-            let st_downstream: HashSet<_> = st_region
+            let st_downstream: HashSet<_> = reads
                 .iter()
-                .flat_map(|reads| {
-                    reads.iter().filter(|read| {
-                        !read.does_touch(contig, s_thr, s) && read.does_touch(contig, t, t_thr)
-                    })
+                .filter(|read| {
+                    !read.does_touch(contig, s_thr, s) && read.does_touch(contig, t, t_thr)
                 })
-                .copied()
                 .collect();
             let (x_thr, y_thr) = (x.max(CHECK_THR) - CHECK_THR, y + CHECK_THR);
-            let xy_region: Vec<_> = inner_count[x as usize..y as usize].iter().collect();
-            let xy_upstream: HashSet<_> = xy_region
+            let xy_upstream: HashSet<_> = reads
                 .iter()
-                .flat_map(|reads| {
-                    reads.iter().filter(|read| {
-                        read.does_touch(contig, x_thr, x) && !read.does_touch(contig, y, y_thr)
-                    })
+                .filter(|read| {
+                    read.does_touch(contig, x_thr, x) && !read.does_touch(contig, y, y_thr)
                 })
-                .copied()
                 .collect();
-            let xy_downstream: HashSet<_> = xy_region
+            let xy_downstream: HashSet<_> = reads
                 .iter()
-                .flat_map(|reads| {
-                    reads.iter().filter(|read| {
-                        !read.does_touch(contig, x, x_thr) && read.does_touch(contig, y, y_thr)
-                    })
+                .filter(|read| {
+                    !read.does_touch(contig, x, x_thr) && read.does_touch(contig, y, y_thr)
                 })
-                .copied()
                 .collect();
             assert!(st_upstream.intersection(&st_downstream).count() == 0);
             assert!(xy_upstream.intersection(&xy_downstream).count() == 0);
@@ -467,7 +517,7 @@ fn critical_regions_between(
         }
         let res = merge_overlap_and_remove_contained(res);
         res.into_iter()
-            .map(|(s, e)| tighten_up(s, e, &raw_count))
+            //.map(|(s, e)| tighten_up(s, e, &raw_count))
             .map(|(s, e)| (s as u16, e as u16))
             .collect()
     };
@@ -487,7 +537,7 @@ fn critical_regions_between(
         }
         let res = merge_overlap_and_remove_contained(res);
         res.into_iter()
-            .map(|(s, e)| tighten_up(s, e, &raw_count))
+            // .map(|(s, e)| tighten_up(s, e, &raw_count))
             .map(|(s, e)| (s as u16, e as u16))
             .collect()
     };
@@ -540,10 +590,11 @@ fn critical_regions_between(
                     })
                 })
                 .copied();
+            let thr = READ_NUM * 2;
             // Case1.
             let up_down: HashSet<&ERead> =
                 st_upstream.clone().chain(xy_downstream.clone()).collect();
-            if up_down.len() >= READ_NUM {
+            if up_down.len() >= thr {
                 let c1 = Position::new(from, s, t, Direction::UpStream);
                 let c2 = Position::new(to, x, y, Direction::DownStream);
                 regions.push(CriticalRegion::CP(ContigPair::new(c1, c2)));
@@ -551,21 +602,21 @@ fn critical_regions_between(
             // Case2
             let down_up: HashSet<&ERead> =
                 st_downstream.clone().chain(xy_upstream.clone()).collect();
-            if down_up.len() >= READ_NUM {
+            if down_up.len() >= thr {
                 let c1 = Position::new(from, s, t, Direction::DownStream);
                 let c2 = Position::new(to, x, y, Direction::UpStream);
                 regions.push(CriticalRegion::CP(ContigPair::new(c1, c2)));
             }
             // Case3
             let up_up: HashSet<&ERead> = st_upstream.chain(xy_upstream).collect();
-            if up_up.len() >= READ_NUM {
+            if up_up.len() >= thr {
                 let c1 = Position::new(from, s, t, Direction::UpStream);
                 let c2 = Position::new(to, x, y, Direction::UpStream);
                 regions.push(CriticalRegion::CP(ContigPair::new(c1, c2)));
             }
             // Case4
             let down_down: HashSet<&ERead> = st_downstream.chain(xy_downstream).collect();
-            if down_down.len() >= READ_NUM {
+            if down_down.len() >= thr {
                 let c1 = Position::new(from, s, t, Direction::DownStream);
                 let c2 = Position::new(to, x, y, Direction::DownStream);
                 regions.push(CriticalRegion::CP(ContigPair::new(c1, c2)));
@@ -583,21 +634,14 @@ fn critical_region_confluent(
     debug!("{}-th contig, self critical region.", contig);
     let last_unit = contigs.get_last_unit(contig)? as usize;
     let mut clip_count: Vec<Vec<&ERead>> = vec![vec![]; last_unit + 1];
-    for read in reads.iter().filter(|r| r.has(contig) && r.len() > 0) {
-        {
-            let first_chunk = &read.seq()[0];
-            if first_chunk.contig == contig && read.has_head_clip() {
-                clip_count[first_chunk.unit as usize].push(read);
-            }
+    for read in reads.iter().filter(|r| r.has(contig) && r.len() > 2) {
+        let first_chunk = &read.seq()[0];
+        if first_chunk.contig == contig {
+            clip_count[first_chunk.unit as usize].push(read);
         }
-        if read.len() > 1 {
-            let last_chunk = &read.seq().last().unwrap();
-            if last_chunk.contig == contig
-                && read.has_tail_clip()
-                && last_chunk.unit != last_unit as u16
-            {
-                clip_count[last_chunk.unit as usize].push(read);
-            }
+        let last_chunk = &read.seq().last().unwrap();
+        if last_chunk.contig == contig && last_chunk.unit != last_unit as u16 {
+            clip_count[last_chunk.unit as usize].push(read);
         }
     }
     debug!("Profiled!({}len)\nPosition\tCount", clip_count.len());
@@ -611,14 +655,12 @@ fn critical_region_confluent(
     }
     let clip_region = {
         let clip_counts = clip_count.iter().map(|e| e.len()).collect::<Vec<_>>();
-        let clip_region = calculate_average_more_than(&clip_counts, READ_NUM as i32);
-        let clip_region = merge_overlap_and_remove_contained(clip_region);
-        let clip_region = clip_region
+        let mean = reads.len() / last_unit * 2;
+        let clip_region = peak_detection(&clip_counts, READ_NUM + 2 * mean);
+        merge_overlap_and_remove_contained(clip_region)
             .into_iter()
-            .map(|(s, e)| tighten_up(s, e, &clip_counts))
             .map(|(s, e)| (s as u16, e as u16))
-            .collect::<Vec<_>>();
-        merge_circular_genome(clip_region, last_unit)
+            .collect::<Vec<_>>()
     };
     debug!("Aggregated!");
     debug!("Start\tEnd");
@@ -627,64 +669,33 @@ fn critical_region_confluent(
     }
     let mut result = vec![];
     for (s, t) in clip_region {
+        if s.max(t) - s.min(t) > 20 {
+            // Too long to be conlfulent regions.
+            continue;
+        }
         // Let's move on to case exhaution.
         // ----s||||t-----
-        // Case1: --->s(entry)y     : (s,t):UpStream
+        // Case1: <---s(entry)y     : (s,t):UpStream
         // Case2:     s(entry)t---> : (s,t):DownStream
         let (s_thr, t_thr) = (s.max(CHECK_THR) - CHECK_THR, t + CHECK_THR);
         // Here, we maybe want to get circulaized genome region.
         // It should not happen in x-y, because we force 0 < t < x < y.
-        let st_upstream: HashSet<&ERead> = if s < t {
-            clip_count[s as usize..t as usize]
-                .iter()
-                .flat_map(|reads| {
-                    reads.iter().filter(|read| {
-                        read.does_touch(contig, s_thr, s) && !read.does_touch(contig, t_thr, t)
-                    })
-                })
-                .copied()
-                .collect()
-        } else {
-            clip_count[..t as usize]
-                .iter()
-                .chain(clip_count[s as usize..].iter())
-                .flat_map(|reads| {
-                    reads.iter().filter(|read| {
-                        read.does_touch(contig, s_thr, s) && !read.does_touch(contig, t_thr, t)
-                    })
-                })
-                .copied()
-                .collect()
-        };
-        let st_downstream: HashSet<&ERead> = if s < t {
-            clip_count[s as usize..t as usize]
-                .iter()
-                .flat_map(|reads| {
-                    reads.iter().filter(|read| {
-                        !read.does_touch(contig, s_thr, s) && read.does_touch(contig, t_thr, t)
-                    })
-                })
-                .copied()
-                .collect()
-        } else {
-            clip_count[..t as usize]
-                .iter()
-                .chain(clip_count[s as usize..].iter())
-                .flat_map(|reads| {
-                    reads.iter().filter(|read| {
-                        !read.does_touch(contig, s_thr, s) && read.does_touch(contig, t_thr, t)
-                    })
-                })
-                .copied()
-                .collect()
-        };
+        let st_upstream: HashSet<&ERead> = reads
+            .iter()
+            .filter(|read| read.does_touch(contig, s_thr, s) && !read.does_touch(contig, t_thr, t))
+            .collect();
+        let st_downstream: HashSet<&ERead> = reads
+            .iter()
+            .filter(|read| !read.does_touch(contig, s_thr, s) && read.does_touch(contig, t_thr, t))
+            .collect();
+        let thr = READ_NUM + 2 * reads.len() / last_unit;
         // Case1.
-        if st_upstream.len() >= READ_NUM {
+        if st_upstream.len() >= thr {
             let c1 = Position::new(contig, s, t, Direction::UpStream);
             result.push(CriticalRegion::CR(ConfluentRegion::new(c1)));
         }
         // Case2
-        if st_downstream.len() >= READ_NUM {
+        if st_downstream.len() >= thr {
             let c1 = Position::new(contig, s, t, Direction::DownStream);
             result.push(CriticalRegion::CR(ConfluentRegion::new(c1)));
         }
@@ -739,73 +750,48 @@ fn calculate_average_more_than(input: &[usize], average: i32) -> Vec<(usize, usi
     result
 }
 
-fn tighten_up(start: usize, end: usize, xs: &[usize]) -> (usize, usize) {
-    // Tighten up the region xs[start..end)
-    // into xs[start+x..end-y), x and y are
-    // the largest number that can increase the average score continuously.
-    let mut average = xs[start..end].iter().sum::<usize>() as f64 / (end - start) as f64;
-    // debug!("{}-{},average {}", start, end, average);
-    let (mut start, mut end) = (start, end);
-    while start + 1 < end {
-        // if average would increase (ave < (ave * len-x)/(len-1)), decrease end by one.
-        // the condition is the same as ...
-        if (xs[end - 1] as f64) < average {
-            end -= 1;
-            average = xs[start..end].iter().sum::<usize>() as f64 / (end - start) as f64;
-        } else {
-            break;
-        }
-    }
-    while start + 1 < end {
-        if (xs[start] as f64) < average {
-            start += 1;
-            average = xs[start..end].iter().sum::<usize>() as f64 / (end - start) as f64;
-        } else {
-            break;
-        }
-    }
-    assert!(start <= end);
-    let _average = xs[start..end].iter().sum::<usize>() as f64 / (end - start) as f64;
-    // debug!("Fin. {}-{},average {}", start, end, average);
-    (start, end)
-}
-
-fn merge_overlap_and_remove_contained(mut regions: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
+fn merge_overlap_and_remove_contained(mut regions: Vec<(usize, usize)>) -> Vec<(u16, u16)> {
     if regions.is_empty() {
         return vec![];
     }
     regions.sort();
-    let mut end = 0;
-    let contained_free: Vec<_> = regions
-        .into_iter()
-        .filter(|&(_, e)| {
-            if end < e {
-                end = e;
-                true
-            } else {
-                false
-            }
-        })
-        .collect();
-    let (mut start, mut end) = contained_free[0];
+    let (mut start, mut end) = regions[0];
     let mut result = vec![];
-    for &(s, e) in &contained_free[1..] {
-        assert!(end < e);
-        if end < s {
+    for &(s, e) in &regions[1..] {
+        if end + 1 < s {
             // No overlap.
             result.push((start, end));
             start = s;
             end = e;
         } else {
             // Overlap.
-            end = e;
+            end = e.max(end);
         }
     }
     result.push((start, end));
-    result.sort();
     result
+        .into_iter()
+        .map(|(s, t)| (s as u16, t as u16))
+        .collect()
 }
 
+fn peak_detection(counts: &[usize], threshold: usize) -> Vec<(usize, usize)> {
+    let (res, _, _) = counts.iter().enumerate().fold(
+        (vec![], false, 0),
+        |(mut res, is_in_peak, start), (idx, &count)| match (is_in_peak, count < threshold) {
+            (true, true) => {
+                res.push((start, idx));
+                (res, false, idx)
+            }
+            (true, false) => (res, true, start),
+            (false, true) => (res, false, idx),
+            (false, false) => (res, true, idx),
+        },
+    );
+    res
+}
+
+#[allow(dead_code)]
 fn merge_circular_genome(mut regions: Vec<(u16, u16)>, len: usize) -> Vec<(u16, u16)> {
     let len = len as u16;
     if regions.len() <= 1 {
