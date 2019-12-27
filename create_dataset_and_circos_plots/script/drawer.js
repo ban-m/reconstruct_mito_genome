@@ -135,7 +135,7 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
     // should have either "G"(for Gap) or "E"(for Encode)
     let path = d3.path();
     let units = Array.from(read.units).reverse();
-    const r = read_radius - (read['cluster'] + 1) ; // + jitters();
+    const r = read_radius + (read['cluster'] + 1); // + jitters();
     let gap = 0;
     let unit = {};
     while(!unit.hasOwnProperty("E")){

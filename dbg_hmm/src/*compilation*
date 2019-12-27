@@ -1,8 +1,0 @@
--*- mode: compilation; default-directory: "~/work/arabidopsis_mitochondria/dbg_hmm/src/" -*-
-Compilation started at Sat Dec 21 13:12:29
-
-cargo check
-    Checking dbg_hmm v0.1.0 (/work/ban-m/arabidopsis_mitochondria/dbg_hmm)
-    Finished dev [unoptimized + debuginfo] target(s) in 1.17s
-
-Compilation finished at Sat Dec 21 13:12:30

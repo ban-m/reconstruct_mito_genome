@@ -9,7 +9,7 @@ generalplot <- function(g,name){
 }
 filename <- args[1]
 outputname <- args[2]
-data <- read_tsv(filename) #%>% filter(Type != "Sub" | Coverage > 10)
+data <- read_tsv(filename)
 
 g <-data %>%  filter(MAF < 0.2) %>%
     ggplot() +
@@ -21,6 +21,7 @@ g <-data %>%  filter(MAF<0.5) %>% ggplot() +
     geom_point(mapping = aes(x = Pos, y = MAF, color = Type), size = 0.2) + facet_grid(Type ~ .)
 ggsave(filename = str_c("./pics/",outputname,"_point.png"), g)
 
+data <- data %>% filter(Type == "Sub")
 filtered <- data %>%
     filter((4956 < Pos & Pos < 37653) |
            (109386 < Pos & Pos < 144786) |

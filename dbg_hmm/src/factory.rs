@@ -138,6 +138,7 @@ impl Factory {
         assert!(k <= 32, "k should be less than 32.");
         assert!(self.is_empty());
         let tk = 4u32.pow(k as u32) as usize;
+        let coverage = ws.iter().sum::<f64>();
         self.inner
             .extend(std::iter::repeat((0., std::usize::MAX)).take(tk));
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(dataset.len() as u64);
@@ -163,7 +164,7 @@ impl Factory {
                 let b = x[k];
                 let to = (from << 2 | BASE_TABLE[b as usize]) & mask;
                 if let Some((from, to)) =
-                    self.get_indices_exp(x, &mut nodes, thr, k, &mut rng, from, to)
+                    self.get_indices_exp(x, &mut nodes, thr, k, &mut rng, from, to, coverage)
                 {
                     nodes[from].push_edge_with_weight(x[k], to, w);
                 }
@@ -187,7 +188,8 @@ impl Factory {
         let nodes = Self::sort_nodes(nodes);
         let thr = nodes.iter().map(|e| e.tot).sum::<f64>() / nodes.len() as f64 - THR;
         self.clear();
-        let mut nodes = self.clean_up_nodes_exp(nodes, thr, &mut rng);
+        let cov = ws.iter().sum::<f64>();
+        let mut nodes = self.clean_up_nodes_exp(nodes, thr, cov);
         nodes.iter_mut().for_each(Kmer::finalize);
         self.clear();
         DBGHMM::from(nodes, k, weight)
@@ -235,12 +237,12 @@ impl Factory {
         assert!(k <= 32, "k should be less than 32.");
         use super::PRIOR_FACTOR;
         let tk = 4u32.pow(k as u32) as usize;
-        let weight = PRIOR_FACTOR * coverage;
+        let weight = (PRIOR_FACTOR * coverage).min(3.);
         self.inner
             .extend(std::iter::repeat((weight, std::usize::MAX)).take(tk));
         buf.extend(std::iter::repeat(weight).take(tk * 4));
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(dataset.len() as u64);
-        let ep = 0.00000001;
+        let ep = 0.0000001;
         let mask = (1 << 2 * k) - 1;
         let e_mask = (1 << 2 * (k + 1)) - 1;
         // Record all the k-mers and k+1-mers.
@@ -261,17 +263,18 @@ impl Factory {
             });
         let thr = {
             let sum = self.inner.iter().map(|e| e.0).sum::<f64>();
-            sum / self.inner.len() as f64
+            2. * sum / self.inner.len() as f64
         };
         let mut nodes = Vec::with_capacity(1_000);
         let mut edge = vec![];
+        let scale = SCALE * coverage.ln() / 40f64.ln();
+        // eprintln!("Cov:Scale:{}/{}", coverage, scale);
         for (e, &w) in buf.iter().enumerate().filter(|&(_, &w)| w > ep) {
             let (from, to) = (e >> 2, e & mask);
             decode_to(e as u64, k + 1, &mut edge);
             if let Some((from, to)) =
-                self.get_indices_exp(&edge, &mut nodes, thr, k, &mut rng, from, to)
+                self.get_indices_exp(&edge, &mut nodes, thr, k, &mut rng, from, to, scale)
             {
-                assert!(nodes[from].kmer.len() == k);
                 nodes[from].push_edge_with_weight(edge[k], to, w);
             }
         }
@@ -290,29 +293,341 @@ impl Factory {
             }
         }
         let nodes = Self::sort_nodes(nodes);
-        let thr = nodes.iter().map(|e| e.tot).sum::<f64>() / nodes.len() as f64 - THR;
         self.clear();
-        let mut nodes = self.clean_up_nodes_exp(nodes, thr, &mut rng);
+        let mut nodes = self.clean_up_nodes_exp(nodes, 0., 0.);
         nodes.iter_mut().for_each(Kmer::finalize);
         self.clear();
-        let weight = ws.iter().sum::<f64>();
-        DBGHMM::from(nodes, k, weight)
+        DBGHMM::from(nodes, k, coverage)
     }
     fn clean_up_nodes(&mut self, nodes: Vec<Kmer>) -> Vec<Kmer> {
         let mut nodes = self.renaming_nodes(nodes);
         nodes.iter_mut().for_each(Kmer::finalize);
         nodes
     }
-    fn clean_up_nodes_exp<R: Rng>(&mut self, nodes: Vec<Kmer>, thr: f64, rng: &mut R) -> Vec<Kmer> {
+    fn clean_up_nodes_exp(&mut self, nodes: Vec<Kmer>, _thr: f64, _cov: f64) -> Vec<Kmer> {
         assert!(self.is_empty());
-        let nodes = self.cut_lightweight_loop(nodes, thr, rng);
+        // let nodes = self.relative_weight_pruning(nodes, cov);
+        // let nodes = self.cut_lightweight_loop(nodes, thr);
+        let nodes = self.trim_unreachable_nodes(nodes);
+        let nodes = self.trim_unreachable_nodes_reverse(nodes);
         assert!(self.is_empty());
-        let nodes = self.cut_tip(nodes, 2);
+        //let nodes = self.cut_tip(nodes, 2, thr);
         assert!(self.is_empty());
         let nodes = self.pick_largest_components(nodes);
         assert!(self.is_empty());
         let nodes = self.renaming_nodes(nodes);
         nodes
+    }
+    #[allow(dead_code)]
+    fn relative_weight_pruning(&mut self, mut nodes: Vec<Kmer>, _cov: f64) -> Vec<Kmer> {
+        let weights: Vec<f64> = nodes.iter().map(|e| e.kmer_weight).collect();
+        for node in nodes.iter_mut() {
+            let weight = node.kmer_weight;
+            let directions = node
+                .edges
+                .iter()
+                .enumerate()
+                .filter_map(|(i, e)| e.map(|idx| (i, weights[idx])))
+                .collect::<Vec<_>>();
+            for (idx, to_weight) in directions {
+                // Check if weight or to_weight is very different.
+                if to_weight < weight / 4. {
+                    node.remove(idx);
+                }
+            }
+        }
+        nodes
+    }
+    fn trim_unreachable_nodes(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
+        self.clear();
+        self.dfs_flag.extend(std::iter::repeat(0).take(nodes.len()));
+        self.dfs_stack
+            .extend(nodes.iter().enumerate().filter_map(
+                |(idx, n)| {
+                    if n.is_head {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                },
+            ));
+        'dfs: while !self.dfs_stack.is_empty() {
+            let node = *self.dfs_stack.last().unwrap();
+            self.dfs_flag[node] = 1;
+            for &to in nodes[node].edges.iter().filter_map(|e| e.as_ref()) {
+                if self.dfs_flag[to] == 0 {
+                    self.dfs_stack.push(to);
+                    continue 'dfs;
+                }
+            }
+            self.dfs_stack.pop().unwrap();
+        }
+        let mut index = 0;
+        for &b in &self.dfs_flag {
+            self.temp_index.push(index);
+            index += b as usize;
+        }
+        assert!(self.buffer.is_empty());
+        let mut idx = nodes.len();
+        while let Some(mut node) = nodes.pop() {
+            idx -= 1;
+            if self.dfs_flag[idx] == 1 {
+                node.remove_if_not_supported(&self.dfs_flag);
+                node.rename_by(&self.temp_index);
+                self.buffer.push(node);
+            }
+        }
+        self.buffer.reverse();
+        std::mem::swap(&mut nodes, &mut self.buffer);
+        self.clear();
+        nodes
+    }
+    fn trim_unreachable_nodes_reverse(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
+        self.clear();
+        self.dfs_flag.extend(std::iter::repeat(0).take(nodes.len()));
+        self.dfs_stack
+            .extend(nodes.iter().enumerate().filter_map(
+                |(idx, n)| {
+                    if n.is_tail {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                },
+            ));
+        let mut edges: Vec<Vec<usize>> = vec![Vec::with_capacity(4); nodes.len()];
+        for (from, node) in nodes.iter().enumerate() {
+            for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
+                //Reverse edges!
+                edges[to].push(from);
+            }
+        }
+        'dfs: while !self.dfs_stack.is_empty() {
+            let node = *self.dfs_stack.last().unwrap();
+            self.dfs_flag[node] = 1;
+            for &to in &edges[node] {
+                if self.dfs_flag[to] == 0 {
+                    self.dfs_stack.push(to);
+                    continue 'dfs;
+                }
+            }
+            self.dfs_stack.pop().unwrap();
+        }
+        let mut index = 0;
+        for &b in &self.dfs_flag {
+            self.temp_index.push(index);
+            index += b as usize;
+        }
+        assert!(self.buffer.is_empty());
+        let mut idx = nodes.len();
+        while let Some(mut node) = nodes.pop() {
+            idx -= 1;
+            if self.dfs_flag[idx] == 1 {
+                node.remove_if_not_supported(&self.dfs_flag);
+                node.rename_by(&self.temp_index);
+                self.buffer.push(node);
+            }
+        }
+        self.buffer.reverse();
+        std::mem::swap(&mut nodes, &mut self.buffer);
+        self.clear();
+        nodes
+    }
+    #[allow(dead_code)]
+    fn cut_lightweight_loop(&mut self, mut nodes: Vec<Kmer>, thr: f64) -> Vec<Kmer> {
+        self.is_safe.clear();
+        self.temp_index.clear();
+        for node in &nodes {
+            self.temp_index.push((node.kmer_weight > thr) as usize)
+        }
+        (0..nodes.len()).for_each(|_| self.is_safe.push(0));
+        for (from, ref node) in nodes.iter().enumerate() {
+            for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
+                self.is_safe[to] |= self.temp_index[from] as u8;
+                self.is_safe[from] |= self.temp_index[to] as u8;
+            }
+        }
+        self.temp_index.clear();
+        let mut index = 0;
+        for &b in &self.is_safe {
+            self.temp_index.push(index);
+            index += b as usize;
+        }
+        assert!(self.buffer.is_empty());
+        let mut idx = nodes.len();
+        while let Some(mut node) = nodes.pop() {
+            idx -= 1;
+            if self.is_safe[idx] == 1 {
+                node.remove_if_not_supported(&self.is_safe);
+                node.rename_by(&self.temp_index);
+                self.buffer.push(node);
+            }
+        }
+        self.buffer.reverse();
+        self.is_safe.clear();
+        self.temp_index.clear();
+        std::mem::swap(&mut nodes, &mut self.buffer);
+        nodes
+    }
+    // Cut tips. We can assume that the graph is a
+    // connected graph or a tree.
+    #[allow(dead_code)]
+    fn cut_tip(&mut self, mut nodes: Vec<Kmer>, t: usize, thr: f64) -> Vec<Kmer> {
+        assert!(self.is_safe.is_empty());
+        assert!(self.edges.iter().all(|e| e.is_empty()));
+        let pseudo_node = nodes.len();
+        if self.edges.len() < nodes.len() + 1 {
+            let l = nodes.len() + 1 - self.edges.len();
+            (0..=l).for_each(|_| self.edges.push(Vec::with_capacity(4)));
+        }
+        nodes.iter().for_each(|_| self.is_safe.push(0));
+        for (idx, node) in nodes.iter().enumerate() {
+            for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
+                self.edges[idx].push(to);
+            }
+            if node.is_tail {
+                self.edges[idx].push(pseudo_node);
+            }
+        }
+        // By calling this function, self.is_safe[i] would be changed!
+        self.cut_tip_inner(nodes.len() + 1, t, 0b010);
+        self.edges.iter_mut().for_each(|eds| eds.clear());
+        nodes
+            .iter()
+            .zip(self.is_safe.iter_mut())
+            .for_each(|(n, b)| *b |= n.is_head as u8);
+        for (idx, node) in nodes.iter().enumerate() {
+            for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
+                self.edges[to].push(idx);
+            }
+            if node.is_head {
+                self.edges[idx].push(pseudo_node);
+            }
+        }
+        self.cut_tip_inner(nodes.len() + 1, t, 0b100);
+        nodes
+            .iter()
+            .zip(self.is_safe.iter_mut())
+            .for_each(|(n, b)| {
+                *b |= (n.kmer_weight > thr) as u8;
+            });
+        self.is_safe.iter_mut().for_each(|is_safe| {
+            let high_coverage = (*is_safe & 0b001) == 0b001;
+            let not_cut_by_sweep = (*is_safe & 0b110) == 0b110;
+            *is_safe = (high_coverage | not_cut_by_sweep) as u8;
+        });
+        assert!(self.temp_index.is_empty());
+        let mut idx = 0;
+        for &b in &self.is_safe {
+            self.temp_index.push(idx);
+            idx += b as usize;
+        }
+        assert!(self.buffer.is_empty());
+        let mut idx = nodes.len();
+        while let Some(mut node) = nodes.pop() {
+            idx -= 1;
+            if self.is_safe[idx] == 1 {
+                node.remove_if_not_supported(&self.is_safe);
+                node.rename_by(&self.temp_index);
+                self.buffer.push(node)
+            }
+        }
+        self.buffer.reverse();
+        std::mem::swap(&mut self.buffer, &mut nodes);
+        self.is_safe.clear();
+        self.temp_index.clear();
+        self.edges.iter_mut().for_each(|e| e.clear());
+        self.buffer.clear();
+        nodes
+    }
+    // Cut tips. We can assume that the graph is a
+    // connected graph or a tree.
+    // We use 'flag' instead of 'true'
+    #[allow(dead_code)]
+    fn cut_tip_inner(&mut self, nodes: usize, t: usize, flag: u8) {
+        // Use self.temp_index as a distance from the leaf.
+        // In other words, self.temp_index[i] = "Distance from root to i-th node"
+        self.dist_to_root(nodes);
+        // Allocate All the bad nodes into dfs stack. Then write them back to edges list.
+        // We use the last packed of edge list to keep list of bad nodes.
+        let bad_list: Vec<_> = (0..nodes)
+            .filter(|&e| self.edges[e].len() > 1)
+            .flat_map(|e| self.edges[e].iter().filter(|&&to| self.temp_index[to] <= t))
+            .copied()
+            .collect();
+        self.temp_index.clear();
+        assert!(self.dfs_flag.is_empty());
+        // 0 <-> Not arrived
+        // 1 <-> Have arrived
+        self.dfs_flag.extend(std::iter::repeat(0).take(nodes));
+        for i in bad_list {
+            if self.dfs_flag[i] == 1 {
+                continue;
+            }
+            self.dfs_stack.push(i);
+            'dfs: while !self.dfs_stack.is_empty() {
+                let node = *self.dfs_stack.last().unwrap();
+                self.dfs_flag[node] = 1;
+                for &to in &self.edges[node] {
+                    if self.dfs_flag[to] == 0 {
+                        self.dfs_stack.push(to);
+                        continue 'dfs;
+                    }
+                }
+                self.dfs_stack.pop().unwrap();
+            }
+        }
+        // flag * (1-e) = flag if the i-th node was not traversed,
+        // otherwise, it is zero. Thus, by BitOR, the flag would be
+        // modificated as supposed to be.
+        self.dfs_flag
+            .iter()
+            .zip(self.is_safe.iter_mut())
+            .for_each(|(&e, is_safe)| *is_safe |= flag * (1 - e));
+        self.dfs_flag.clear();
+        assert!(self.dfs_stack.is_empty());
+    }
+    #[allow(dead_code)]
+    fn dist_to_root(&mut self, nodes: usize) {
+        // 0 -> never arrived
+        // 1 -> active(arrived, being traversed currently)
+        // 2 -> inactive(arrived, have been traversed)
+        self.dfs_flag.extend(std::iter::repeat(0).take(nodes));
+        assert!(self.temp_index.is_empty());
+        self.temp_index.extend(std::iter::repeat(0).take(nodes));
+        for i in 0..nodes {
+            if self.dfs_flag[i] != 0 {
+                continue;
+            }
+            self.dfs_stack.push(i);
+            'dfs: while !self.dfs_stack.is_empty() {
+                let node = *self.dfs_stack.last().unwrap();
+                if self.dfs_flag[node] == 0 {
+                    self.dfs_flag[node] = 1;
+                }
+                for &to in &self.edges[node] {
+                    if self.dfs_flag[to] == 0 {
+                        self.dfs_stack.push(to);
+                        continue 'dfs;
+                    } else if self.dfs_flag[to] == 1 {
+                        // Loop detected. Some big number.
+                        self.temp_index[node] = 100_000;
+                    }
+                }
+                let last = self.dfs_stack.pop().unwrap();
+                // The last .max(dist_to_root[last]) is indeed needed,
+                // as there would be a certain amount of cycles.
+                self.temp_index[last] = self.edges[node]
+                    .iter()
+                    .map(|&to| self.temp_index[to] + 1)
+                    .max()
+                    .unwrap_or(0)
+                    .max(self.temp_index[last]);
+                // Deactivate
+                self.dfs_flag[last] = 2;
+            }
+        }
+        self.dfs_flag.clear();
     }
     fn pick_largest_components(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
         assert!(self.is_empty());
@@ -355,232 +670,6 @@ impl Factory {
         self.clear();
         nodes
     }
-    #[allow(dead_code)]
-    fn select_supported_node(edges: &[Vec<usize>], nodes: usize, is_safe: &[bool]) -> Vec<bool> {
-        let mut is_supported = vec![false; nodes];
-        for (from, edges) in edges.iter().enumerate() {
-            for &to in edges.iter() {
-                is_supported[to] |= is_safe[from];
-                is_supported[from] |= is_safe[to];
-            }
-        }
-        is_supported
-    }
-    fn cut_lightweight_loop<R: Rng>(
-        &mut self,
-        mut nodes: Vec<Kmer>,
-        thr: f64,
-        rng: &mut R,
-    ) -> Vec<Kmer> {
-        self.is_safe.clear();
-        self.temp_index.clear();
-        for node in &nodes {
-            self.temp_index
-                .push(!rng.gen_bool(Self::prob(node.kmer_weight - thr)) as usize)
-        }
-        (0..nodes.len()).for_each(|_| self.is_safe.push(0));
-        for (from, ref node) in nodes.iter().enumerate() {
-            for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
-                self.is_safe[to] |= (self.temp_index[from] == 1) as u8;
-                self.is_safe[from] |= (self.temp_index[to] == 1) as u8;
-            }
-        }
-        self.temp_index.clear();
-        let mut index = 0;
-        for &b in &self.is_safe {
-            self.temp_index.push(index);
-            index += b as usize;
-        }
-        assert!(self.buffer.is_empty());
-        let mut idx = nodes.len();
-        while let Some(mut node) = nodes.pop() {
-            idx -= 1;
-            if self.is_safe[idx] == 1 {
-                node.remove_if_not_supported(&self.is_safe);
-                node.rename_by(&self.temp_index);
-                self.buffer.push(node);
-            }
-        }
-        self.buffer.reverse();
-        self.is_safe.clear();
-        self.temp_index.clear();
-        std::mem::swap(&mut nodes, &mut self.buffer);
-        nodes
-    }
-    // Cut tips. We can assume that the graph is a
-    // connected graph or a tree.
-    fn cut_tip(&mut self, mut nodes: Vec<Kmer>, t: usize) -> Vec<Kmer> {
-        assert!(self.is_safe.is_empty());
-        assert!(self.edges.iter().all(|e| e.is_empty()));
-        let pseudo_node = nodes.len();
-        if self.edges.len() < nodes.len() + 1 {
-            let l = nodes.len() + 1 - self.edges.len();
-            (0..=l).for_each(|_| self.edges.push(Vec::with_capacity(4)));
-        }
-        nodes
-            .iter()
-            .for_each(|e| self.is_safe.push(e.is_tail as u8));
-        // Be careful. We use bit-flag magic.
-        // for self.is_safe[i], we use it as three bit flags. The least sig bit
-        // is for "whether i-th node is near tail or head, and its weight is sufficiently high."
-        // The higher two bit is for "whether i-th node could avoid tip removal."
-        for (idx, node) in nodes.iter().enumerate() {
-            for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
-                self.edges[idx].push(to);
-                // Bit OR is ok. Lile 011 | 001 = 011.
-                self.is_safe[idx] |= nodes[to].is_tail as u8;
-            }
-            if node.is_tail {
-                self.edges[idx].push(pseudo_node);
-            }
-        }
-        // By calling this function, self.is_safe[i] would be changed!
-        self.cut_tip_inner(nodes.len() + 1, t, 0b010);
-        self.edges.iter_mut().for_each(|eds| eds.clear());
-        nodes
-            .iter()
-            .zip(self.is_safe.iter_mut())
-            .for_each(|(n, b)| *b |= n.is_head as u8);
-        for (idx, node) in nodes.iter().enumerate() {
-            for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
-                self.edges[to].push(idx);
-                // same as forward. This is ok.
-                self.is_safe[to] |= node.is_head as u8;
-            }
-            if node.is_head {
-                self.edges[idx].push(pseudo_node);
-            }
-        }
-        self.cut_tip_inner(nodes.len() + 1, t, 0b100);
-        let ave = nodes.iter().map(|e| e.kmer_weight).sum::<f64>() / nodes.len() as f64;
-        nodes
-            .iter()
-            .zip(self.is_safe.iter_mut())
-            .for_each(|(n, b)| {
-                // b110 is to neglect the higher two bit.
-                // SHOULD be BitAND operator. The higher two bit is protected.
-                *b &= 0b110 + (n.kmer_weight > ave / 2.0) as u8;
-            });
-        self.is_safe.iter_mut().for_each(|is_safe| {
-            let is_near_tip_and_high_coverage = (*is_safe & 0b001) == 0b001;
-            let not_cut_by_sweep = (*is_safe & 0b110) == 0b110;
-            *is_safe = (is_near_tip_and_high_coverage | not_cut_by_sweep) as u8;
-        });
-        assert!(self.temp_index.is_empty());
-        let mut idx = 0;
-        for &b in &self.is_safe {
-            self.temp_index.push(idx);
-            idx += b as usize;
-        }
-        assert!(self.buffer.is_empty());
-        let mut idx = nodes.len();
-        while let Some(mut node) = nodes.pop() {
-            idx -= 1;
-            if self.is_safe[idx] == 1 {
-                node.remove_if_not_supported(&self.is_safe);
-                node.rename_by(&self.temp_index);
-                self.buffer.push(node)
-            }
-        }
-        self.buffer.reverse();
-        std::mem::swap(&mut self.buffer, &mut nodes);
-        self.is_safe.clear();
-        self.temp_index.clear();
-        self.edges.iter_mut().for_each(|e| e.clear());
-        self.buffer.clear();
-        nodes
-    }
-    // Cut tips. We can assume that the graph is a
-    // connected graph or a tree.
-    // We use 'flag' instead of 'true'
-    fn cut_tip_inner(&mut self, nodes: usize, t: usize, flag: u8) {
-        // Use self.temp_index as a distance from root.
-        // In other words, self.temp_index[i] = "Distance from root to i-th node"
-        self.dist_to_root(nodes);
-        // Allocate All the bad nodes into dfs stack. Then write them back to edges list.
-        // We use the last packed of edge list to keep list of bad nodes.
-        let bad_list: Vec<_> = (0..nodes)
-            .filter(|&e| self.edges[e].len() > 1)
-            .flat_map(|e| self.edges[e].iter().filter(|&&to| self.temp_index[to] <= t))
-            .copied()
-            .collect();
-        self.temp_index.clear();
-        assert!(self.dfs_flag.is_empty());
-        // 0 <-> Not arrived
-        // 1 <-> Have arrived
-        self.dfs_flag.extend(std::iter::repeat(0).take(nodes));
-        for i in bad_list {
-            if self.dfs_flag[i] == 1 {
-                continue;
-            }
-            self.dfs_stack.push(i);
-            'dfs: while !self.dfs_stack.is_empty() {
-                let node = *self.dfs_stack.last().unwrap();
-                self.dfs_flag[node] = self.dfs_flag[node].max(1);
-                for &to in &self.edges[node] {
-                    if self.dfs_flag[to] == 0 {
-                        self.dfs_stack.push(to);
-                        continue 'dfs;
-                    }
-                }
-                self.dfs_stack.pop().unwrap();
-            }
-        }
-        // flag * (1-e) = flag if the i-th node was not traversed,
-        // otherwise, it is zero. Thus, by BitOR, the flag would be
-        // modificated as supposed to be.
-        self.dfs_flag
-            .iter()
-            .zip(self.is_safe.iter_mut())
-            .for_each(|(&e, is_safe)| *is_safe |= flag * (1 - e));
-        // let res: Vec<_> = self.dfs_flag.iter().map(|&e| e == 0).collect();
-        self.dfs_flag.clear();
-        assert!(self.dfs_stack.is_empty());
-    }
-    fn dist_to_root(&mut self, nodes: usize) {
-        // 0 -> never arrived
-        // 1 -> active(arrived, being traversed currently)
-        // 2 -> inactive(arrived, have been traversed)
-        self.dfs_flag.extend(std::iter::repeat(0).take(nodes));
-        assert!(self.temp_index.is_empty());
-        self.temp_index.extend(std::iter::repeat(0).take(nodes));
-        // let mut dist_to_root: Vec<i32> = vec![0; nodes];
-        for i in 0..nodes {
-            if self.dfs_flag[i] != 0 {
-                continue;
-            }
-            self.dfs_stack.push(i);
-            'dfs: while !self.dfs_stack.is_empty() {
-                let node = *self.dfs_stack.last().unwrap();
-                if self.dfs_flag[node] == 0 {
-                    self.dfs_flag[node] = 1;
-                }
-                for &to in &self.edges[node] {
-                    if self.dfs_flag[to] == 0 {
-                        self.dfs_stack.push(to);
-                        continue 'dfs;
-                    } else if self.dfs_flag[to] == 1 {
-                        // Loop detected. Some big number.
-                        self.temp_index[node] = 100_000;
-                    }
-                }
-                let last = self.dfs_stack.pop().unwrap();
-                // The last .max(dist_to_root[last]) is indeed needed,
-                // as there would be a certain amount of cycles.
-                //dist_to_root[last] = self.edges[node]
-                self.temp_index[last] = self.edges[node]
-                    .iter()
-                    .map(|&to| self.temp_index[to] + 1)
-                    .max()
-                    .unwrap_or(0)
-                    .max(self.temp_index[last]);
-                // Deactivate
-                self.dfs_flag[last] = 2;
-            }
-        }
-        self.dfs_flag.clear();
-    }
-
     fn renaming_nodes(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
         self.topological_sort(&nodes);
         let mut result = vec![None; nodes.len()];
@@ -596,7 +685,6 @@ impl Factory {
         nodes.extend(result.into_iter().filter_map(|e| e));
         nodes
     }
-
     // Return topological sorted order. If there's a cycle,
     // it neglect the back-edge, and proceed with raise error messages to stderr(DEBUG MODE).
     fn topological_sort(&mut self, nodes: &[Kmer]) {
@@ -671,7 +759,6 @@ impl Factory {
             );
         let ave = sum / denom;
         if THR_ON {
-            // y = x - 1 - epsilon
             ave - THR
         } else {
             0.
@@ -688,42 +775,9 @@ impl Factory {
             nodes.push(Kmer::new(kmer, x.0));
             Some(nodes.len() - 1)
         }
-        // match self.inner.get_mut(&to_u64(kmer)) {
-        //     Some(x) if x.0 <= thr => None,
-        //     Some(x) if x.1 != std::usize::MAX => Some(x.1),
-        //     Some(x) => {
-        //         x.1 = nodes.len();
-        //         nodes.push(Kmer::new(kmer, x.0));
-        //         Some(nodes.len() - 1)
-        //     }
-        //     _ => unreachable!(),
-        //}
     }
-    fn prob(x: f64) -> f64 {
-        // if x.is_sign_positive(){
-        //     0.
-        // }else{
-        ((SCALE * x).exp() + 1.).recip()
-        // }
-    }
-    fn get_idx_exp<R: Rng>(
-        &mut self,
-        kmer: &[u8],
-        nodes: &mut Vec<Kmer>,
-        thr: f64,
-        rng: &mut R,
-        idx: usize,
-    ) -> Option<usize> {
-        match self.inner.get_mut(idx) {
-            Some(x) if rng.gen_bool(Self::prob(x.0 - thr)) => None,
-            Some(x) if x.1 != std::usize::MAX => Some(x.1),
-            Some(x) => {
-                x.1 = nodes.len();
-                nodes.push(Kmer::new(kmer, x.0));
-                Some(nodes.len() - 1)
-            }
-            _ => unreachable!(),
-        }
+    fn prob(x: f64, scale: f64) -> f64 {
+        ((scale * x).exp() + 1.).recip()
     }
     fn get_indices(
         &mut self,
@@ -737,6 +791,27 @@ impl Factory {
         let to = self.get_idx(after, nodes, thr)?;
         Some((from, to))
     }
+    fn get_idx_exp<R: Rng>(
+        &mut self,
+        kmer: &[u8],
+        nodes: &mut Vec<Kmer>,
+        thr: f64,
+        rng: &mut R,
+        idx: usize,
+        scale: f64,
+    ) -> Option<usize> {
+        match self.inner.get_mut(idx) {
+            Some(x) if x.0 < thr && rng.gen_bool(Self::prob(x.0 - thr, scale)) => None,
+            Some(x) if x.1 != std::usize::MAX => Some(x.1),
+            Some(x) => {
+                x.1 = nodes.len();
+                nodes.push(Kmer::new(kmer, x.0));
+                Some(nodes.len() - 1)
+            }
+            _ => unreachable!(),
+        }
+    }
+
     fn get_indices_exp<R: Rng>(
         &mut self,
         x: &[u8],
@@ -746,10 +821,11 @@ impl Factory {
         rng: &mut R,
         from: usize,
         to: usize,
+        scale: f64,
     ) -> Option<(usize, usize)> {
         let (prev, next) = (&x[..k], &x[1..]);
-        let from = self.get_idx_exp(prev, nodes, thr, rng, from)?;
-        let next = self.get_idx_exp(next, nodes, thr, rng, to)?;
+        let from = self.get_idx_exp(prev, nodes, thr, rng, from, scale)?;
+        let next = self.get_idx_exp(next, nodes, thr, rng, to, scale)?;
         Some((from, next))
     }
     pub fn new() -> Self {
@@ -772,6 +848,17 @@ impl Factory {
             dfs_flag,
             buffer,
         }
+    }
+    #[allow(dead_code)]
+    fn select_supported_node(edges: &[Vec<usize>], nodes: usize, is_safe: &[bool]) -> Vec<bool> {
+        let mut is_supported = vec![false; nodes];
+        for (from, edges) in edges.iter().enumerate() {
+            for &to in edges.iter() {
+                is_supported[to] |= is_safe[from];
+                is_supported[from] |= is_safe[to];
+            }
+        }
+        is_supported
     }
 }
 

@@ -7,7 +7,7 @@ pub struct Kmer {
     last: u8,
     // parameters. First four for weight,
     // last four for transition.
-    weight: [f64; 8],
+    pub weight: [f64; 8],
     // weight: [f64; 4],
     // transition: [f64; 4],
     /// Total number of *Outdegree*
@@ -27,8 +27,8 @@ impl std::fmt::Debug for Kmer {
         writeln!(f, "Kmer:{}", String::from_utf8_lossy(&self.kmer))?;
         writeln!(f, "KmerWeight:{:.3}", self.kmer_weight)?;
         writeln!(f, "Last:{}", self.last as char)?;
-        // writeln!(f, "Weight:{:?}", &self.weight[..4])?;
-        // writeln!(f, "Transition:{:?}", &self.weight[4..])?;
+        writeln!(f, "Weight:{:?}", &self.weight[..4])?;
+        writeln!(f, "Transition:{:?}", &self.weight[4..])?;
         writeln!(f, "tot:{}", self.tot)?;
         writeln!(f, "is_tail:{}", self.is_tail)?;
         writeln!(f, "is_head:{}", self.is_head)?;
@@ -108,15 +108,19 @@ impl Kmer {
             }
         }
     }
+    /// Remove the i-th edge.
+    pub fn remove(&mut self, i: usize) {
+        self.edges[i] = None;
+        self.tot -= self.weight[i + 4];
+        self.weight[i] -= self.weight[i + 4];
+        self.weight[i + 4] = 0.;
+    }
     // Remove all the edges to unsuppoeted nodes.
     pub fn remove_if_not_supported(&mut self, is_supported: &[u8]) {
         for i in 0..4 {
             if let Some(res) = self.edges[i] {
                 if is_supported[res] != 1 {
                     self.edges[i] = None;
-                    // self.tot -= self.transition[i];
-                    // self.weight[i] -= self.transition[i];
-                    // self.transition[i] = 0.;
                     self.tot -= self.weight[i + 4];
                     self.weight[i] -= self.weight[i + 4];
                     self.weight[i + 4] = 0.;
@@ -162,6 +166,9 @@ impl Kmer {
     pub fn insertion(&self, base: u8) -> f64 {
         use super::base_table::BASE_TABLE;
         self.weight[BASE_TABLE[base as usize]]
+    }
+    pub fn last(&self) -> u8 {
+        self.last
     }
 }
 #[cfg(test)]

@@ -59,7 +59,7 @@ fn benchmark(
     test_num: usize,
     config: &Config,
 ) -> (f64, f64, f64, u32, usize) {
-    let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(122_492_789 + seed);
+    let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(122_492 + seed);
     let template1 = dbg_hmm::gen_sample::generate_seq(&mut rng, len);
     let template2 = dbg_hmm::gen_sample::introduce_randomness(&template1, &mut rng, &p);
     let dist = edlib_sys::global_dist(&template1, &template2);

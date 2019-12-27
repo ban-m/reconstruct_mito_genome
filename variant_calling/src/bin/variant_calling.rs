@@ -24,14 +24,12 @@ fn main() -> std::io::Result<()> {
     let mut pileups_del: Vec<_> = (0..1_000_000).map(PileUp::new).collect();
     debug!("Converted {} alignments into minimal mode", subst.len());
     debug!("Register each alignment into pileups");
-    let mut max = 0;
     for aln in &subst {
         for (idx, base) in aln.seq.iter().enumerate() {
             pileups
                 .get_mut(idx + aln.start)
                 .map(|e| e.push(*base))
                 .unwrap();
-            max = idx.max(max);
         }
     }
     for aln in ins {
@@ -49,9 +47,9 @@ fn main() -> std::io::Result<()> {
     writeln!(&mut wtr, "Pos\tMAF\tCoverage\tType")?;
     for ((s, i), d) in pileups
         .iter()
-        .take_while(|e| e.pos <= max)
         .zip(pileups_ins.iter())
         .zip(pileups_del.iter())
+        .filter(|&((e, _), _)| e.coverage() > 20)
     {
         assert!(s.pos == i.pos && i.pos == d.pos);
         writeln!(&mut wtr, "{}\t{}\t{}\tSub", s.pos, s.maf(), s.coverage())?;
@@ -141,7 +139,7 @@ impl std::fmt::Display for PileUp {
         )
     }
 }
-const BASES: &[u8; 4] = b"ACGT";
+const BASES: &[u8; 5] = b"ACGT-";
 impl PileUp {
     fn coverage(&self) -> usize {
         self.composition.iter().sum::<usize>()

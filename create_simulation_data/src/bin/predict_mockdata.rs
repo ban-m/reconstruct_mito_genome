@@ -16,7 +16,7 @@ use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoroshiro128StarStar;
 use std::collections::HashMap;
 use std::io::{BufWriter, Write};
-const K: usize = 6;
+const K: usize = 4;
 fn main() -> std::io::Result<()> {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let args: Vec<_> = std::env::args().collect();
