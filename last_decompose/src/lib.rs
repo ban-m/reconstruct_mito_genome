@@ -33,6 +33,11 @@ use rand::{thread_rng, Rng};
 use rand_xoshiro::Xoshiro256StarStar;
 pub mod error_profile;
 const PRIOR: bool = true;
+// These are parameters to calibrate the
+// contained effect. The parameters are set by
+// tuning on the commit 2f0208f586c2ebd53c13386e109a514273629a8e
+const A_CONTAINED: f64 = -0.1302226;
+const B_CONTAINED: f64 = 4.4558318;
 // These A and B are to offset the low-coverage region. For THR=2.0;
 const A: f64 = -0.245;
 const B: f64 = 3.6;
@@ -451,7 +456,7 @@ pub fn clustering(
     let border = label.len();
     assert_eq!(forbidden.len(), data.len());
     let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
-    //let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
+    // let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
     // Maybe we should use randomized choose.
     debug!("Prediction. Dump weights");
     for (weight, ans) in weights.iter().skip(border).zip(answer) {
@@ -689,24 +694,25 @@ fn batch_vb(
                     let (sum, count) = read
                         .seq
                         .iter()
-                        .filter_map(|u| {
+                        .map(|u| {
                             let model = &ms[u.contig()][u.unit()];
-                            let weight = model.weight();
-                            let coverage_offset = if PRIOR {
-                                offset(weight, A_PRIOR, B_PRIOR)
-                            } else {
-                                offset(weight, A, B)
-                            };
+                            // let weight = model.weight();
+                            // let coverage_offset = if PRIOR {
+                            //     offset(weight, A_PRIOR, B_PRIOR)
+                            // } else {
+                            //     offset(weight, A, B)
+                            // };
                             let lk = model.forward(u.bases(), c);
-                            let lk = lk + coverage_offset;
-                            let c = c.null_model(u.bases());
-                            if lk < c {
-                                None
-                            } else {
-                                Some(lk)
-                            }
+                            // let lk = lk + coverage_offset;
+                            // let c = c.null_model(u.bases());
+                            // if lk < c {
+                            //     None
+                            // } else {
+                            //     Some(lk)
+                            // }
                             // debug!("\tLK\t{:.3}\t{:.3}", lk, weight);
                             // debug!("Small LK:{:.4} Model:{} Position:{}", lk, model, u.unit());
+                            lk
                         })
                         .fold((0., 0), |(sum, count), x| (sum + x, count + 1));
                     let lk = sum / count as f64;
@@ -743,8 +749,8 @@ pub fn soft_clustering(
     // weight_of_read[i] = "the vector of each cluster for i-th read"
     let mut weight_of_read: Vec<Vec<f64>> =
         construct_initial_weights(label, forbidden, cluster_num, data.len(), data.len() as u64);
-    let soe_thr =
-        SOE_PER_DATA_ENTROPY * (data.len() - label.len()) as f64 / (cluster_num as f64).ln();
+    let soe_thr = SOE_PER_DATA_ENTROPY * (data.len() - label.len()) as f64
+        / (cluster_num as f64).ln().max(1.);
     let max_coverage = get_max_coverage(data, contigs);
     let beta_step = 1. + (BETA_STEP - 1.) * 2. / (max_coverage as f64).log10();
     info!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
@@ -781,7 +787,9 @@ pub fn soft_clustering(
         );
         debug!("SumOfEntropy:{:.3}\t{:.3}", last_sum_of_entropy, soe_thr);
         let soe_diff = soe - last_sum_of_entropy;
-        if last_sum_of_entropy < soe_thr || soe_diff < soe_thr / 10. {
+        if last_sum_of_entropy < soe_thr
+            || (soe_diff < soe_thr && last_sum_of_entropy < 2. * soe_thr)
+        {
             break;
         } else {
             betas = betas.iter().map(|e| e * beta_step).collect();
@@ -822,8 +830,7 @@ fn from_weight_of_read(
         .map(|cl| mf.generate_model(&weight_of_read, data, cl))
         .collect();
     let mut updates = vec![false; data.len()];
-    let mut soe = 100000.; // weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-    // debug!("Betas:{:?}", betas);
+    let mut soe = 100000.;
     for &beta in betas {
         let mut soe_diff;
         for &pick_prob in pick_probs {
@@ -849,7 +856,7 @@ fn from_weight_of_read(
         soe_diff = soe - c_soe;
         soe = c_soe;
         // Yey!
-        if soe < soe_thr || soe_diff < soe_thr {
+        if soe < soe_thr || (soe_diff < soe_thr && soe < soe_thr * 2.) {
             debug!("Early return:{:.3}\t{:.3}\t{:.3}", soe, soe_diff, soe_thr);
             return soe;
         }
@@ -1144,12 +1151,16 @@ fn compute_log_probs(
                 .map(|u| {
                     let model = &model[u.contig()][u.unit()];
                     let lk = model.forward(u.bases(), c);
-                    let offset = if PRIOR {
-                        offset(model.weight(), A_PRIOR, B_PRIOR)
-                    } else {
-                        offset(model.weight(), A, B)
-                    };
-                    lk + offset
+                    // let offset = if PRIOR {
+                    //     offset(model.weight(), -0.1302226, 4.4558318)
+                    // } else {
+                    //     //let offset = if PRIOR {
+                    //     // offset(model.weight(), A_PRIOR, B_PRIOR)
+                    //     //} else {
+                    //     offset(model.weight(), A, B)
+                    // };
+                    // // };
+                    lk // + offset
                 })
                 .sum::<f64>()
                 / read.seq.len() as f64

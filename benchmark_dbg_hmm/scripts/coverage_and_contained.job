@@ -1,6 +1,6 @@
 #!/bin/bash
 #$ -S /bin/bash
-#$ -N CovLike
+#$ -N CovSelf
 #$ -cwd
 #$ -pe smp 24
 #$ -e ./logfiles/coverage_and_contained.log

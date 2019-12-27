@@ -91,7 +91,7 @@ fn new_prior(b: &mut Bencher) {
     let k = 6;
     let weight = vec![1.; model1.len()];
     let mut f = Factory::new();
-    let muf buf = vec![];
+    let mut buf = vec![];
     f.generate_with_weight(&model1, &weight, k);
     b.iter(|| test::black_box(f.generate_with_weight_prior(&model1, &weight, k,&mut buf)));
 }

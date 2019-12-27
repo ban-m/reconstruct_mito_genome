@@ -17,7 +17,7 @@ fn main() {
     let covs: Vec<_> = (1..num_seq).collect();
     let result = (0..rep).collect::<Vec<_>>();
     let result: Vec<_> = result
-        .par_iter()
+        .iter()
         .flat_map(|&seed| {
             let mut rng: StdRng = SeedableRng::seed_from_u64(seed as u64);
             let template: Vec<_> = generate_seq(&mut rng, len);
@@ -35,9 +35,19 @@ fn main() {
                         .zip(tests.chunks_exact(coverage))
                         .flat_map(|(data, test)| {
                             let m1: Vec<_> = data.iter().map(|e| e.as_slice()).collect();
-                            let m1 = f.generate_with_weight_prior(&m1, &weight[..coverage], k, &mut vec![]);
+                            let m1 = f.generate_with_weight_prior(
+                                &m1,
+                                &weight[..coverage],
+                                k,
+                                &mut vec![],
+                            );
                             let m2: Vec<_> = test.iter().map(|e| e.as_slice()).collect();
-                            let m2 = f.generate_with_weight_prior(&m2, &weight[..coverage], k, &mut vec![]);
+                            let m2 = f.generate_with_weight_prior(
+                                &m2,
+                                &weight[..coverage],
+                                k,
+                                &mut vec![],
+                            );
                             test.iter()
                                 .map(|t| {
                                     let m1 = m1.forward(t, &DEFAULT_CONFIG);

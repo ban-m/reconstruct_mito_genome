@@ -10,10 +10,10 @@ use rayon::prelude::*;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let len = 150;
-    let num_seq = 50;
+    let num_seq = 200;
     let mut rng: StdRng = SeedableRng::seed_from_u64(121_892);
     let k = 6;
-    println!("Seed\tCoverage\tLikelihoodRatio\tOrigignalLK");
+    println!("Seed\tCoverage\tLikelihoodRatio\tOriginalLK");
     let rep = 15;
     let covs: Vec<_> = (1..num_seq).collect();
     let result: Vec<_> = (0..rep)

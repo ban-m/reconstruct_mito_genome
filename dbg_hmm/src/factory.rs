@@ -101,7 +101,7 @@ impl Factory {
     }
     pub fn generate_from_ref(&mut self, dataset: &[&[u8]], k: usize) -> DBGHMM {
         assert!(k <= 32, "k should be less than 32.");
-        // assert!(self.is_empty());
+        eprintln!("======DEPRECATED FUNCTION=======\nDO NOT CALL `generate_from_ref.`");
         let tk = 4u32.pow(k as u32) as usize;
         self.inner.clear();
         self.inner
@@ -111,7 +111,7 @@ impl Factory {
                 self.inner[to_u64(kmer)].0 += 1.;
             })
         });
-        let thr = self.calc_thr();
+        let thr = 0.;
         let mut nodes = Vec::with_capacity(self.len());
         for seq in dataset {
             for x in seq.windows(k + 1) {
@@ -129,7 +129,6 @@ impl Factory {
             }
         }
         let nodes = Self::sort_nodes(nodes);
-        let nodes = self.clean_up_nodes(nodes);
         let weight = dataset.len() as f64;
         self.clear();
         DBGHMM::from(nodes, k, weight)
@@ -180,7 +179,7 @@ impl Factory {
             }
         }
         let weight = ws.iter().sum::<f64>();
-        if weight < 1.0001 {
+        if weight < 1.000 {
             self.clear();
             let nodes = vec![];
             return DBGHMM { nodes, k, weight };
@@ -230,9 +229,8 @@ impl Factory {
     ) -> DBGHMM {
         buf.clear();
         let coverage = ws.iter().sum::<f64>();
-        if coverage < 1.0001 {
-            let (nodes, weight) = (vec![], coverage);
-            return DBGHMM { nodes, k, weight };
+        if coverage < 2. {
+            return self.generate_with_weight(dataset, ws, k);
         }
         assert!(k <= 32, "k should be less than 32.");
         use super::PRIOR_FACTOR;
@@ -268,7 +266,6 @@ impl Factory {
         let mut nodes = Vec::with_capacity(1_000);
         let mut edge = vec![];
         let scale = SCALE * coverage.ln() / 40f64.ln();
-        // eprintln!("Cov:Scale:{}/{}", coverage, scale);
         for (e, &w) in buf.iter().enumerate().filter(|&(_, &w)| w > ep) {
             let (from, to) = (e >> 2, e & mask);
             decode_to(e as u64, k + 1, &mut edge);
@@ -351,6 +348,33 @@ impl Factory {
                     }
                 },
             ));
+        if self.dfs_stack.is_empty() {
+            // We should pick some "head" nodes.
+            self.is_safe.clear();
+            self.is_safe.extend(std::iter::repeat(1).take(nodes.len()));
+            for (_, n) in nodes.iter().enumerate() {
+                for &to in n.edges.iter().filter_map(|e| e.as_ref()) {
+                    self.is_safe[to] = 0;
+                }
+            }
+            self.dfs_stack
+                .extend(self.is_safe.iter().enumerate().filter_map(|(idx, &is_ok)| {
+                    if is_ok == 1 {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                }));
+            self.is_safe.clear();
+            if self.dfs_stack.is_empty() {
+                debug!(
+                    "Forward:This graph is a st-connected. Total Weight:{}",
+                    nodes.iter().map(|e| e.tot).sum::<f64>()
+                );
+                self.clear();
+                return nodes;
+            }
+        }
         'dfs: while !self.dfs_stack.is_empty() {
             let node = *self.dfs_stack.last().unwrap();
             self.dfs_flag[node] = 1;
@@ -395,6 +419,31 @@ impl Factory {
                     }
                 },
             ));
+        if self.dfs_stack.is_empty() {
+            // We should pick some "tail" nodes.
+            self.is_safe.clear();
+            self.is_safe.extend(std::iter::repeat(0).take(nodes.len()));
+            for (from, n) in nodes.iter().enumerate() {
+                self.is_safe[from] = n.edges.iter().all(|e| e.is_none()) as u8;
+            }
+            self.dfs_stack
+                .extend(self.is_safe.iter().enumerate().filter_map(|(idx, &is_ok)| {
+                    if is_ok == 1 {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                }));
+            self.is_safe.clear();
+            if self.dfs_stack.is_empty() {
+                debug!(
+                    "REVERSE:This graph is st-connected. Total Weight:{}",
+                    nodes.iter().map(|e| e.tot).sum::<f64>()
+                );
+                self.clear();
+                return nodes;
+            }
+        }
         let mut edges: Vec<Vec<usize>> = vec![Vec::with_capacity(4); nodes.len()];
         for (from, node) in nodes.iter().enumerate() {
             for &to in node.edges.iter().filter_map(|e| e.as_ref()) {

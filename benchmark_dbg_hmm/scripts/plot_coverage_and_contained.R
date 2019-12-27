@@ -12,6 +12,12 @@ g <- dataset %>% filter(Coverage > 1) %>% sample_frac(0.1) %>%
     ggplot() + geom_point(aes(x=Coverage, y = LK, color= Type),alpha=0.3)
 generalplot(g,"coverage_and_contained_overview")
 
+
+g <- dataset %>% filter(Coverage > 1) %>% sample_frac(0.1) %>%
+    gather(key = Type, value = LK, -Coverage, -Seed) %>%
+    ggplot() + geom_point(aes(x=Coverage, y = LK)) + facet_wrap(.~Type)
+
+
 tempdf <- dataset %>%
     mutate(diff = ContainedSelf - NotContained) %>%
     filter(diff > 0) %>% mutate(diff = log(diff)) %>% select(-Seed)
@@ -36,3 +42,9 @@ g <- dataset %>% filter(Coverage > 1) %>% sample_frac(0.1) %>%
     gather(key = Type, value = LK, -Coverage, -Seed) %>%
     ggplot() + geom_point(aes(x=Coverage, y = LK, color= Type),alpha=0.3)
 generalplot(g, "coverage_and_contained_calib")
+
+
+g <- dataset %>% filter(Coverage > 1) %>% sample_frac(0.1) %>%
+    mutate(ContainedSelf = ContainedSelf - exp(param[1]*Coverage + param[2])) %>% 
+    gather(key = Type, value = LK, -Coverage, -Seed) %>%
+    ggplot() + geom_point(aes(x=Coverage, y = LK)) + facet_wrap(.~Type)

@@ -3,13 +3,13 @@
 #$ -N DecError
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/last_decompose_ev.log
-#$ -o ./logfiles/last_decompose_ev.log
+#$ -e ./logfiles/last_decompose_new.log
+#$ -o ./logfiles/last_decompose_new.log
 #$ -V
 #$ -m e
 set -ue
-OUTPUT=./result/last_decompose_ev.txt
-OUTLOG_PREFIX=./logfiles/last_decompose_ev
+OUTPUT=./result/last_decompose_new_ev.txt
+OUTLOG_PREFIX=./logfiles/last_decompose_new_ev
 # RUSTFLAGS="-C target-cpu=native" cargo build --release
 
 echo "-----start-----" >> ${OUTPUT}

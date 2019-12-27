@@ -7,7 +7,7 @@ generalplot <- function(g,name){
                     plot = g + cowplot::theme_cowplot())
 }
 dataset <- read_tsv("./result/number_of_edge_and_node.tsv")
-g <- dataset %>%
+g <- dataset %>% filter(Coverage < 200) %>% 
     gather(key = Type, value = Count, -Coverage, -Weight, -Method) %>%
     ggplot() + geom_point(aes(x = Coverage, y = Count, color = Type)) +
     facet_wrap(.~Method)

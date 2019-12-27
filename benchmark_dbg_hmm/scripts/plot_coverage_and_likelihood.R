@@ -20,14 +20,14 @@ g2 <- dataset %>% filter(Coverage > 1) %>% filter(LikelihoodRatio < 100) %>%
 generalplot(g2,"coverage_and_likelihood_ratio_smooth")
 
 
-summaries  <- dataset %>% filter(Coverage>1) %>%
+summaries  <- dataset %>% filter(Coverage>10) %>%
     filter(LikelihoodRatio < 100) %>%
     nest(-Seed,-Coverage) %>%
     mutate(data = map(data,function(x) x %>% summarize(mean =mean(LikelihoodRatio)))) %>%
     unnest()
 
-tempdataset  <- dataset %>% filter(Coverage>2) %>%
-    filter(OrigignalLK > -200) 
+tempdataset  <- dataset %>% filter(Coverage>10) %>%
+    filter(OriginalLK > -200) 
 
 linear_reg <- lm(log(LikelihoodRatio) ~ Coverage,data=tempdataset)
 objective_function <- function(x){
@@ -39,14 +39,14 @@ objective_function <- function(x){
 init_param <- c(linear_reg$coefficients[2], linear_reg$coefficients[1])
 result <- optim(par=c(-0.24,3.6),fn =  objective_function)
 
-g <- dataset %>% filter(Coverage > 1 ) %>% filter(LikelihoodRatio < 100) %>% 
+g <- dataset %>% filter(Coverage > 10 ) %>% filter(LikelihoodRatio < 100) %>% 
     ggplot() + geom_point(aes(x= Coverage,y = LikelihoodRatio, color = factor(Seed))) +
     stat_function(fun=function(x)exp(result$par[1] * x  + result$par[2]))
 generalplot(g, "coverage_and_likelihood_ratio_with_regress")
 
 a <- result$par[1]
 b <- result$par[2]
-g <- dataset %>% filter(Coverage > 1 ) %>% filter(LikelihoodRatio < 100) %>%
+g <- dataset %>% filter(Coverage > 10 ) %>% filter(LikelihoodRatio < 100) %>%
     mutate(LikelihoodRatio = LikelihoodRatio - exp(a*Coverage+b)) %>% 
     ggplot() + geom_point(aes(x= Coverage,y = LikelihoodRatio, color = factor(Seed)))
 
