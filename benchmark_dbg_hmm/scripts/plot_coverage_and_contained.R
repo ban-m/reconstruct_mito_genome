@@ -18,7 +18,7 @@ g <- dataset %>% filter(Coverage > 1) %>% sample_frac(0.1) %>%
     ggplot() + geom_point(aes(x=Coverage, y = LK)) + facet_wrap(.~Type)
 
 
-tempdf <- dataset %>%
+tempdf <- dataset %>% filter(Coverage > 10) %>% 
     mutate(diff = ContainedSelf - NotContained) %>%
     filter(diff > 0) %>% mutate(diff = log(diff)) %>% select(-Seed)
 

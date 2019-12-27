@@ -16,7 +16,7 @@ use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoroshiro128StarStar;
 use std::collections::HashMap;
 use std::io::{BufWriter, Write};
-const K: usize = 4;
+const K: usize = 6;
 fn main() -> std::io::Result<()> {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let args: Vec<_> = std::env::args().collect();
@@ -66,7 +66,7 @@ fn main() -> std::io::Result<()> {
         debug!("Random mode");
         let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1893749823);
         let (training, testset): (Vec<_>, Vec<_>) =
-            reads.into_iter().partition(|_| rng.gen_bool(0.27));
+            reads.into_iter().partition(|_| rng.gen_bool(0.));
         (training, testset)
     } else {
         debug!("Half mode");

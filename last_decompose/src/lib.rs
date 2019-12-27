@@ -832,7 +832,6 @@ fn from_weight_of_read(
     let mut updates = vec![false; data.len()];
     let mut soe = 100000.;
     for &beta in betas {
-        let mut soe_diff;
         for &pick_prob in pick_probs {
             updates_flags(&mut updates, &weight_of_read, &mut rng, pick_prob, beta);
             models.iter_mut().enumerate().for_each(|(cluster, model)| {
@@ -853,7 +852,7 @@ fn from_weight_of_read(
             );
         }
         let c_soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-        soe_diff = soe - c_soe;
+        let soe_diff = soe - c_soe;
         soe = c_soe;
         // Yey!
         if soe < soe_thr || (soe_diff < soe_thr && soe < soe_thr * 2.) {

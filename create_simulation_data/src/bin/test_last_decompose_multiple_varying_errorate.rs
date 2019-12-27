@@ -8,7 +8,7 @@ extern crate rand_xoshiro;
 extern crate log;
 extern crate env_logger;
 use dbg_hmm::gen_sample;
-use last_decompose::{clustering, likelihood_of_assignments, ERead};
+use last_decompose::{clustering, ERead};
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 fn main() {

@@ -3,14 +3,14 @@
 #$ -N DecMult
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/last_decompose_multi_vb_ave.log
-#$ -o ./logfiles/last_decompose_multi_vb_ave.out
+#$ -e ./logfiles/last_decompose_multi_new.log
+#$ -o ./logfiles/last_decompose_multi_new.out
 #$ -V
 #$ -m e
 set -ue
 
-OUTPUT=./result/last_decompose_multi_vb_ave.txt
-OUTLOG_PREFIX=./logfiles/last_decompose_multi_vb_ave
+OUTPUT=./result/last_decompose_multi_new.txt
+OUTLOG_PREFIX=./logfiles/last_decompose_multi_new
 
 PROBS="0.4 0.1 0.1 0.1 0.2 0.1"
 ./target/release/test_last_decompose_multiple \
