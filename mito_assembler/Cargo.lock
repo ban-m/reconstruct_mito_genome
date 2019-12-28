@@ -637,6 +637,7 @@ version = "0.1.0"
 dependencies = [
  "bio 0.29.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bio_utils 0.1.0",
+ "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "last_decompose 0.1.0",
  "last_tiling 0.1.0",

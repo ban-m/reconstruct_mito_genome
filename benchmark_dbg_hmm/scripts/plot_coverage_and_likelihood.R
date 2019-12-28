@@ -11,7 +11,7 @@ generalplot <- function(g,name){
 dataset_diff <- read_tsv("./result/coverage_and_likelihood_diff.tsv")
 dataset <- read_tsv("./result/coverage_and_likelihood.tsv")
 
-g2 <- dataset %>% filter(Coverage > 1) %>% filter(LikelihoodRatio < 100) %>% 
+g2 <- dataset %>% filter(Coverage > 1 & Coverage < 30) %>% filter(LikelihoodRatio < 100) %>% 
     ggplot() + geom_point(aes(x = Coverage, y = LikelihoodRatio), alpha = 0.3)
 generalplot(g2,"coverage_and_likelihood_ratio_point")
 g2 <- dataset %>% filter(Coverage > 1) %>% filter(LikelihoodRatio < 100) %>% 
@@ -28,7 +28,6 @@ summaries  <- dataset %>% filter(Coverage>10) %>%
 
 tempdataset  <- dataset %>% filter(Coverage>10) %>%
     filter(OriginalLK > -200) 
-
 linear_reg <- lm(log(LikelihoodRatio) ~ Coverage,data=tempdataset)
 objective_function <- function(x){
     a <- x[1]
@@ -38,6 +37,20 @@ objective_function <- function(x){
 }
 init_param <- c(linear_reg$coefficients[2], linear_reg$coefficients[1])
 result <- optim(par=c(-0.24,3.6),fn =  objective_function)
+
+
+tempdataset  <- dataset %>% filter(Coverage>2 & Coverage < 30) %>%
+    filter(OriginalLK > -200) 
+linear_reg <- lm(log(LikelihoodRatio) ~ Coverage,data=tempdataset)
+objective_function <- function(x){
+    a <- x[1]
+    b <- x[2]
+    tempdataset %>%  mutate(residual = (LikelihoodRatio - exp(a*Coverage+b)) ** 2) %>%
+        pull(residual) %>% sum()
+}
+init_param <- c(linear_reg$coefficients[2], linear_reg$coefficients[1])
+result <- optim(par=c(-0.24,3.6),fn =  objective_function)
+
 
 g <- dataset %>% filter(Coverage > 10 ) %>% filter(LikelihoodRatio < 100) %>% 
     ggplot() + geom_point(aes(x= Coverage,y = LikelihoodRatio, color = factor(Seed))) +

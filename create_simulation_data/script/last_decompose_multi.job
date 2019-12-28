@@ -9,31 +9,31 @@
 #$ -m e
 set -ue
 
-OUTPUT=./result/last_decompose_multi_new.txt
-OUTLOG_PREFIX=./logfiles/last_decompose_multi_new
+OUTPUT=./result/last_decompose_multi_soft_ave.txt
+OUTLOG_PREFIX=./logfiles/last_decompose_multi_soft_ave
 
 PROBS="0.4 0.1 0.1 0.1 0.2 0.1"
 ./target/release/test_last_decompose_multiple \
     300 0 21 ${PROBS} >> ${OUTPUT} \
     2>> ${OUTLOG_PREFIX}.skew.300.log
 
-# TEST_NUM=300
-# COVERAGE=12
-# PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
-# for seed in 10 20 30 40 50
-# do
-#     ./target/release/test_last_decompose_multiple \
-#         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}\
-#         2>> ${OUTLOG_PREFIX}.even.300.log
-# done
+TEST_NUM=300
+COVERAGE=0
+PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
+for seed in 10 20 30 40 50
+do
+    ./target/release/test_last_decompose_multiple \
+        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}\
+        2>> ${OUTLOG_PREFIX}.even.300.log
+done
 
-# TEST_NUM=300
-# COVERAGE=12
-# PROBS="0.4 0.1 0.1 0.1 0.2 0.1"
-# for seed in 10 20 30 40 50
-# do
-#     ./target/release/test_last_decompose_multiple \
-#         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT} \
-#         2>> ${OUTLOG_PREFIX}.skew.300.log
-# done
+TEST_NUM=300
+COVERAGE=0
+PROBS="0.4 0.1 0.1 0.1 0.2 0.1"
+for seed in 10 20 30 40 50
+do
+    ./target/release/test_last_decompose_multiple \
+        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT} \
+        2>> ${OUTLOG_PREFIX}.skew.300.log
+done
 

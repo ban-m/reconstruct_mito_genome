@@ -34,8 +34,8 @@ fn main() {
     let chain_len = 40;
     let k = 6;
     let len = 150;
-    for p in 1..10 {
-        let p = p as f64 / 6000. + 0.001;
+    for p in 1..=10 {
+        let p = p as f64 / 6000.;
         println!("ErrorRate:{:3}", p * 6.);
         let p = &gen_sample::Profile {
             sub: p,

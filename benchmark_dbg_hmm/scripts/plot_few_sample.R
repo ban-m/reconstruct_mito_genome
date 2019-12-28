@@ -16,11 +16,21 @@ dataset <- read_tsv(filename) %>%
 upperbound <- dataset %>% select(Dist, Coverage) %>%
     mutate(UpperBound = pmax(1-0.14**Dist,0.5))
 
+
+summary <- dataset %>%
+    filter(Type == "WHMM") %>%
+    nest(-Dist, -Coverage) %>%
+    mutate(data = map(data,function(x)summarize(x, mean = mean(Accuracy)))) %>%
+    unnest() %>% arrange(Coverage, Dist) 
+
+print(summary, n = Inf)
+
+
 g <- dataset %>%
     ggplot() +
-    geom_point(mapping = aes(x = Coverage, y = Accuracy, color = Type), alpha = 0.5) +
+    geom_point(mapping = aes(x = Coverage, y = Accuracy), alpha = 0.5) + 
     geom_line(mapping = aes(x = Coverage, y = UpperBound), data = upperbound)  + 
-    facet_wrap(.~Dist)
+    facet_grid(Type~Dist)
 generalplot(g,paste0(outputname,"_point"))
 
 g <- dataset %>%

@@ -28,7 +28,7 @@ lastal -f tab -P${CORES} -R00 -Q0 -p score.matrix reference ${READ} > alignments
 cd ${ROOT}
 
 # ----- Prediction ------
-# cargo run --release --bin predict -- ${READ} ${REFERENCE} \
-#       ${OUTPUT}/last_db/alignments.tab ${CORES} \
-#       > ${OUTPUT}/predictions.tsv
+cargo run --release --bin predict -- ${READ} ${REFERENCE} \
+      ${OUTPUT}/last_db/alignments.tab ${CORES} \
+      > ${OUTPUT}/predictions.tsv
 

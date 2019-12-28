@@ -31,8 +31,8 @@ pub const UNIT_SIZE: usize = 150;
 // If it does not, we discard that alignment. Otherwise, we keep it.
 const CHECK_POINT: usize = 550;
 /// Parse given aln files into repeats. It needs contig information such as index of a contig.
+const THR: usize = 1_000;
 pub fn into_repeats(alns: &[LastTAB], contig: &Contigs) -> Vec<RepeatPairs> {
-    const THR: usize = 1_000;
     alns.into_iter()
         .filter(|aln| {
             // Check complete alignment.

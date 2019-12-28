@@ -14,6 +14,10 @@ extern crate packed_simd;
 extern crate rand;
 extern crate rand_xoshiro;
 extern crate test;
+// Parameters for Factory class.
+const SCALE: f64 = 0.81;
+const PRIOR_FACTOR: f64 = 0.05;
+const MAX_PRIOR_FACTOR: f64 = 3.0;
 // Whether or not to use 'pseudo count' in the out-dgree.
 const PSEUDO_COUNT: f64 = 1.0;
 const THR_ON: bool = true;
@@ -25,8 +29,6 @@ const THR: f64 = 2.0;
 // const THR: f64 = 3.;
 // const WEIGHT_THR: f64 = 2.0;
 // const LOW_LIKELIHOOD: f64 = -100_000.;
-const SCALE: f64 = 3.;
-const PRIOR_FACTOR: f64 = 0.05;
 mod find_union;
 pub mod gen_sample;
 mod kmer;
