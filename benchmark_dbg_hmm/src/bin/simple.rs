@@ -56,7 +56,7 @@ fn main() {
 }
 
 fn viterbi_print(q: &[u8], m: &DBGHMM) {
-    let s = m.forward_exp(&q, &DEFAULT_CONFIG);
+    let s = m.forward(&q, &DEFAULT_CONFIG);
     let (max, viterbi) = m.viterbi(&q, &DEFAULT_CONFIG);
     eprintln!("Forward:{} vs Viterbi{}", s, max);
     let mut pos = 0;

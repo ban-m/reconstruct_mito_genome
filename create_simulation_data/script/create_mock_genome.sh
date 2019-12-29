@@ -14,7 +14,7 @@ cat ./data/easy/mock_genome_read.fq | paste - - - - | cut -f 1,2 |\
     sed -e 's/@/>/g' | tr '\t' '\n' > ./data/easy/mock_genome_read.fa
 cat ./data/easy/mock_genome.fa | paste - - | head -n1 | tr '\t' '\n' > ./data/easy/mock_genome_ref.fa
 
-LEN=200000
+LEN=300000
 cargo run --release --bin create_mock_genomes -- ${LEN} > ./data/mock_genome.fa
 badread simulate \
         --reference ./data/mock_genome.fa \

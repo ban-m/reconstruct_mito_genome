@@ -353,7 +353,8 @@ fn critical_region_within(
             }
         }
     }
-    debug!("Profiled!({}len)\nPosition\tCount", inner_count.len());
+    debug!("Profiled!({}len)", inner_count.len());
+    debug!("Position\tCount");
     for (idx, count) in inner_count
         .iter()
         .map(|e| e.len())
@@ -644,7 +645,8 @@ fn critical_region_confluent(
             clip_count[last_chunk.unit as usize].push(read);
         }
     }
-    debug!("Profiled!({}len)\nPosition\tCount", clip_count.len());
+    debug!("Profiled!({}len)", clip_count.len());
+    debug!("Position\tCount");
     for (idx, count) in clip_count
         .iter()
         .map(|e| e.len())

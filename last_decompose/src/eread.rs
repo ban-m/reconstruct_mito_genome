@@ -173,6 +173,9 @@ impl ERead {
     pub fn len(&self) -> usize {
         self.seq.len()
     }
+    pub fn is_empty(&self) -> bool {
+        self.seq.is_empty()
+    }
     pub fn has_head_clip(&self) -> bool {
         self.has_head_clip
     }

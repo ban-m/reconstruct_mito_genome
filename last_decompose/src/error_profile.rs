@@ -28,7 +28,6 @@ pub fn summarize_tab(
         })
         .filter(|ops| ops.len() > 2000)
         .collect();
-    eprintln!("{}", ops.len());
     summarize_operations(ops, bf)
 }
 

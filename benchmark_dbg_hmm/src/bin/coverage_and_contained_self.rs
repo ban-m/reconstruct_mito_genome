@@ -48,7 +48,7 @@ fn main() {
                                 k,
                                 &mut vec![],
                             );
-                            test.iter()
+                            test.par_iter()
                                 .map(|t| {
                                     let m1 = m1.forward(t, &DEFAULT_CONFIG);
                                     let m2 = m2.forward(t, &DEFAULT_CONFIG);

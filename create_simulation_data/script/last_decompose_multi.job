@@ -9,16 +9,16 @@
 #$ -m e
 set -ue
 
-OUTPUT=./result/last_decompose_multi_soft_ave.txt
-OUTLOG_PREFIX=./logfiles/last_decompose_multi_soft_ave
+OUTPUT=./result/last_decompose_multi_soft_lr.txt
+OUTLOG_PREFIX=./logfiles/last_decompose_multi_soft_lr
 
 PROBS="0.4 0.1 0.1 0.1 0.2 0.1"
 ./target/release/test_last_decompose_multiple \
-    300 0 21 ${PROBS} >> ${OUTPUT} \
+    300 6 21 ${PROBS} >> ${OUTPUT} \
     2>> ${OUTLOG_PREFIX}.skew.300.log
 
 TEST_NUM=300
-COVERAGE=0
+COVERAGE=6
 PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
 for seed in 10 20 30 40 50
 do
@@ -28,7 +28,7 @@ do
 done
 
 TEST_NUM=300
-COVERAGE=0
+COVERAGE=6
 PROBS="0.4 0.1 0.1 0.1 0.2 0.1"
 for seed in 10 20 30 40 50
 do

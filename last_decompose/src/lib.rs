@@ -11,9 +11,8 @@ extern crate rayon;
 extern crate serde;
 pub use find_breakpoint::critical_regions;
 use rayon::prelude::*;
-pub mod utils;
-use log::Level;
 mod unit_clustering;
+pub mod utils;
 pub use unit_clustering::unit_clustering;
 // mod assignments;
 mod eread;
@@ -37,8 +36,8 @@ const PRIOR: bool = true;
 // const A_CONTAINED: f64 = -0.1302226;
 // const B_CONTAINED: f64 = 4.4558318;
 // These A and B are to offset the low-coverage region. For THR=2.0;
-const A: f64 = -0.245;
-const B: f64 = 3.6;
+// const A: f64 = -0.245;
+// const B: f64 = 3.6;
 // These A and B are to offset the low-coverage region. For THR=2.0,
 const A_PRIOR: f64 = -0.19;
 const B_PRIOR: f64 = 3.7;
@@ -59,7 +58,7 @@ const B_PRIOR: f64 = 3.7;
 // const SAMPING: usize = 100;
 // This is the factor we multiply at each iteration for beta.
 // Note that this factor also scaled for the maximum coverage.
-const BETA_STEP: f64 = 1.1;
+const BETA_STEP: f64 = 2.0;
 // Maximum beta. Until this beta, we multiply beta_step for the current beta.
 // const MAX_BETA: f64 = 1.;
 // This is the parameter for Diriclet prior.
@@ -74,33 +73,27 @@ const LOOP_NUM_VB: usize = 20;
 const INIT_PICK_PROB: f64 = 0.05;
 const PICK_PROB_STEP: f64 = 1.2;
 const MAX_PICK_PROB: f64 = 0.10;
-const MINIMUM_PROB: f64 = 0.001;
-// This is good parameter for THR=2.0 in dbghmm.
-// const LEARNING_RATE: f64 = 0.6;
-// This is good parameter for PRIOR = true;
-// const LEARNING_RATE: f64 = 0.2;
-const LEARNING_RATE: f64 = 1.0;
+const PRIOR_ENTROPY: f64 = 1.;
+const LEARNING_RATE: f64 = 1.;
 const MOMENT: f64 = 0.2;
-// const SEED: u64 = 100;
 const SOE_PER_DATA_ENTROPY: f64 = 0.05;
 const SOE_PER_DATA_ENTROPY_VB: f64 = 0.005;
 const K: usize = 6;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
-/// TODO: make a procedure to filter out contained reads.
-/// TODO: Make a procedure to remove chimeric reads.
+// TODO: Make a procedure to remove chimeric reads.
+// -> If a read has 'junction', and in the "unassigned" bucket,
+// it means such read can be safely removed.
+// TODO: make a procedure to filter out contained reads.
+// -> Do not need, as such reads can be removed just by repeat masking.
+// -> Such reads should be removed explicitlly?
 pub fn decompose(
     encoded_reads: Vec<ERead>,
     critical_regions: &[CriticalRegion],
     contigs: &last_tiling::Contigs,
-    _repeats: &[RepeatPairs],
+    repeats: &[RepeatPairs],
     config: dbg_hmm::Config,
 ) -> Vec<(String, u8)> {
-    if log_enabled!(Level::Debug) {
-        for c in critical_regions {
-            debug!("{:?}", c);
-        }
-    }
     let datasize = encoded_reads.len();
     let mut unassigned_reads: Vec<_> = vec![];
     let mut assigned_reads: Vec<_> = vec![];
@@ -138,10 +131,10 @@ pub fn decompose(
         forbidden
     };
     let answer = vec![0; unassigned_reads.len()];
-    let masked_region = get_masked_region(&critical_regions, &contigs);
-    let dataset: Vec<ERead> = assigned_reads
+    let masked_region = get_masked_region(&critical_regions, &contigs, repeats);
+    // Remove contained reads.
+    let assigned_reads: Vec<_> = assigned_reads
         .into_iter()
-        .chain(unassigned_reads)
         .map(|mut read| {
             let seq = read
                 .seq()
@@ -152,7 +145,26 @@ pub fn decompose(
             *read.seq_mut() = seq;
             read
         })
+        .filter(|read| read.is_empty())
         .collect();
+    // This should not decrease the number of assigned reads,
+    // as each assigned reads should escaped from repetitive regions.
+    assert_eq!(assigned_reads.len(), labels.len());
+    let unassigned_reads: Vec<_> = unassigned_reads
+        .into_iter()
+        .map(|mut read| {
+            let seq = read
+                .seq()
+                .iter()
+                .filter(|unit| !masked_region[unit.contig as usize][unit.unit as usize])
+                .cloned()
+                .collect();
+            *read.seq_mut() = seq;
+            read
+        })
+        .filter(|read| !read.is_empty())
+        .collect();
+    let dataset = vec![assigned_reads, unassigned_reads].concat();
     let total_units = dataset.iter().map(|read| read.seq().len()).sum::<usize>();
     debug!(
         "There are {} reads and {} units.",
@@ -167,7 +179,7 @@ pub fn decompose(
         &labels,
         &forbidden,
         K,
-        critical_regions.len(),
+        critical_regions.len().max(2),
         &contigs,
         &answer,
         &config,
@@ -182,12 +194,21 @@ pub fn decompose(
 fn get_masked_region(
     critical_regions: &[CriticalRegion],
     contigs: &last_tiling::Contigs,
+    repeats: &[RepeatPairs],
 ) -> Vec<Vec<bool>> {
     let mut masked: Vec<Vec<_>> = contigs
         .get_last_units()
         .into_iter()
         .map(|len| vec![false; len as usize + 1])
         .collect();
+    let repeats = repeats.iter().flat_map(|repeat| {
+        repeat.inner().iter().map(|rep| {
+            let contig = rep.id();
+            let s = rep.start_in_unit() as i32;
+            let t = rep.end_in_unit() as i32;
+            (contig, (s, t))
+        })
+    });
     let ranges: Vec<_> = critical_regions
         .iter()
         .flat_map(|cr| match cr {
@@ -197,8 +218,10 @@ fn get_masked_region(
             ],
             CriticalRegion::CR(ref cr) => vec![(cr.contig().contig(), cr.contig().range())],
         })
+        .chain(repeats)
         .collect();
     for (c, (s, t)) in ranges {
+        debug!("Masking {}:{}-{}", c, s, t);
         let (s, t) = (s as usize, t as usize);
         let c = c as usize;
         if s <= t {
@@ -446,8 +469,8 @@ pub fn clustering(
 ) -> Vec<u8> {
     let border = label.len();
     assert_eq!(forbidden.len(), data.len());
-    let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
-    //let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
+    // let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
+    let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
     // Maybe we should use randomized choose.
     debug!("Prediction. Dump weights");
     for (weight, ans) in weights.iter().skip(border).zip(answer) {
@@ -679,32 +702,28 @@ fn batch_vb(
                 .zip(alphas.iter())
                 .zip(log_ros.iter_mut())
                 .for_each(|((ms, &a), log_ro)| {
-                    let (sum, count) = read
+                    let lk = read
                         .seq
                         .iter()
                         .map(|u| {
                             let model = &ms[u.contig()][u.unit()];
-                            // let weight = model.weight();
-                            // let coverage_offset = if PRIOR {
-                            //     offset(weight, A_PRIOR, B_PRIOR)
-                            // } else {
-                            //     offset(weight, A, B)
-                            // };
                             let lk = model.forward(u.bases(), c);
-                            // let lk = lk + coverage_offset;
-                            // let c = c.null_model(u.bases());
-                            // if lk < c {
-                            //     None
-                            // } else {
-                            //     Some(lk)
-                            // }
-                            // debug!("\tLK\t{:.3}\t{:.3}", lk, weight);
-                            // debug!("Small LK:{:.4} Model:{} Position:{}", lk, model, u.unit());
-                            lk
+                            lk.max(c.null_model(u.bases()))
                         })
-                        .fold((0., 0), |(sum, count), x| (sum + x, count + 1));
-                    let lk = sum / count as f64;
+                        .sum::<f64>();
+                    let w = read
+                        .seq
+                        .iter()
+                        .map(|u| ms[u.contig()][u.unit()].weight())
+                        .sum::<f64>();
+                    let lk = lk / read.seq.len() as f64;
                     let prior = digamma(a) - digamma(alpha_tot);
+                    debug!(
+                        "LK\t{}\t{}\t{}",
+                        w / read.seq.len() as f64,
+                        prior,
+                        lk + prior
+                    );
                     *log_ro = (prior + lk) * beta;
                 });
             let log_sum_ro = utils::logsumexp(&log_ros);
@@ -740,11 +759,9 @@ pub fn soft_clustering(
     let soe_thr =
         SOE_PER_DATA_ENTROPY * (data.len() - label.len()) as f64 / (cluster_num as f64).ln();
     let max_coverage = get_max_coverage(data, contigs);
-    let beta_step = 1. + (BETA_STEP - 1.) * 2. / (max_coverage as f64).log10();
+    let beta_step = 1. + (BETA_STEP - 1.) / (max_coverage as f64).log10();
     info!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
-    // let init_beta = search_initial_beta(data, label, forbidden, k, cluster_num, contigs, config);
-    // info!("Initial Beta {:.4} -> {:.4}", INIT_BETA, init_beta);
-    let mut betas = vec![1.; 20];
+    let mut betas = vec![1.; 10];
     let pick_probs: Vec<_> = (0..)
         .map(|i| INIT_PICK_PROB * PICK_PROB_STEP.powi(i))
         .take_while(|&e| e <= MAX_PICK_PROB)
@@ -796,7 +813,7 @@ fn from_weight_of_read(
     pick_probs: &[f64],
     lr: f64,
 ) -> f64 {
-    let seed = label.iter().sum::<u8>() as u64 + cluster_num as u64 + data.len() as u64;
+    let seed = weight_of_read.iter().map(|e| e[0]).sum::<f64>().ceil() as u64 * data.len() as u64;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let border = label.len();
     let datasize = data.len() as f64;
@@ -1002,6 +1019,8 @@ fn report(
     let pi: Vec<_> = ws.iter().map(|e| format!("{:.2}", *e)).collect();
     let pi = pi.join("\t");
     let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
+    let sum = ws.iter().sum::<f64>();
+    let ws: Vec<_> = ws.into_iter().map(|w| w / sum).collect();
     let lk = likelihood_of_models(&models, data, &ws, c);
     info!(
         "Summary\t{}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{}\t{:.2}",
@@ -1018,14 +1037,14 @@ fn updates_flags<R: Rng>(
 ) {
     let datasize = weight_of_read.len() as f64;
     let sum_of_entropy = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-    let denom = sum_of_entropy + MINIMUM_PROB * datasize;
+    let denom = sum_of_entropy + PRIOR_ENTROPY * weight_of_read.len() as f64;
     loop {
         let num_ok = updates
             .iter_mut()
             .zip(weight_of_read.iter())
             .map(|(b, w)| {
-                let frac = (entropy(w) + MINIMUM_PROB) / denom;
-                let prob = (datasize * pick_prob * frac).min(1.);
+                let frac = (entropy(w) + PRIOR_ENTROPY) / denom;
+                let prob = (frac * datasize * pick_prob).min(1.);
                 *b = rng.gen_bool(prob);
                 *b
             })
@@ -1131,13 +1150,21 @@ fn compute_log_probs(
                 .map(|u| {
                     let model = &model[u.contig()][u.unit()];
                     let lk = model.forward(u.bases(), c);
-                    let offset = if PRIOR {
-                        offset(model.weight(), A_PRIOR, B_PRIOR)
-                    } else {
-                        offset(model.weight(), A, B)
-                    };
+                    // let offset = if PRIOR {
+                    //     offset(model.weight(), A_PRIOR, B_PRIOR)
+                    // } else {
+                    //     offset(model.weight(), A, B)
+                    // };
+                    // TODO: Maybe we should trim
+                    // some monomers from consideration.
+                    // For example, we can (maybe) regard
+                    // Unit s.t. lk < c.null_model(u.bases()) as a
+                    // "collupsed" units.
+                    // However, this may harmful for some situation,
+                    // especially when do need the boundary by
+                    // forbidden monomers.
                     assert!(!lk.is_nan(), "Met Nan at {}", line!());
-                    lk.max(c.null_model(u.bases())) + offset
+                    lk.max(c.null_model(u.bases())) // + offset
                 })
                 .sum::<f64>()
                 / read.seq.len() as f64
@@ -1190,28 +1217,23 @@ pub fn construct_with_weights(
 /// Return likelihood of the assignments.
 pub fn likelihood_of_assignments(
     data: &[ERead],
-    assignments: &[u8],
+    weights_of_reads: &[Vec<f64>],
     k: usize,
     cluster_num: usize,
     contigs: &[usize],
     config: &Config,
 ) -> f64 {
-    assert_eq!(assignments.len(), data.len());
+    assert_eq!(weights_of_reads.len(), data.len());
     assert!(cluster_num > 1);
-    // gammas[i] = "the vector of each cluster for i-th read"
-    let forbid: Vec<_> = (0..data.len()).map(|_| vec![]).collect();
-    let s = data.len() as u64;
-    let gammas: Vec<Vec<f64>> =
-        construct_initial_weights(assignments, &forbid, cluster_num, data.len(), s);
-    let datasize = data.len() as f64;
-    assert_eq!(data.len(), gammas.len());
+    let mut mf = ModelFactory::new(contigs, data, k);
+    let models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
+        .map(|cl| mf.generate_model(&weights_of_reads, data, cl))
+        .collect();
     let ws: Vec<f64> = (0..cluster_num)
-        .map(|cl| gammas.iter().map(|gs| gs[cl]).sum::<f64>() / datasize)
+        .map(|cl| weights_of_reads.iter().map(|ws| ws[cl]).sum::<f64>())
+        .map(|w| w / data.len() as f64)
         .collect();
     assert!((ws.iter().sum::<f64>() - 1.).abs() < 0.0001);
-    let models: Vec<Vec<_>> = (0..cluster_num)
-        .map(|cl| construct_with_weights(data, &gammas, k, contigs, cl))
-        .collect();
     likelihood_of_models(&models, data, &ws, config)
 }
 
@@ -1221,14 +1243,25 @@ fn likelihood_of_models(
     ws: &[f64],
     c: &Config,
 ) -> f64 {
-    let cluster_num = models.len();
-    let mut gammas: Vec<_> = vec![vec![0.; cluster_num]; data.len()];
-    let sum = ws.iter().sum::<f64>();
-    let ws: Vec<_> = ws.iter().map(|&e| e / sum).collect();
+    assert!((1. - ws.iter().sum::<f64>()).abs() < 0.001);
     data.par_iter()
-        .zip(gammas.par_iter_mut())
-        .map(|(read, gs)| {
-            compute_log_probs(&models, &ws, &read, gs, c);
+        .map(|read| {
+            let gs: Vec<_> = models
+                .iter()
+                .zip(ws.iter())
+                .map(|(model, w)| {
+                    read.seq
+                        .iter()
+                        .map(|u| {
+                            let model = &model[u.contig()][u.unit()];
+                            let lk = model.forward(u.bases(), c);
+                            assert!(!lk.is_nan(), "Met Nan at {}", line!());
+                            lk
+                        })
+                        .sum::<f64>()
+                        + w.ln()
+                })
+                .collect();
             utils::logsumexp(&gs)
         })
         .sum::<f64>()
@@ -1273,30 +1306,28 @@ pub fn get_mergable_cluster(
 
 pub fn likelihood_by_merging(
     data: &[ERead],
-    gammas: &[Vec<f64>],
+    weights_or_reads: &[Vec<f64>],
     i: usize,
     j: usize,
-    cl: usize,
+    cluster_num: usize,
     k: usize,
     contigs: &[usize],
     config: &Config,
 ) -> f64 {
     let datasize = data.len() as f64;
-    let gammas = merge_cluster(&gammas, i, j, cl);
-    let ws: Vec<f64> = (0..cl - 1)
-        .map(|cl| gammas.iter().map(|gs| gs[cl]).sum::<f64>() / datasize)
+    let wor = merge_cluster(&weights_or_reads, i, j, cluster_num);
+    let ws: Vec<f64> = (0..cluster_num - 1)
+        .map(|cl| wor.iter().map(|ws| ws[cl]).sum::<f64>())
+        .map(|w| w / datasize)
         .collect();
     assert!((ws.iter().sum::<f64>() - 1.).abs() < 0.0001);
-    assert!(ws.len() == cl - 1);
-    let models: Vec<Vec<_>> = (0..cl - 1)
-        .map(|cl| construct_with_weights(data, &gammas, k, contigs, cl))
-        .collect();
-    likelihood_of_models(&models, data, &ws, config)
+    assert!(ws.len() == cluster_num - 1);
+    likelihood_of_assignments(data, &wor, k, cluster_num - 1, contigs, config)
 }
 
-fn merge_cluster(gammas: &[Vec<f64>], i: usize, j: usize, cl: usize) -> Vec<Vec<f64>> {
-    // Merge weight of j into weight of i
-    gammas
+fn merge_cluster(weights_of_reads: &[Vec<f64>], i: usize, j: usize, cl: usize) -> Vec<Vec<f64>> {
+    assert!(i < j);
+    weights_of_reads
         .iter()
         .map(|read_weight| {
             let mut ws = vec![0.; cl - 1];

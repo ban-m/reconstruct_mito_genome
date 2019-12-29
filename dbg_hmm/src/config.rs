@@ -63,8 +63,24 @@ pub struct Config {
     pub p_del_to_ins: f64,
 }
 
+impl std::fmt::Display for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        writeln!(f, "Mismatch:{:.3}", self.mismatch)?;
+        writeln!(f, "P_match:{:.3}", self.p_match)?;
+        writeln!(f, "P_insertion:{:.3}", self.p_ins)?;
+        writeln!(f, "P_deletion:{:.3}", self.p_del)?;
+        writeln!(f, "P_extending_insertion:{:.3}", self.p_extend_ins)?;
+        writeln!(f, "P_extending_deletion:{:.3}", self.p_extend_del)?;
+        writeln!(f, "P_deletion_to_insertion:{:.3}", self.p_extend_del)?;
+        writeln!(
+            f,
+            "BaseFrequency:[A,C,G,T]=[{:.3},{:.3},{:.3},{:.3}]",
+            self.base_freq[0], self.base_freq[1], self.base_freq[2], self.base_freq[3]
+        )
+    }
+}
+
 impl Config {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         mismatch: f64,
         p_match: f64,

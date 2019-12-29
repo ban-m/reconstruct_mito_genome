@@ -117,7 +117,16 @@ fn benchmark(
         })
         .collect();
     {
-        let answer: Vec<_> = label.iter().chain(answer.iter()).copied().collect();
+        let answer: Vec<_> = label
+            .iter()
+            .chain(answer.iter())
+            .copied()
+            .map(|e| {
+                let mut ws = vec![0.; clusters];
+                ws[e as usize] = 1.;
+                ws
+            })
+            .collect();
         let objlk = likelihood_of_assignments(&data, &answer, k, clusters, &contigs, c);
         debug!("ObjLK:{}", objlk);
     }

@@ -236,11 +236,12 @@ impl Factory {
         assert!(k <= 32, "k should be less than 32.");
         use super::PRIOR_FACTOR;
         let tk = 4u32.pow(k as u32) as usize;
-        let weight = (PRIOR_FACTOR * coverage).min(MAX_PRIOR_FACTOR);
+        let weight = PRIOR_FACTOR * coverage;
         self.inner
             .extend(std::iter::repeat((weight, std::usize::MAX)).take(tk));
         buf.extend(std::iter::repeat(weight).take(tk * 4));
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(dataset.len() as u64);
+        //let mut rng = rand::thread_rng();
         let ep = 0.0000001;
         let mask = (1 << 2 * k) - 1;
         let e_mask = (1 << 2 * (k + 1)) - 1;
@@ -251,7 +252,6 @@ impl Factory {
             .filter(|&(seq, &w)| w > ep && seq.len() >= k + 1)
             .for_each(|(seq, w)| {
                 let mut node = to_u64(&seq[..k]);
-                // BONOUS for head node.
                 self.inner[node].0 += w;
                 let mut edge = to_u64(&seq[..k]);
                 for &b in &seq[k..] {
@@ -260,7 +260,6 @@ impl Factory {
                     edge = (edge << 2 | BASE_TABLE[b as usize]) & e_mask;
                     buf[edge] += w;
                 }
-                // BONOUS for tail node.
                 self.inner[node].0 += w;
             });
         let thr = {
@@ -311,6 +310,7 @@ impl Factory {
         // let nodes = self.cut_lightweight_loop(nodes, thr);
         let nodes = self.trim_unreachable_nodes(nodes);
         let nodes = self.trim_unreachable_nodes_reverse(nodes);
+        eprintln!("{}",nodes.len());
         assert!(self.is_empty());
         //let nodes = self.cut_tip(nodes, 2, thr);
         assert!(self.is_empty());

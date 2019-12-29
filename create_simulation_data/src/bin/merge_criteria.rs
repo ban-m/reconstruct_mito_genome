@@ -20,7 +20,7 @@ fn main() {
         .build_global()
         .unwrap();
     let args: Vec<_> = std::env::args().collect();
-    let chain_len = 20;
+    let chain_len = 40;
     let len = 150;
     let (coverage, clusters, seed) = if args.len() > 3 {
         let coverage: usize = args[1].parse().unwrap();
@@ -28,7 +28,7 @@ fn main() {
         let seed: u64 = args[3].parse().unwrap();
         (coverage, clusters, seed)
     } else {
-        (100, 6, 1342374)
+        (40, 6, 1342374)
     };
     let p = &gen_sample::Profile {
         sub: 0.001,
@@ -36,20 +36,21 @@ fn main() {
         del: 0.001,
     };
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
-    let mut templates = vec![];
     let template = (0..chain_len)
         .map(|_| gen_sample::generate_seq(&mut rng, len))
         .collect::<Vec<_>>();
-    templates.push(template.clone());
-    templates.push(template.clone());
-    for _ in 2..clusters {
-        templates.push(
-            template
-                .iter()
-                .map(|e| gen_sample::introduce_randomness(e, &mut rng, p))
-                .collect::<Vec<_>>(),
-        );
-    }
+    let templates: Vec<_> = (0..clusters)
+        .map(|cl| {
+            if cl < 2 {
+                template.clone()
+            } else {
+                template
+                    .iter()
+                    .map(|e| gen_sample::introduce_randomness(e, &mut rng, p))
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect();
     let dataset: Vec<_> = templates
         .iter()
         .enumerate()
@@ -67,18 +68,19 @@ fn main() {
         })
         .collect();
     let answers: Vec<_> = (0..dataset.len()).map(|i| (i / coverage) as u8).collect();
-    let contigs = vec![chain_len];
-    let c = &dbg_hmm::DEFAULT_CONFIG;
-    let before_lk =
-        last_decompose::likelihood_of_assignments(&dataset, &answers, K, clusters, &contigs, c);
-    let gammas: Vec<_> = (0..dataset.len())
-        .map(|idx| {
-            let mut gamma = vec![0.; clusters];
-            let cl = idx / coverage;
-            gamma[cl] = 1.;
-            gamma
+    let weights_of_reads: Vec<_> = answers
+        .iter()
+        .map(|&e| {
+            let mut ws = vec![0.; clusters];
+            ws[e as usize] = 1.;
+            ws
         })
         .collect();
+    let contigs = vec![chain_len];
+    let c = &dbg_hmm::DEFAULT_CONFIG;
+    let wor = &weights_of_reads;
+    use last_decompose::likelihood_of_assignments;
+    let before_lk = likelihood_of_assignments(&dataset, &wor, K, clusters, &contigs, c);
     for i in 0..clusters {
         for j in (i + 1)..clusters {
             let diff = templates[i]
@@ -88,7 +90,7 @@ fn main() {
                 .sum::<u32>();
             debug!("Dist {} out of {} ({},{})", diff, chain_len, i, j);
             let after_lk = last_decompose::likelihood_by_merging(
-                &dataset, &gammas, i, j, clusters, K, &contigs, c,
+                &dataset, wor, i, j, clusters, K, &contigs, c,
             );
             let lkgain = after_lk - before_lk;
             debug!(
