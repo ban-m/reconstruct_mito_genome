@@ -98,9 +98,6 @@ impl Kmer {
             if let Some(res) = self.edges[i] {
                 if fu.find(res).unwrap() != mg {
                     self.edges[i] = None;
-                    // self.tot -= self.transition[i];
-                    // self.weight[i] -= self.transition[i];
-                    // self.transition[i] = 0.;
                     self.tot -= self.weight[i + 4];
                     self.weight[i] -= self.weight[i + 4];
                     self.weight[i + 4] = 0.;

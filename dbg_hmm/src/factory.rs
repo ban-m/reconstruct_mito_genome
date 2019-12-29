@@ -1,6 +1,4 @@
-use super::{
-    base_table::BASE_TABLE, find_union, Kmer, DBGHMM, MAX_PRIOR_FACTOR, SCALE, THR, THR_ON,
-};
+use super::{base_table::BASE_TABLE, find_union, Kmer, DBGHMM, SCALE, THR, THR_ON};
 use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
 // use std::collections::HashMap;
@@ -52,7 +50,7 @@ impl Factory {
         self.inner.clear();
         self.temp_index.clear();
         self.is_safe.clear();
-        self.edges.clear();
+        self.edges.iter_mut().for_each(|buf| buf.clear());
         self.fu.clear();
         self.dfs_stack.clear();
         self.dfs_flag.clear();
@@ -306,39 +304,134 @@ impl Factory {
     }
     fn clean_up_nodes_exp(&mut self, nodes: Vec<Kmer>) -> Vec<Kmer> {
         assert!(self.is_empty());
-        // let nodes = self.relative_weight_pruning(nodes, cov);
-        // let nodes = self.cut_lightweight_loop(nodes, thr);
         let nodes = self.trim_unreachable_nodes(nodes);
         let nodes = self.trim_unreachable_nodes_reverse(nodes);
-        eprintln!("{}",nodes.len());
+        let nodes = self.relative_weight_pruning(nodes);
+        let nodes = self.bridge_pruning(nodes);
+        let nodes = self.trim_unreachable_nodes(nodes);
+        let nodes = self.trim_unreachable_nodes_reverse(nodes);
         assert!(self.is_empty());
-        //let nodes = self.cut_tip(nodes, 2, thr);
         assert!(self.is_empty());
         let nodes = self.pick_largest_components(nodes);
         assert!(self.is_empty());
         let nodes = self.renaming_nodes(nodes);
         nodes
     }
-    // #[allow(dead_code)]
-    // fn relative_weight_pruning(&mut self, mut nodes: Vec<Kmer>, _cov: f64) -> Vec<Kmer> {
-    //     let weights: Vec<f64> = nodes.iter().map(|e| e.kmer_weight).collect();
-    //     for node in nodes.iter_mut() {
-    //         let weight = node.kmer_weight;
-    //         let directions = node
-    //             .edges
-    //             .iter()
-    //             .enumerate()
-    //             .filter_map(|(i, e)| e.map(|idx| (i, weights[idx])))
-    //             .collect::<Vec<_>>();
-    //         for (idx, to_weight) in directions {
-    //             // Check if weight or to_weight is very different.
-    //             if to_weight < weight / 4. {
-    //                 node.remove(idx);
-    //             }
-    //         }
-    //     }
-    //     nodes
-    // }
+    fn bridge_pruning(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
+        let mut buffer: Vec<(usize, usize)> = Vec::with_capacity(4);
+        let (lowlink, orders) = self.lowlink_and_orders(&nodes);
+        let cov = nodes.iter().map(|e| e.tot).sum::<f64>() / nodes.len() as f64;
+        for (from, node) in nodes.iter_mut().enumerate() {
+            buffer.clear();
+            let no_bridges = node
+                .edges
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, e)| e.map(|to| (idx, to)))
+                .filter(|&(_, to)| {
+                    let is_bridge = orders[from] < lowlink[to] || orders[to] < lowlink[from];
+                    !is_bridge
+                });
+            buffer.extend(no_bridges);
+            let number_of_non_bridges = buffer.len();
+            if number_of_non_bridges <= 1 {
+                continue;
+            }
+            // Maybe we can trim some of non bridges.
+            let sum_of_weight = buffer
+                .iter()
+                .map(|&(idx, _)| node.weight[4 + idx])
+                .sum::<f64>();
+            let thr = 0.5 * (1.0 + (-cov / 300.).exp()).recip();
+            for &(idx, _) in &buffer {
+                let w = node.weight[4 + idx];
+                if w < sum_of_weight * thr {
+                    node.remove(idx);
+                }
+            }
+        }
+        nodes
+    }
+    fn lowlink_and_orders(&mut self, nodes: &[Kmer]) -> (Vec<usize>, Vec<usize>) {
+        self.clear();
+        self.dfs_flag.extend(std::iter::repeat(0).take(nodes.len()));
+        if self.edges.len() < nodes.len() {
+            (0..nodes.len() - self.edges.len()).for_each(|_| self.edges.push(vec![]));
+        }
+        for (from, node) in nodes.iter().enumerate() {
+            for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
+                self.edges[from].push(to);
+                self.edges[to].push(from);
+            }
+        }
+        let nodes = nodes.len();
+        self.dfs_flag.extend(std::iter::repeat(0).take(nodes));
+        let mut lowlink: Vec<usize> = vec![1000000000; nodes];
+        let mut orders: Vec<usize> = vec![0; nodes];
+        let mut order = 0;
+        let mut is_dfs_edge: Vec<_> = self.edges.iter().map(|es| vec![false; es.len()]).collect();
+        for i in 0..nodes {
+            if self.dfs_flag[i] != 0 {
+                continue;
+            }
+            self.dfs_stack.push(i);
+            // Root node
+            'outer: while !self.dfs_stack.is_empty() {
+                let node = *self.dfs_stack.last().unwrap();
+                if self.dfs_flag[node] == 0 {
+                    self.dfs_flag[node] = 1;
+                    orders[node] = order;
+                    lowlink[node] = order;
+                    order += 1;
+                }
+                for (idx, &to) in self.edges[node].iter().enumerate() {
+                    if self.dfs_flag[to] == 0 {
+                        self.dfs_stack.push(to);
+                        is_dfs_edge[node][idx] = true;
+                        continue 'outer;
+                    }
+                }
+                let last = self.dfs_stack.pop().unwrap();
+                let parent = *self.dfs_stack.last().unwrap_or(&10000000);
+                for (&to, &is_dfs) in self.edges[last].iter().zip(is_dfs_edge[node].iter()) {
+                    if to == parent {
+                        continue;
+                    } else if is_dfs {
+                        let low = lowlink[to];
+                        lowlink[last] = lowlink[last].min(low);
+                    } else {
+                        lowlink[last] = lowlink[last].min(orders[to]);
+                    }
+                }
+            }
+        }
+        self.clear();
+        (lowlink, orders)
+    }
+    fn relative_weight_pruning(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
+        let mut buf = Vec::with_capacity(4);
+        let cov = nodes.iter().map(|e| e.tot).sum::<f64>();
+        let thr = 0.5 * (1.0 + (-cov / 300.).exp()).recip();
+        for node in nodes.iter_mut() {
+            let outdeg = node.edges.iter().filter(|e| e.is_some()).count();
+            if outdeg <= 1 {
+                continue;
+            }
+            let expected = node.weight[4..].iter().sum::<f64>() / outdeg as f64;
+            let indices = node
+                .edges
+                .iter()
+                .enumerate()
+                .filter_map(|(i, e)| if e.is_some() { Some(i) } else { None })
+                .filter(|idx| node.weight[4 + idx] / expected < thr);
+            buf.extend(indices);
+            for &idx in &buf {
+                node.remove(idx);
+            }
+            buf.clear();
+        }
+        nodes
+    }
     fn trim_unreachable_nodes(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
         self.clear();
         self.dfs_flag.extend(std::iter::repeat(0).take(nodes.len()));
@@ -486,20 +579,20 @@ impl Factory {
         self.clear();
         nodes
     }
-    // #[allow(dead_code)]
-    // fn cut_lightweight_loop(&mut self, mut nodes: Vec<Kmer>, thr: f64) -> Vec<Kmer> {
+    // fn cut_lightweight_loop(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
+    //     let thr = nodes.iter().map(|e| e.tot).sum::<f64>() / nodes.len() as f64 / THR;
     //     self.is_safe.clear();
     //     self.temp_index.clear();
-    //     for node in &nodes {
-    //         self.temp_index.push((node.kmer_weight > thr) as usize)
+    //     nodes
+    //         .iter()
+    //         .for_each(|n| self.is_safe.push((n.tot > thr) as u8));
+    //     nodes.iter().for_each(|_| self.is_safe.push(0));
+    // for (from, ref node) in nodes.iter().enumerate() {
+    //     for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
+    //         self.is_safe[to] |= self.temp_index[from] as u8;
+    //         self.is_safe[from] |= self.temp_index[to] as u8;
     //     }
-    //     (0..nodes.len()).for_each(|_| self.is_safe.push(0));
-    //     for (from, ref node) in nodes.iter().enumerate() {
-    //         for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
-    //             self.is_safe[to] |= self.temp_index[from] as u8;
-    //             self.is_safe[from] |= self.temp_index[to] as u8;
-    //         }
-    //     }
+    // }
     //     self.temp_index.clear();
     //     let mut index = 0;
     //     for &b in &self.is_safe {

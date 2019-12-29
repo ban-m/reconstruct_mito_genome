@@ -18,7 +18,7 @@ extern crate test;
 // Parameters for Factory class.
 const SCALE: f64 = 0.81;
 const PRIOR_FACTOR: f64 = 0.05;
-const MAX_PRIOR_FACTOR: f64 = 3.0;
+// const MAX_PRIOR_FACTOR: f64 = 3.0;
 // Whether or not to use 'pseudo count' in the out-dgree.
 const PSEUDO_COUNT: f64 = 2.0;
 const THR_ON: bool = true;
@@ -1033,23 +1033,46 @@ mod tests {
         let weight1 = vec![vec![1.; cov], vec![0.; cov]].concat();
         let weight2 = vec![vec![0.; cov], vec![1.; cov]].concat();
         let k = 6;
+        use std::collections::HashSet;
+        let k1: HashSet<_> = t1.windows(k).map(|e| e.to_vec()).collect();
+        let k2: HashSet<_> = t2.windows(k).map(|e| e.to_vec()).collect();
         let m1 = f.generate_with_weight_prior(&seqs, &weight1, k, &mut buf);
         let m2 = f.generate_with_weight_prior(&seqs, &weight2, k, &mut buf);
-        eprintln!("{}\t{}\t{}", cov, m1, m2);
-        let correct = (0..100)
-            .filter(|e| {
+        eprintln!("{}\t({}){}\t({}){}", cov, k1.len(), m1, k2.len(), m2);
+        let tests: Vec<_> = (0..100)
+            .map(|e| {
                 if e % 2 == 0 {
-                    let q = introduce_randomness(&t1, rng, &PROFILE);
-                    m1.forward(&q, &DEFAULT_CONFIG) > m2.forward(&q, &DEFAULT_CONFIG)
-                // let d1: u32 = model1.iter().map(|e| edlib_sys::global_dist(&q, e)).sum();
-                // let d2: u32 = model2.iter().map(|e| edlib_sys::global_dist(&q, e)).sum();
-                // d1 < d2
+                    introduce_randomness(&t1, rng, &PROFILE)
                 } else {
-                    let q = introduce_randomness(&t2, rng, &PROFILE);
+                    introduce_randomness(&t2, rng, &PROFILE)
+                }
+            })
+            .collect();
+        // if cov == 168 && t1.len() + 1 == t2.len() {
+        //     tests.iter().for_each(|q| {
+        //         eprintln!(
+        //             "{}\t{}",
+        //             m1.forward(&q, &DEFAULT_CONFIG),
+        //             m2.forward(&q, &DEFAULT_CONFIG)
+        //         )
+        //     });
+        //     for (idx, n) in m1.nodes.iter().enumerate() {
+        //         if !k1.contains(&n.kmer) {
+        //             eprintln!("{}:NGNODE{:?}", idx, n);
+        //         } else {
+        //             eprintln!("{}:OKNODE{:?}", idx, n);
+        //         }
+        //     }
+        // }
+        use rayon::prelude::*;
+        let correct = tests
+            .into_par_iter()
+            .enumerate()
+            .filter(|(e, q)| {
+                if e % 2 == 0 {
+                    m1.forward(&q, &DEFAULT_CONFIG) > m2.forward(&q, &DEFAULT_CONFIG)
+                } else {
                     m1.forward(&q, &DEFAULT_CONFIG) < m2.forward(&q, &DEFAULT_CONFIG)
-                    // let d1: u32 = model1.iter().map(|e| edlib_sys::global_dist(&q, e)).sum();
-                    // let d2: u32 = model2.iter().map(|e| edlib_sys::global_dist(&q, e)).sum();
-                    // d1 > d2
                 }
             })
             .count();
