@@ -311,17 +311,17 @@ pub fn critical_regions(
     }
     for from in 0..num_of_contig {
         if let Some(res) = critical_region_within(from, reads, contigs, repeats) {
-            for c in &res {
-                debug!("{:?}", c);
-            }
+            // for c in &res {
+            //     debug!("{:?}", c);
+            // }
             regions.extend(res);
         }
         debug!("Inner end");
         debug!("Confluent region");
         if let Some(res) = critical_region_confluent(from, reads, contigs) {
-            for c in &res {
-                debug!("{:?}", c);
-            }
+            // for c in &res {
+            //     debug!("{:?}", c);
+            // }
             regions.extend(res);
         }
     }
@@ -353,16 +353,16 @@ fn critical_region_within(
             }
         }
     }
-    debug!("Profiled!({}len)", inner_count.len());
-    debug!("Position\tCount");
-    for (idx, count) in inner_count
-        .iter()
-        .map(|e| e.len())
-        .enumerate()
-        .filter(|&(_, len)| len != 0)
-    {
-        debug!("{}\t{}", idx, count);
-    }
+    // debug!("Profiled!({}len)", inner_count.len());
+    // debug!("Position\tCount");
+    // for (idx, count) in inner_count
+    //     .iter()
+    //     .map(|e| e.len())
+    //     .enumerate()
+    //     .filter(|&(_, len)| len != 0)
+    // {
+    //     debug!("{}\t{}", idx, count);
+    // }
     let inner_region = {
         let inner_counts = inner_count.iter().map(|e| e.len()).collect::<Vec<_>>();
         let inner_region: Vec<_> = peak_detection(&inner_counts, READ_NUM)
@@ -376,11 +376,11 @@ fn critical_region_within(
             .collect();
         merge_overlap_and_remove_contained(inner_region)
     };
-    debug!("Aggregated!");
-    debug!("Start\tEnd");
-    for &(s, t) in inner_region.iter() {
-        debug!("{}\t{}", s, t);
-    }
+    // debug!("Aggregated!");
+    // debug!("Start\tEnd");
+    // for &(s, t) in inner_region.iter() {
+    //     debug!("{}\t{}", s, t);
+    // }
     let mut result = vec![];
     for i in 0..inner_region.len() {
         for j in (i + 1)..inner_region.len() {
@@ -405,7 +405,7 @@ fn critical_region_within(
             // Note that all the read innner_count should be mapped to the
             // 'contig' contig. However, to treat chimera reads correctly,
             // we double check it.
-            debug!("S-T:{}-{}\tX-Y:{}-{}", s, t, x, y);
+            // debug!("S-T:{}-{}\tX-Y:{}-{}", s, t, x, y);
             let (s_thr, t_thr) = (s.max(CHECK_THR) - CHECK_THR, t + CHECK_THR);
             let st_upstream: HashSet<_> = reads
                 .iter()
@@ -501,21 +501,21 @@ fn critical_regions_between(
             prev = unit;
         }
     }
-    debug!("btw {}-{}", from, to);
+    // debug!("btw {}-{}", from, to);
     let from_region: Vec<_> = {
         let raw_count: Vec<_> = from_count.iter().map(|e| e.len()).collect();
-        debug!("Row count of {}", from);
-        for (idx, count) in raw_count
-            .iter()
-            .enumerate()
-            .filter(|&(_, &count)| count > 0)
-        {
-            debug!("{}\t{}", idx, count);
-        }
+        // debug!("Row count of {}", from);
+        // for (idx, count) in raw_count
+        //     .iter()
+        //     .enumerate()
+        //     .filter(|&(_, &count)| count > 0)
+        // {
+        //     debug!("{}\t{}", idx, count);
+        // }
         let res = calculate_average_more_than(&raw_count, READ_NUM as i32);
-        for &(s, e) in &res {
-            debug!("FROM:[{},{})", s, e);
-        }
+        // for &(s, e) in &res {
+        //     debug!("FROM:[{},{})", s, e);
+        // }
         let res = merge_overlap_and_remove_contained(res);
         res.into_iter()
             //.map(|(s, e)| tighten_up(s, e, &raw_count))
@@ -524,26 +524,26 @@ fn critical_regions_between(
     };
     let to_region: Vec<_> = {
         let raw_count: Vec<_> = to_count.iter().map(|e| e.len()).collect();
-        debug!("Row count of {}", to);
-        for (idx, count) in raw_count
-            .iter()
-            .enumerate()
-            .filter(|&(_, &count)| count > 0)
-        {
-            debug!("{}\t{}", idx, count);
-        }
+        // debug!("Row count of {}", to);
+        // for (idx, count) in raw_count
+        //     .iter()
+        //     .enumerate()
+        //     .filter(|&(_, &count)| count > 0)
+        // {
+        //     debug!("{}\t{}", idx, count);
+        // }
         let res = calculate_average_more_than(&raw_count, READ_NUM as i32);
-        for &(s, e) in &res {
-            debug!("TO:[{},{})", s, e);
-        }
+        // for &(s, e) in &res {
+        //     debug!("TO:[{},{})", s, e);
+        // }
         let res = merge_overlap_and_remove_contained(res);
         res.into_iter()
             // .map(|(s, e)| tighten_up(s, e, &raw_count))
             .map(|(s, e)| (s as u16, e as u16))
             .collect()
     };
-    debug!("{:?}", from_region);
-    debug!("{:?}", to_region);
+    // debug!("{:?}", from_region);
+    // debug!("{:?}", to_region);
     let mut regions = vec![];
     for &(s, t) in &from_region {
         for &(x, y) in &to_region {
@@ -632,7 +632,7 @@ fn critical_region_confluent(
     reads: &[ERead],
     contigs: &Contigs,
 ) -> Option<Vec<CriticalRegion>> {
-    debug!("{}-th contig, self critical region.", contig);
+    // debug!("{}-th contig, self critical region.", contig);
     let last_unit = contigs.get_last_unit(contig)? as usize;
     let mut clip_count: Vec<Vec<&ERead>> = vec![vec![]; last_unit + 1];
     for read in reads.iter().filter(|r| r.has(contig) && r.len() > 2) {
@@ -645,16 +645,16 @@ fn critical_region_confluent(
             clip_count[last_chunk.unit as usize].push(read);
         }
     }
-    debug!("Profiled!({}len)", clip_count.len());
-    debug!("Position\tCount");
-    for (idx, count) in clip_count
-        .iter()
-        .map(|e| e.len())
-        .enumerate()
-        .filter(|&(_, len)| len != 0)
-    {
-        debug!("{}\t{}", idx, count);
-    }
+    // debug!("Profiled!({}len)", clip_count.len());
+    // debug!("Position\tCount");
+    // for (idx, count) in clip_count
+    //     .iter()
+    //     .map(|e| e.len())
+    //     .enumerate()
+    //     .filter(|&(_, len)| len != 0)
+    // {
+    //     debug!("{}\t{}", idx, count);
+    // }
     let clip_region = {
         let clip_counts = clip_count.iter().map(|e| e.len()).collect::<Vec<_>>();
         let mean = reads.len() / last_unit * 2;
@@ -664,11 +664,11 @@ fn critical_region_confluent(
             .map(|(s, e)| (s as u16, e as u16))
             .collect::<Vec<_>>()
     };
-    debug!("Aggregated!");
-    debug!("Start\tEnd");
-    for &(s, t) in clip_region.iter() {
-        debug!("{}\t{}", s, t);
-    }
+    // debug!("Aggregated!");
+    // debug!("Start\tEnd");
+    // for &(s, t) in clip_region.iter() {
+    //     debug!("{}\t{}", s, t);
+    // }
     let mut result = vec![];
     for (s, t) in clip_region {
         if s.max(t) - s.min(t) > 20 {

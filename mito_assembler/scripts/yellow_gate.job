@@ -21,11 +21,11 @@ cargo build --release
 ROOT=$PWD
 mkdir -p ${OUTPATH}/last_db
 cd ${OUTPATH}/last_db
-lastdb -P 24 -R 00 reference ${REFERENCE}
-last-train -P 24 reference ${REFERENCE} > self.matrix
+lastdb -P 24 -Q0 -R 00 reference ${REFERENCE}
+last-train -P 24 -Q0 reference ${REFERENCE} > self.matrix
 lastal -Q0 -f TAB -P 24 reference ${REFERENCE} -p self.matrix -R 00 > self.tab
 last-train -P 24 reference ${READS} > reads.matrix
-lastal -Q0 -f TAB -P 24 reference ${READS} -p reads.matrix > reads.tab
+lastal -Q0 -f TAB -R00 -P 24 reference ${READS} -p reads.matrix > reads.tab
 cd ${ROOT}
 cargo run --release --bin yellowgate -- \
       --alignments ${OUTPATH}/last_db/reads.tab \

@@ -306,10 +306,10 @@ impl Factory {
         assert!(self.is_empty());
         let nodes = self.trim_unreachable_nodes(nodes);
         let nodes = self.trim_unreachable_nodes_reverse(nodes);
-        let nodes = self.relative_weight_pruning(nodes);
-        let nodes = self.bridge_pruning(nodes);
-        let nodes = self.trim_unreachable_nodes(nodes);
-        let nodes = self.trim_unreachable_nodes_reverse(nodes);
+        // let nodes = self.relative_weight_pruning(nodes);
+        // let nodes = self.bridge_pruning(nodes);
+        // let nodes = self.trim_unreachable_nodes(nodes);
+        // let nodes = self.trim_unreachable_nodes_reverse(nodes);
         assert!(self.is_empty());
         assert!(self.is_empty());
         let nodes = self.pick_largest_components(nodes);
@@ -338,13 +338,10 @@ impl Factory {
                 continue;
             }
             // Maybe we can trim some of non bridges.
-            let sum_of_weight = buffer
-                .iter()
-                .map(|&(idx, _)| node.weight[4 + idx])
-                .sum::<f64>();
+            let sum_of_weight = buffer.iter().map(|&(idx, _)| node.weight[idx]).sum::<f64>();
             let thr = 0.5 * (1.0 + (-cov / 300.).exp()).recip();
             for &(idx, _) in &buffer {
-                let w = node.weight[4 + idx];
+                let w = node.weight[idx];
                 if w < sum_of_weight * thr {
                     node.remove(idx);
                 }
@@ -417,13 +414,13 @@ impl Factory {
             if outdeg <= 1 {
                 continue;
             }
-            let expected = node.weight[4..].iter().sum::<f64>() / outdeg as f64;
+            let expected = node.weight.iter().sum::<f64>() / outdeg as f64;
             let indices = node
                 .edges
                 .iter()
                 .enumerate()
                 .filter_map(|(i, e)| if e.is_some() { Some(i) } else { None })
-                .filter(|idx| node.weight[4 + idx] / expected < thr);
+                .filter(|&idx| node.weight[idx] / expected < thr);
             buf.extend(indices);
             for &idx in &buf {
                 node.remove(idx);

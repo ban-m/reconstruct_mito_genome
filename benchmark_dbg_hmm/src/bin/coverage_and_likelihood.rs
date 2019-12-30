@@ -13,7 +13,7 @@ fn main() {
     let num_seq = 200;
     let mut rng: StdRng = SeedableRng::seed_from_u64(121_892);
     let k = 6;
-    println!("Seed\tCoverage\tLikelihoodRatio\tOriginalLK");
+    println!("Seed\tCoverage\tLikelihoodRatio\tOriginalLK\tNumEdges");
     let rep = 15;
     let covs: Vec<_> = (1..num_seq).collect();
     let result: Vec<_> = (0..rep)
@@ -44,11 +44,12 @@ fn main() {
                 let w = vec![1.; cov];
                 let m = f.generate_with_weight_prior(&m, &w, k, &mut vec![]);
                 let _offset = (-0.2446704 * cov as f64 + 3.6172581).exp();
+                let edges = m.edge_num();
                 let samples = tests
                     .par_iter()
                     .map(|q| {
                         let lk = m.forward(&q, &DEFAULT_CONFIG); //  + offset;
-                        (seed, cov, max - lk, lk)
+                        (seed, cov, max - lk, lk, edges)
                     })
                     .collect::<Vec<_>>();
                 result.extend(samples);
@@ -56,7 +57,7 @@ fn main() {
             result
         })
         .collect();
-    for (seed, cov, ratio, orig) in result {
-        println!("{}\t{}\t{}\t{}", seed, cov, ratio, orig);
+    for (seed, cov, ratio, orig, edge) in result {
+        println!("{}\t{}\t{}\t{}\t{}", seed, cov, ratio, orig, edge);
     }
 }

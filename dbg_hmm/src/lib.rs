@@ -13,14 +13,13 @@ extern crate log;
 extern crate packed_simd;
 extern crate rand;
 extern crate rand_xoshiro;
-extern crate rayon;
 extern crate test;
 // Parameters for Factory class.
 const SCALE: f64 = 0.81;
 const PRIOR_FACTOR: f64 = 0.05;
-// const MAX_PRIOR_FACTOR: f64 = 3.0;
+const MAX_PRIOR_FACTOR: f64 = 3.0;
 // Whether or not to use 'pseudo count' in the out-dgree.
-const PSEUDO_COUNT: f64 = 2.0;
+const PSEUDO_COUNT: f64 = 1.0;
 const THR_ON: bool = true;
 // This 2.5 is good for prediction for a new query,
 // but very bad for exisiting(i.e., the reads used as model) query.
@@ -601,7 +600,8 @@ impl DeBruijnGraphHiddenMarkovModel {
         let mut res = node.kmer.clone();
         let mut used = vec![[false; 4]; self.nodes.len()];
         while !node.is_tail {
-            let ((next_idx, _), _) = match node.weight[4..]
+            let ((next_idx, _), _) = match node
+                .weight
                 .iter()
                 .enumerate()
                 .zip(used[idx].iter())
@@ -1048,25 +1048,8 @@ mod tests {
                 }
             })
             .collect();
-        // if cov == 168 && t1.len() + 1 == t2.len() {
-        //     tests.iter().for_each(|q| {
-        //         eprintln!(
-        //             "{}\t{}",
-        //             m1.forward(&q, &DEFAULT_CONFIG),
-        //             m2.forward(&q, &DEFAULT_CONFIG)
-        //         )
-        //     });
-        //     for (idx, n) in m1.nodes.iter().enumerate() {
-        //         if !k1.contains(&n.kmer) {
-        //             eprintln!("{}:NGNODE{:?}", idx, n);
-        //         } else {
-        //             eprintln!("{}:OKNODE{:?}", idx, n);
-        //         }
-        //     }
-        // }
-        use rayon::prelude::*;
         let correct = tests
-            .into_par_iter()
+            .into_iter()
             .enumerate()
             .filter(|(e, q)| {
                 if e % 2 == 0 {
@@ -1082,31 +1065,26 @@ mod tests {
     fn exact_test() {
         let bases = b"ACTG";
         let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1234565);
-        let num = 10;
         let coverage = 200;
         let start = 20;
         let step = 4;
         let mut f = Factory::new();
-        let results: Vec<_> = (0..num)
-            .flat_map(|_| {
-                (start..coverage)
-                    .step_by(step)
-                    .map(|cov| {
-                        let template1: Vec<_> = (0..150)
-                            .filter_map(|_| bases.choose(&mut rng))
-                            .copied()
-                            .collect();
-                        let template2 = gen_sample::introduce_errors(&template1, &mut rng, 1, 0, 0);
-                        let sub = check_exact(&template1, &template2, &mut rng, cov, &mut f);
-                        let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 1, 0);
-                        let del = check_exact(&template1, &template2, &mut rng, cov, &mut f);
-                        let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 0, 1);
-                        let ins = check_exact(&template1, &template2, &mut rng, cov, &mut f);
-                        (cov, (sub, del, ins))
-                    })
-                    .collect::<Vec<_>>()
+        let results: Vec<_> = (start..coverage)
+            .step_by(step)
+            .map(|cov| {
+                let template1: Vec<_> = (0..150)
+                    .filter_map(|_| bases.choose(&mut rng))
+                    .copied()
+                    .collect();
+                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 1, 0, 0);
+                let sub = check_exact(&template1, &template2, &mut rng, cov, &mut f);
+                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 1, 0);
+                let del = check_exact(&template1, &template2, &mut rng, cov, &mut f);
+                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 0, 1);
+                let ins = check_exact(&template1, &template2, &mut rng, cov, &mut f);
+                (cov, (sub, del, ins))
             })
-            .collect();
+            .collect::<Vec<_>>();
         let (sub, del, ins) = results
             .iter()
             .fold((0, 0, 0), |(x, y, z), &(_, (a, b, c))| {
@@ -1116,10 +1094,7 @@ mod tests {
             eprintln!("Cov:{},Sub:{},Del:{},Ins:{}", cov, res.0, res.1, res.2);
         }
         eprintln!("Sub:{},Del:{},Ins:{}", sub, del, ins);
-        eprintln!(
-            "Tot:{}",
-            (start..coverage).step_by(step).count() * 100 * num
-        );
+        eprintln!("Tot:{}", (start..coverage).step_by(step).count() * 100);
         assert!(false);
     }
     fn check_exact<R: rand::Rng>(
@@ -1129,7 +1104,6 @@ mod tests {
         cov: usize,
         f: &mut Factory,
     ) -> usize {
-        use rayon::prelude::*;
         let mut buf = vec![];
         let model1: Vec<_> = (0..cov).map(|_| t1.clone()).collect();
         let model2: Vec<_> = (0..cov).map(|_| t2.clone()).collect();
@@ -1150,7 +1124,7 @@ mod tests {
             })
             .collect();
         let correct = tests
-            .into_par_iter()
+            .into_iter()
             .enumerate()
             .filter(|(e, q)| {
                 if e % 2 == 0 {
@@ -1346,31 +1320,31 @@ mod tests {
         let model1 = DBGHMM::new(&model1, k);
         b.iter(|| test::black_box(model1.initialize(&template[..k], &DEFAULT_CONFIG)));
     }
-    #[bench]
-    fn score(b: &mut Bencher) {
-        let bases = b"ACTG";
-        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
-        let len = 150;
-        let num = 30;
-        let template: Vec<_> = (0..len)
-            .filter_map(|_| bases.choose(&mut rng))
-            .copied()
-            .collect();
-        let model1: Vec<Vec<_>> = (0..num)
-            .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
-            .collect();
-        let k = 6;
-        let model1 = DBGHMM::new(&model1, k);
-        b.iter(|| {
-            test::black_box(
-                model1
-                    .nodes
-                    .iter()
-                    .map(|e| e.calc_score(&template[..k]))
-                    .count(),
-            )
-        });
-    }
+    // #[bench]
+    // fn score(b: &mut Bencher) {
+    //     let bases = b"ACTG";
+    //     let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
+    //     let len = 150;
+    //     let num = 30;
+    //     let template: Vec<_> = (0..len)
+    //         .filter_map(|_| bases.choose(&mut rng))
+    //         .copied()
+    //         .collect();
+    //     let model1: Vec<Vec<_>> = (0..num)
+    //         .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
+    //         .collect();
+    //     let k = 6;
+    //     let model1 = DBGHMM::new(&model1, k);
+    //     b.iter(|| {
+    //         test::black_box(
+    //             model1
+    //                 .nodes
+    //                 .iter()
+    //                 .map(|e| e.calc_score(&template[..k]))
+    //                 .count(),
+    //         )
+    //     });
+    // }
     enum Op {
         Match,
         MisMatch,

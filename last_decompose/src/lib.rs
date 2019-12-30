@@ -30,6 +30,7 @@ use rand::{thread_rng, Rng};
 use rand_xoshiro::Xoshiro256StarStar;
 pub mod error_profile;
 const PRIOR: bool = true;
+const NUM_OF_BALL: usize = 100;
 // These are parameters to calibrate the
 // contained effect. The parameters are set by
 // tuning on the commit 2f0208f586c2ebd53c13386e109a514273629a8e
@@ -39,8 +40,8 @@ const PRIOR: bool = true;
 // const A: f64 = -0.245;
 // const B: f64 = 3.6;
 // These A and B are to offset the low-coverage region. For THR=2.0,
-const A_PRIOR: f64 = -0.19;
-const B_PRIOR: f64 = 3.7;
+const A_PRIOR: f64 = -0.02;
+const B_PRIOR: f64 = 1.15;
 // These are for THR=3.0;
 // const A: f64 = -0.3223992;
 // const B: f64 = 3.7831344;
@@ -49,7 +50,7 @@ const B_PRIOR: f64 = 3.7;
 // const CONTAINED_SCALE: f64 = 4.26264183;
 // This is the initial reverse temprature.
 // Note that, from this rev-temprature, we adjust the start beta by doubling-search.
-// const INIT_BETA: f64 = 0.1;
+const INIT_BETA: f64 = 0.9;
 // This is the search factor for the doubling-step.
 // const FACTOR: f64 = 1.4;
 // Sampling times for variational bayes.
@@ -58,11 +59,11 @@ const B_PRIOR: f64 = 3.7;
 // const SAMPING: usize = 100;
 // This is the factor we multiply at each iteration for beta.
 // Note that this factor also scaled for the maximum coverage.
-const BETA_STEP: f64 = 2.0;
+const BETA_STEP: f64 = 1.05;
 // Maximum beta. Until this beta, we multiply beta_step for the current beta.
 // const MAX_BETA: f64 = 1.;
 // This is the parameter for Diriclet prior.
-const ALPHA: f64 = 0.01;
+const ALPHA: f64 = 1.01;
 // This is the parameter for de Bruijn prior.
 // const BETA: f64 = 0.5;
 // Loop number for Gibbs sampling.
@@ -76,7 +77,7 @@ const MAX_PICK_PROB: f64 = 0.10;
 const PRIOR_ENTROPY: f64 = 1.;
 const LEARNING_RATE: f64 = 1.;
 const MOMENT: f64 = 0.2;
-const SOE_PER_DATA_ENTROPY: f64 = 0.05;
+const SOE_PER_DATA_ENTROPY: f64 = 0.01;
 const SOE_PER_DATA_ENTROPY_VB: f64 = 0.005;
 const K: usize = 6;
 /// Main method. Decomposing the reads.
@@ -469,8 +470,8 @@ pub fn clustering(
 ) -> Vec<u8> {
     let border = label.len();
     assert_eq!(forbidden.len(), data.len());
-    // let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
-    let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
+    let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
+    //let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
     // Maybe we should use randomized choose.
     debug!("Prediction. Dump weights");
     for (weight, ans) in weights.iter().skip(border).zip(answer) {
@@ -540,10 +541,9 @@ pub fn variational_bayes(
     let max_coverage = get_max_coverage(data, contigs);
     let step = 1. + (BETA_STEP - 1.) / (max_coverage as f64).log10();
     debug!("Maximum coverage:{}\tBeta step:{:.4}", max_coverage, step);
-    // let b = INIT_BETA;
+    let mut beta = INIT_BETA;
     // let mut beta =
     //     search_initial_beta_vb(&mut mf, wor, &data, b, label, cluster_num, config, FACTOR);
-    let mut beta = 1.;
     let mut alphas: Vec<_> = (0..cluster_num)
         .map(|cl| wor.iter().map(|e| e[cl]).sum::<f64>() + ALPHA)
         .map(|alpha| (alpha - 1.) * beta + 1.)
@@ -708,25 +708,20 @@ fn batch_vb(
                         .map(|u| {
                             let model = &ms[u.contig()][u.unit()];
                             let lk = model.forward(u.bases(), c);
-                            lk.max(c.null_model(u.bases()))
+                            // let offset = offset(model.weight(), A_PRIOR, B_PRIOR);
+                            // lk.max(c.null_model(u.bases())) // + offset
+                            lk
                         })
-                        .sum::<f64>();
-                    let w = read
-                        .seq
-                        .iter()
-                        .map(|u| ms[u.contig()][u.unit()].weight())
                         .sum::<f64>();
                     let lk = lk / read.seq.len() as f64;
                     let prior = digamma(a) - digamma(alpha_tot);
-                    debug!(
-                        "LK\t{}\t{}\t{}",
-                        w / read.seq.len() as f64,
-                        prior,
-                        lk + prior
-                    );
                     *log_ro = (prior + lk) * beta;
                 });
             let log_sum_ro = utils::logsumexp(&log_ros);
+            // debug!(
+            //     "LK\t{}\t{}\t{}\t{}",
+            //     log_ros[0], log_ros[1], alphas[0], alphas[1]
+            // );
             weights
                 .iter_mut()
                 .zip(log_ros)
@@ -865,7 +860,6 @@ fn from_weight_of_read(
     soe
 }
 
-const NUM_OF_BALL: usize = 10_000;
 fn construct_initial_weights(
     label: &[u8],
     forbidden: &[Vec<u8>],
