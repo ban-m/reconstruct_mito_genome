@@ -183,7 +183,7 @@ impl Factory {
         if weight < 1.000 {
             self.clear();
             let nodes = vec![];
-            return DBGHMM { nodes, k, weight };
+            return DBGHMM::from(nodes, k, weight);
         }
         let nodes = Self::sort_nodes(nodes);
         self.clear();

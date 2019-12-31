@@ -70,7 +70,37 @@ impl std::fmt::Display for DBGHMM {
 
 impl DeBruijnGraphHiddenMarkovModel {
     pub fn from(nodes: Vec<Kmer>, k: usize, weight: f64) -> Self {
-        Self { nodes, k, weight }
+        // let (edges, edges_offset) = {
+        //     let mut edges = vec![100_000; nodes.len() * 4];
+        //     let mut idx: Vec<_> = (0..nodes.len()).map(|e| e * 4).collect();
+        //     for (from, n) in nodes.iter().enumerate() {
+        //         for &to in n.edges.iter().filter_map(|e| e.as_ref()) {
+        //             edges[idx[to]] = from;
+        //             idx[to] += 1;
+        //         }
+        //     }
+        //     let mut idx = vec![];
+        //     let mut curser = 0;
+        //     let edges: Vec<_> = edges
+        //         .chunks_exact(4)
+        //         .flat_map(|edges| {
+        //             idx.push(curser);
+        //             curser += edges.iter().filter(|&&src| src < 100_000).count();
+        //             edges.iter().filter(|&&src| src < 100_000)
+        //         })
+        //         .copied()
+        //         .collect();
+        //     idx.push(edges.len());
+        //     (edges, idx)
+        // };
+
+        Self {
+            nodes,
+            k,
+            weight,
+            // edges,
+            // edges_offset,
+        }
     }
     pub fn new(dataset: &[Vec<u8>], k: usize) -> Self {
         let mut f = Factory::new();
@@ -221,40 +251,37 @@ impl DeBruijnGraphHiddenMarkovModel {
         edges: &[Vec<usize>],
     ) -> (f64, f64) {
         debug_assert!((1. - prev.iter().sum::<f64>()).abs() < 0.001);
-        // Alignemnt:[mat,ins,del, mat,ins,del,, mat,....,del]
+        // Alignemnt:[mat,ins,del, mat,ins,del, mat,....,del]
         for (dist_idx, dist) in self.nodes.iter().enumerate() {
             let edge_idx = base_table::BASE_TABLE[dist.last() as usize];
             let node = 3 * dist_idx;
-            updates[node] = edges[dist_idx]
+            let (match_state, insertion_state) = edges[dist_idx]
                 .iter()
                 .map(|&src| {
                     let src_node = 3 * src;
+                    let to = self.nodes[src].to(edge_idx);
                     let trans = prev[src_node] * config.p_match
                         + prev[src_node + 1] * (1. - config.p_extend_ins)
                         + prev[src_node + 2] * (1. - config.p_extend_del - config.p_del_to_ins);
-                    trans * self.nodes[src].to(edge_idx)
+                    let m = trans * to;
+                    let i = prev[src_node + 2] * config.p_del_to_ins * to;
+                    (m, i)
                 })
-                .sum::<f64>()
-                * dist.prob(base, config);
-            updates[node + 1] = if dist.edges.iter().any(|e| e.is_some()) {
+                .fold((0., 0.), |(x, y), (a, b)| (x + a, y + b));
+            updates[node] += match_state * dist.prob(base, config);
+            updates[node + 1] = insertion_state;
+            updates[node + 1] += if dist.has_edge() {
                 prev[node] * config.p_ins + prev[node + 1] * config.p_extend_ins
             } else {
                 prev[node..node + 3].iter().sum::<f64>()
             };
-            updates[node + 1] += edges[dist_idx]
-                .iter()
-                .map(|&src| {
-                    let trans = prev[3 * src + 2] * config.p_del_to_ins;
-                    trans * self.nodes[src].to(edge_idx)
-                })
-                .sum::<f64>();
             updates[node + 1] *= dist.insertion(base);
         }
         let d = Self::sum(updates).recip();
         Self::mul(updates, d);
         for (dist_idx, src_nodes) in edges.iter().enumerate() {
             let edge_idx = base_table::BASE_TABLE[self.nodes[dist_idx].last() as usize];
-            updates[3 * dist_idx + 2] += src_nodes
+            updates[3 * dist_idx + 2] = src_nodes
                 .iter()
                 .map(|&src| {
                     let trans = updates[3 * src] * config.p_del
@@ -273,9 +300,8 @@ impl DeBruijnGraphHiddenMarkovModel {
         if self.weight() < 2. {
             return config.null_model(obs);
         }
-        // Alignemnts: [mat, ins, del, mat, ins, del, ....]
+        // Alignemnts: [mat, ins, del,  mat, ins, del,  ....]
         let (mut cs, mut ds, mut prev) = self.initialize(&obs[..self.k], config);
-        assert!(prev.len() % 4 == 0);
         let mut updated = vec![0.; prev.len()];
         let edges = {
             let mut edges = vec![Vec::with_capacity(4); self.nodes.len()];
@@ -1264,6 +1290,67 @@ mod tests {
     //         )
     //     });
     // }
+    #[bench]
+    fn determine_weight_prior(b: &mut Bencher) {
+        use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+        const LEN: usize = 150;
+        const COV: usize = 30;
+        let bases = b"ACTG";
+        let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+        let template: Vec<_> = (0..LEN)
+            .filter_map(|_| bases.choose(&mut rng))
+            .copied()
+            .collect();
+        let model1: Vec<Vec<_>> = (0..COV)
+            .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
+            .collect();
+        let model1: Vec<_> = model1.iter().map(|e| e.as_slice()).collect();
+        let k = 6;
+        let weight = vec![1.; model1.len()];
+        let mut f = Factory::new();
+        let mut buf = vec![];
+        let m = f.generate_with_weight_prior(&model1, &weight, k, &mut buf);
+        eprintln!("{}", m);
+        let q = introduce_randomness(&template, &mut rng, &PROFILE);
+        b.iter(|| test::black_box(m.forward(&q, &DEFAULT_CONFIG)));
+    }
+    #[bench]
+    fn update_weight_prior(b: &mut Bencher) {
+        use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+        const LEN: usize = 150;
+        const COV: usize = 30;
+        let bases = b"ACTG";
+        let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
+        let template: Vec<_> = (0..LEN)
+            .filter_map(|_| bases.choose(&mut rng))
+            .copied()
+            .collect();
+        let model1: Vec<Vec<_>> = (0..COV)
+            .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
+            .collect();
+        let model1: Vec<_> = model1.iter().map(|e| e.as_slice()).collect();
+        let k = 6;
+        let weight = vec![1.; model1.len()];
+        let mut f = Factory::new();
+        let mut buf = vec![];
+        let m = f.generate_with_weight_prior(&model1, &weight, k, &mut buf);
+        let config = &DEFAULT_CONFIG;
+        let q = introduce_randomness(&template, &mut rng, &PROFILE);
+        let (_, _, prev) = m.initialize(&q[..m.k], config);
+        let mut updated = vec![0.; prev.len()];
+        let edges = {
+            let mut edges = vec![Vec::with_capacity(4); m.nodes.len()];
+            for (from, n) in m.nodes.iter().enumerate() {
+                for &to in n.edges.iter().filter_map(|e| e.as_ref()) {
+                    edges[to].push(from);
+                }
+            }
+            edges
+        };
+        let base = b'A';
+        b.iter(|| test::black_box(m.update(&mut updated, &prev, base, config, &edges)));
+    }
+
     enum Op {
         Match,
         MisMatch,

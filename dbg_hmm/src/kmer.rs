@@ -19,6 +19,7 @@ pub struct Kmer {
     // Whether this is the end of unit.
     pub is_tail: bool,
     pub is_head: bool,
+    pub has_edge: bool,
 }
 
 impl std::fmt::Debug for Kmer {
@@ -31,6 +32,7 @@ impl std::fmt::Debug for Kmer {
         writeln!(f, "tot:{}", self.tot)?;
         writeln!(f, "is_tail:{}", self.is_tail)?;
         writeln!(f, "is_head:{}", self.is_head)?;
+        writeln!(f, "has_edge:{}", self.has_edge)?;
         for (i, to) in self
             .edges
             .iter()
@@ -55,6 +57,7 @@ impl Kmer {
         let edges = [None; 4];
         let is_tail = false;
         let is_head = false;
+        let has_edge = false;
         Self {
             kmer,
             kmer_weight,
@@ -65,6 +68,7 @@ impl Kmer {
             edges,
             is_tail,
             is_head,
+            has_edge,
         }
     }
     pub fn finalize(&mut self) {
@@ -81,6 +85,7 @@ impl Kmer {
         }
         let tot = self.base_count.iter().sum::<f64>();
         self.base_count.iter_mut().for_each(|e| *e /= tot);
+        self.has_edge = self.edges.iter().any(|e| e.is_some());
         assert!((1. - self.base_count.iter().sum::<f64>()).abs() < 0.001);
     }
     // renaming all the edges by `map`
@@ -147,14 +152,8 @@ impl Kmer {
             1. - config.mismatch
         }
     }
-    // #[inline]
-    // pub fn prob(&self, base: u8, config: &Config, bc: &[f64]) -> f64 {
-    //     let idx = BASE_TABLE[base as usize];
-    //     let mism = bc.iter().map(|c| c * config.mismatch / 3.).sum::<f64>();
-    //     let offset = bc[idx] * (1. - config.mismatch) - bc[idx] * config.mismatch / 3.;
-    //     mism + offset
-    // }
     // return P_I(base|self)
+    #[inline]
     pub fn insertion(&self, base: u8) -> f64 {
         if self.last == base {
             0.5
@@ -163,8 +162,13 @@ impl Kmer {
         }
         //self.base_count[BASE_TABLE[base as usize]]
     }
+    #[inline]
     pub fn last(&self) -> u8 {
         self.last
+    }
+    #[inline]
+    pub fn has_edge(&self)->bool{
+        self.has_edge
     }
 }
 #[cfg(test)]
