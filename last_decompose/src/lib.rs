@@ -40,8 +40,8 @@ const NUM_OF_BALL: usize = 100;
 // const A: f64 = -0.245;
 // const B: f64 = 3.6;
 // These A and B are to offset the low-coverage region. For THR=2.0,
-const A_PRIOR: f64 = -0.02;
-const B_PRIOR: f64 = 1.15;
+const A_PRIOR: f64 = -0.0104;
+const B_PRIOR: f64 = 0.33;
 // These are for THR=3.0;
 // const A: f64 = -0.3223992;
 // const B: f64 = 3.7831344;
@@ -50,7 +50,7 @@ const B_PRIOR: f64 = 1.15;
 // const CONTAINED_SCALE: f64 = 4.26264183;
 // This is the initial reverse temprature.
 // Note that, from this rev-temprature, we adjust the start beta by doubling-search.
-const INIT_BETA: f64 = 0.9;
+const INIT_BETA: f64 = 1.;
 // This is the search factor for the doubling-step.
 // const FACTOR: f64 = 1.4;
 // Sampling times for variational bayes.
@@ -59,7 +59,7 @@ const INIT_BETA: f64 = 0.9;
 // const SAMPING: usize = 100;
 // This is the factor we multiply at each iteration for beta.
 // Note that this factor also scaled for the maximum coverage.
-const BETA_STEP: f64 = 1.05;
+const BETA_STEP: f64 = 1.2;
 // Maximum beta. Until this beta, we multiply beta_step for the current beta.
 // const MAX_BETA: f64 = 1.;
 // This is the parameter for Diriclet prior.
@@ -71,9 +71,9 @@ const LOOP_NUM: usize = 4;
 // Loop number for variational Bayes.
 const LOOP_NUM_VB: usize = 20;
 // Initial picking probability.
-const INIT_PICK_PROB: f64 = 0.05;
+const INIT_PICK_PROB: f64 = 0.02;
 const PICK_PROB_STEP: f64 = 1.2;
-const MAX_PICK_PROB: f64 = 0.10;
+const MAX_PICK_PROB: f64 = 0.3;
 const PRIOR_ENTROPY: f64 = 1.;
 const LEARNING_RATE: f64 = 1.;
 const MOMENT: f64 = 0.2;
@@ -471,7 +471,7 @@ pub fn clustering(
     let border = label.len();
     assert_eq!(forbidden.len(), data.len());
     let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
-    //let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
+    // let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
     // Maybe we should use randomized choose.
     debug!("Prediction. Dump weights");
     for (weight, ans) in weights.iter().skip(border).zip(answer) {
@@ -530,6 +530,10 @@ pub fn variational_bayes(
     let seed = data.len() as u64 * 20437;
     let mut weights_of_reads: Vec<Vec<f64>> =
         construct_initial_weights(label, forbidden, cluster_num, data.len(), seed);
+    // for (idx, &cl) in answer.iter().enumerate() {
+    //     weights_of_reads[idx] = vec![0.; cluster_num];
+    //     weights_of_reads[idx][cl as usize] = 1.;
+    // }
     let soe_thr =
         SOE_PER_DATA_ENTROPY_VB * (data.len() - label.len()) as f64 / (cluster_num as f64).ln();
     let mut mf = ModelFactory::new(contigs, data, k);
@@ -542,8 +546,6 @@ pub fn variational_bayes(
     let step = 1. + (BETA_STEP - 1.) / (max_coverage as f64).log10();
     debug!("Maximum coverage:{}\tBeta step:{:.4}", max_coverage, step);
     let mut beta = INIT_BETA;
-    // let mut beta =
-    //     search_initial_beta_vb(&mut mf, wor, &data, b, label, cluster_num, config, FACTOR);
     let mut alphas: Vec<_> = (0..cluster_num)
         .map(|cl| wor.iter().map(|e| e[cl]).sum::<f64>() + ALPHA)
         .map(|alpha| (alpha - 1.) * beta + 1.)
@@ -708,9 +710,8 @@ fn batch_vb(
                         .map(|u| {
                             let model = &ms[u.contig()][u.unit()];
                             let lk = model.forward(u.bases(), c);
-                            // let offset = offset(model.weight(), A_PRIOR, B_PRIOR);
-                            // lk.max(c.null_model(u.bases())) // + offset
-                            lk
+                            let offset = offset(model.weight(), A_PRIOR, B_PRIOR);
+                            lk.max(c.null_model(u.bases())) + offset
                         })
                         .sum::<f64>();
                     let lk = lk / read.seq.len() as f64;
@@ -718,10 +719,6 @@ fn batch_vb(
                     *log_ro = (prior + lk) * beta;
                 });
             let log_sum_ro = utils::logsumexp(&log_ros);
-            // debug!(
-            //     "LK\t{}\t{}\t{}\t{}",
-            //     log_ros[0], log_ros[1], alphas[0], alphas[1]
-            // );
             weights
                 .iter_mut()
                 .zip(log_ros)
@@ -756,7 +753,7 @@ pub fn soft_clustering(
     let max_coverage = get_max_coverage(data, contigs);
     let beta_step = 1. + (BETA_STEP - 1.) / (max_coverage as f64).log10();
     info!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
-    let mut betas = vec![1.; 10];
+    let mut betas = vec![INIT_BETA; 10];
     let pick_probs: Vec<_> = (0..)
         .map(|i| INIT_PICK_PROB * PICK_PROB_STEP.powi(i))
         .take_while(|&e| e <= MAX_PICK_PROB)
@@ -825,12 +822,13 @@ fn from_weight_of_read(
         .map(|cl| mf.generate_model(&weight_of_read, data, cl))
         .collect();
     let mut updates = vec![false; data.len()];
+    let all = vec![false; data.len()];
     let mut soe = 100000.;
     for &beta in betas {
         for &pick_prob in pick_probs {
-            updates_flags(&mut updates, &weight_of_read, &mut rng, pick_prob, beta);
+            updates_flags(&mut updates, &weight_of_read, &mut rng, pick_prob);
             models.iter_mut().enumerate().for_each(|(cluster, model)| {
-                mf.update_model(&weight_of_read, &updates, data, cluster, model);
+                mf.update_model(&weight_of_read, &all, data, cluster, model);
             });
             minibatch_sgd_by(
                 weight_of_read,
@@ -1027,7 +1025,6 @@ fn updates_flags<R: Rng>(
     weight_of_read: &[Vec<f64>],
     rng: &mut R,
     pick_prob: f64,
-    _beta: f64,
 ) {
     let datasize = weight_of_read.len() as f64;
     let sum_of_entropy = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
@@ -1071,38 +1068,43 @@ fn minibatch_sgd_by(
         .zip(updates.par_iter())
         .skip(border)
         .filter(|&(_, &b)| b)
-        .for_each(|((((read, weights), gamma), moment), _)| {
+        .for_each(|((((read, weights), gamma), _moment), _)| {
             compute_log_probs(&models, &ws, &read, gamma, c);
             gamma.iter_mut().for_each(|g| *g *= beta);
             let w = utils::logsumexp(&gamma);
-            assert!(!w.is_nan(), "Met Nan at {}", line!());
+            deubg_assert!(!w.is_nan(), "Met Nan at {}", line!());
             gamma.iter_mut().for_each(|l| *l = (*l - w).exp());
-            assert!((1. - gamma.iter().sum::<f64>()).abs() < 0.001);
-            if moment.is_empty() {
-                *moment = gamma.clone();
-            } else {
-                moment.iter_mut().zip(gamma.iter()).for_each(|(m, &g)| {
-                    let gradient = g - *m;
-                    *m += MOMENT * gradient;
-                });
-            }
-            assert!((1. - moment.iter().sum::<f64>()).abs() < 0.001);
-            weights.iter_mut().zip(moment.iter()).for_each(|(w, &m)| {
-                let gradient = m - *w;
+            debug_assert!((1. - gamma.iter().sum::<f64>()).abs() < 0.001);
+            // if moment.is_empty() {
+            //     *moment = gamma.clone();
+            // } else {
+            //     moment.iter_mut().zip(gamma.iter()).for_each(|(m, &g)| {
+            //         let gradient = g - *m;
+            //         *m += MOMENT * gradient;
+            //     });
+            // }
+            // assert!((1. - moment.iter().sum::<f64>()).abs() < 0.001);
+            // weights.iter_mut().zip(moment.iter()).for_each(|(w, &m)| {
+            //     let gradient = m - *w;
+            //     *w += lr * gradient;
+            // });
+            weights.iter_mut().zip(gamma.iter()).for_each(|(w, &g)| {
+                let gradient = g - *w;
                 *w += lr * gradient;
             });
-            assert!((1. - weights.iter().sum::<f64>()).abs() < 0.001);
+            debug_assert!((1. - weights.iter().sum::<f64>()).abs() < 0.001);
             assert_eq!(gamma.len(), cluster_num);
             // Convert gamma into moment of PI.
-            gamma
-                .iter_mut()
-                .zip(ws.iter())
-                .zip(moment.iter())
-                .for_each(|((g, &w), &m)| *g = m - w);
+            // gamma
+            //     .iter_mut()
+            //     .zip(ws.iter())
+            //     .zip(moment.iter())
+            //     .for_each(|((g, &w), &m)| *g = m - w);
+            gamma.iter_mut().zip(ws.iter()).for_each(|(g, &w)| *g -= w);
         });
-    for w in weight_of_read {
-        assert!((1. - w.iter().sum::<f64>()).abs() < 0.001);
-    }
+    // for w in weight_of_read {
+    //     assert!((1. - w.iter().sum::<f64>()).abs() < 0.001);
+    // }
     let ws_gradient: Vec<_> = {
         let selected_gammas = gammas
             .par_iter()
@@ -1144,6 +1146,7 @@ fn compute_log_probs(
                 .map(|u| {
                     let model = &model[u.contig()][u.unit()];
                     let lk = model.forward(u.bases(), c);
+                    let offset = offset(model.weight(), A_PRIOR, B_PRIOR);
                     // let offset = if PRIOR {
                     //     offset(model.weight(), A_PRIOR, B_PRIOR)
                     // } else {
@@ -1158,7 +1161,7 @@ fn compute_log_probs(
                     // especially when do need the boundary by
                     // forbidden monomers.
                     assert!(!lk.is_nan(), "Met Nan at {}", line!());
-                    lk.max(c.null_model(u.bases())) // + offset
+                    lk.max(c.null_model(u.bases())) + offset
                 })
                 .sum::<f64>()
                 / read.seq.len() as f64

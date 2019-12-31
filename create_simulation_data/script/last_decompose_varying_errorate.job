@@ -18,7 +18,7 @@ echo "-----start-----" >> ${OUTPUT}
 
 TEST_NUM=200
 COVERAGE=0
-PROBS="0.2 0.8"
+PROBS="0.5 0.5"
 ./target/release/test_last_decompose_multiple_varying_errorate \
         ${TEST_NUM} ${COVERAGE} 10 ${PROBS} >> ${OUTPUT} \
         2>> ${OUTLOG_PREFIX}.skew.100.log

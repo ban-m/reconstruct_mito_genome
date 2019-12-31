@@ -306,10 +306,10 @@ impl Factory {
         assert!(self.is_empty());
         let nodes = self.trim_unreachable_nodes(nodes);
         let nodes = self.trim_unreachable_nodes_reverse(nodes);
-        // let nodes = self.relative_weight_pruning(nodes);
-        // let nodes = self.bridge_pruning(nodes);
-        // let nodes = self.trim_unreachable_nodes(nodes);
-        // let nodes = self.trim_unreachable_nodes_reverse(nodes);
+        let nodes = self.relative_weight_pruning(nodes);
+        let nodes = self.bridge_pruning(nodes);
+        let nodes = self.trim_unreachable_nodes(nodes);
+        let nodes = self.trim_unreachable_nodes_reverse(nodes);
         assert!(self.is_empty());
         assert!(self.is_empty());
         let nodes = self.pick_largest_components(nodes);
@@ -461,10 +461,10 @@ impl Factory {
                 }));
             self.is_safe.clear();
             if self.dfs_stack.is_empty() {
-                debug!(
-                    "Forward:This graph is a st-connected. Total Weight:{}",
-                    nodes.iter().map(|e| e.tot).sum::<f64>()
-                );
+                // debug!(
+                //     "Forward:This graph is a st-connected. Total Weight:{}",
+                //     nodes.iter().map(|e| e.tot).sum::<f64>()
+                // );
                 self.clear();
                 return nodes;
             }
@@ -530,10 +530,10 @@ impl Factory {
                 }));
             self.is_safe.clear();
             if self.dfs_stack.is_empty() {
-                debug!(
-                    "REVERSE:This graph is st-connected. Total Weight:{}",
-                    nodes.iter().map(|e| e.tot).sum::<f64>()
-                );
+                // debug!(
+                //     "REVERSE:This graph is st-connected. Total Weight:{}",
+                //     nodes.iter().map(|e| e.tot).sum::<f64>()
+                // );
                 self.clear();
                 return nodes;
             }

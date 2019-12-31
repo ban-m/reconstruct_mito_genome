@@ -1,3 +1,4 @@
+use super::base_table::BASE_TABLE;
 use super::find_union;
 use super::Config;
 use super::PSEUDO_COUNT;
@@ -7,7 +8,7 @@ pub struct Kmer {
     last: u8,
     // Transition counts.
     pub weight: [f64; 4],
-    pub insertion: [f64; 4],
+    pub base_count: [f64; 4],
     /// Total number of *Outdegree*
     pub tot: f64,
     /// The location to the edges with the label of A,C,G,and T.
@@ -26,6 +27,7 @@ impl std::fmt::Debug for Kmer {
         writeln!(f, "KmerWeight:{:.3}", self.kmer_weight)?;
         writeln!(f, "Last:{}", self.last as char)?;
         writeln!(f, "Transition:{:?}", &self.weight)?;
+        writeln!(f, "BaseCount{:?}", &self.base_count)?;
         writeln!(f, "tot:{}", self.tot)?;
         writeln!(f, "is_tail:{}", self.is_tail)?;
         writeln!(f, "is_head:{}", self.is_head)?;
@@ -48,9 +50,7 @@ impl Kmer {
         let last = *kmer.last().unwrap();
         // Prior
         let weight = [0.; 4];
-        // for i in 0..4 {
-        //     weight[i] = PSEUDO_COUNT;
-        // }
+        let base_count = [PSEUDO_COUNT; 4];
         let tot = 0.;
         let edges = [None; 4];
         let is_tail = false;
@@ -60,9 +60,9 @@ impl Kmer {
             kmer_weight,
             last,
             weight,
+            base_count,
             tot,
             edges,
-            //  transition,
             is_tail,
             is_head,
         }
@@ -79,11 +79,9 @@ impl Kmer {
                 self
             );
         }
-        //  else {
-        //     for i in 0..4 {
-        //         self.weight[i] = 0.25;
-        //     }
-        // }
+        let tot = self.base_count.iter().sum::<f64>();
+        self.base_count.iter_mut().for_each(|e| *e /= tot);
+        assert!((1. - self.base_count.iter().sum::<f64>()).abs() < 0.001);
     }
     // renaming all the edges by `map`
     pub fn rename_by(&mut self, map: &[usize]) {
@@ -127,26 +125,20 @@ impl Kmer {
         self.push_edge_with_weight(base, to, 1.);
     }
     pub fn push_edge_with_weight(&mut self, base: u8, to: usize, w: f64) {
-        use super::base_table::BASE_TABLE;
         let i = BASE_TABLE[base as usize];
         self.edges[i] = Some(to);
         self.tot += w;
         self.weight[i] += w;
-        // self.weight[i + 4] += w;
+        self.base_count[i] += w;
     }
-    // // return [mat, ins, del, mism]
-    // pub fn calc_score(&self, tip: &[u8]) -> [u8; 4] {
-    //     let aln = edlib_sys::global(&self.kmer, tip);
-    //     aln.into_iter().fold([0; 4], |mut xs, x| {
-    //         xs[x as usize] += 1;
-    //         xs
-    //     })
-    // }
     // return P(idx|self)
     #[inline]
     pub fn to(&self, idx: usize) -> f64 {
         self.weight[idx]
     }
+    // return P(base|self), observation probability.
+    // Note that, this function does depends on the
+    // previous state's "base-count". Is it correct?
     #[inline]
     pub fn prob(&self, base: u8, config: &Config) -> f64 {
         if self.last != base {
@@ -155,16 +147,26 @@ impl Kmer {
             1. - config.mismatch
         }
     }
+    // #[inline]
+    // pub fn prob(&self, base: u8, config: &Config, bc: &[f64]) -> f64 {
+    //     let idx = BASE_TABLE[base as usize];
+    //     let mism = bc.iter().map(|c| c * config.mismatch / 3.).sum::<f64>();
+    //     let offset = bc[idx] * (1. - config.mismatch) - bc[idx] * config.mismatch / 3.;
+    //     mism + offset
+    // }
     // return P_I(base|self)
     pub fn insertion(&self, base: u8) -> f64 {
-        use super::base_table::BASE_TABLE;
-        (self.weight[BASE_TABLE[base as usize]] + PSEUDO_COUNT) / DENOM
+        if self.last == base {
+            0.5
+        } else {
+            0.5 / 3.
+        }
+        //self.base_count[BASE_TABLE[base as usize]]
     }
     pub fn last(&self) -> u8 {
         self.last
     }
 }
-const DENOM: f64 = 1. + 4. * PSEUDO_COUNT;
 #[cfg(test)]
 mod tests {
     use super::*;

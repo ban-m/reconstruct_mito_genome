@@ -17,7 +17,7 @@ extern crate test;
 // Parameters for Factory class.
 const SCALE: f64 = 0.81;
 const PRIOR_FACTOR: f64 = 0.05;
-const MAX_PRIOR_FACTOR: f64 = 3.0;
+// const MAX_PRIOR_FACTOR: f64 = 3.0;
 // Whether or not to use 'pseudo count' in the out-dgree.
 const PSEUDO_COUNT: f64 = 1.0;
 const THR_ON: bool = true;
@@ -108,57 +108,6 @@ impl DeBruijnGraphHiddenMarkovModel {
             packed.write_to_slice_unaligned(xs);
         });
     }
-    // fn update(
-    //     &self,
-    //     updates: &mut [f64],
-    //     prev: &[f64],
-    //     base: u8,
-    //     config: &Config,
-    //     edges: &[Vec<(usize, usize)>],
-    // ) -> (f64, f64) {
-    //     debug_assert!((1. - prev.iter().sum::<f64>()).abs() < 0.001);
-    //     // Alignemnt:[mat,ins,del, mat,ins,del,, mat,....,del]
-    //     for (idx, from) in self
-    //         .nodes
-    //         .iter()
-    //         .enumerate()
-    //         .filter(|&(idx, _)| Self::is_non_zero(idx, prev))
-    //     {
-    //         let node = 3 * idx;
-    //         let prob = prev[node] * config.p_match
-    //             + prev[node + 1] * (1. - config.p_extend_ins)
-    //             + prev[node + 2] * (1. - config.p_extend_del - config.p_del_to_ins);
-    //         let del_to_ins = prev[node + 2] * config.p_del_to_ins;
-    //         let ins = if !edges[idx].is_empty() {
-    //             prev[node] * config.p_ins + prev[node + 1] * config.p_extend_ins
-    //         } else {
-    //             prev[node] + prev[node + 1] + prev[node + 2]
-    //         };
-    //         updates[node + 1] += ins * from.insertion(base);
-    //         // From -> To with base b
-    //         edges[idx].iter().for_each(|&(i, to)| {
-    //             updates[3 * to] += prob * from.to(i) * self.nodes[to].prob(base, config);
-    //             updates[3 * to + 1] += del_to_ins * from.to(i) * self.nodes[to].insertion(base);
-    //         });
-    //     }
-    //     let d = Self::sum(updates).recip();
-    //     // Updates -> tilde
-    //     Self::mul(updates, d);
-    //     // Update `Del` states.
-    //     for (idx, edges) in edges.iter().enumerate() {
-    //         if Self::is_non_zero(idx, updates) {
-    //             let from = &updates[3 * idx..3 * (idx + 1)];
-    //             let pushing_weight: f64 = from[0] * config.p_del + from[2] * config.p_extend_del;
-    //             for (_, to) in edges.iter() {
-    //                 updates[3 * to + 2] += pushing_weight;
-    //             }
-    //         }
-    //     }
-    //     assert!(updates.iter().all(|e| !e.is_nan()));
-    //     let c = Self::sum(&updates).recip();
-    //     Self::mul(updates, c);
-    //     (c, d)
-    // }
     // ln sum_i exp(x[i])
     fn logsumexp(xs: &[f64]) -> f64 {
         let max = xs
@@ -263,38 +212,6 @@ impl DeBruijnGraphHiddenMarkovModel {
     pub fn weight(&self) -> f64 {
         self.weight
     }
-    // #[cfg(target_feature = "sse")]
-    // pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
-    //     assert!(obs.len() > self.k);
-    //     if self.weight() < 2. {
-    //         return config.null_model(obs);
-    //     }
-    //     // Alignemnts: [mat, ins, del, mat, ins, del, ....]
-    //     let (mut cs, mut ds, mut prev) = self.initialize(&obs[..self.k], config);
-    //     assert!(prev.iter().all(|e| !e.is_nan()));
-    //     assert!(prev.len() % 4 == 0);
-    //     let mut updated = vec![0.; prev.len()];
-    //     let edges: Vec<Vec<(usize, usize)>> = self
-    //         .nodes
-    //         .iter()
-    //         .map(|e| {
-    //             e.edges
-    //                 .iter()
-    //                 .enumerate()
-    //                 .filter_map(|(idx, e)| e.map(|to| (idx, to)))
-    //                 .collect()
-    //         })
-    //         .collect();
-    //     for &base in &obs[self.k..] {
-    //         updated.iter_mut().for_each(|e| *e = 0.);
-    //         let (c, d) = self.update(&mut updated, &prev, base, config, &edges);
-    //         cs -= c.ln();
-    //         ds -= d.ln();
-    //         std::mem::swap(&mut prev, &mut updated);
-    //     }
-    //     assert!(cs + ds < 0., "{}", cs + ds);
-    //     cs + ds
-    // }
     fn update(
         &self,
         updates: &mut [f64],
@@ -312,10 +229,10 @@ impl DeBruijnGraphHiddenMarkovModel {
                 .iter()
                 .map(|&src| {
                     let src_node = 3 * src;
-                    let prob = prev[src_node] * config.p_match
+                    let trans = prev[src_node] * config.p_match
                         + prev[src_node + 1] * (1. - config.p_extend_ins)
                         + prev[src_node + 2] * (1. - config.p_extend_del - config.p_del_to_ins);
-                    prob * self.nodes[src].to(edge_idx)
+                    trans * self.nodes[src].to(edge_idx)
                 })
                 .sum::<f64>()
                 * dist.prob(base, config);
@@ -447,6 +364,8 @@ impl DeBruijnGraphHiddenMarkovModel {
                         prev[src_node + 1] + (1. - config.p_extend_ins).ln(),
                         prev[src_node + 2] + (1. - config.p_extend_del - config.p_del_to_ins).ln(),
                     );
+                    // let base_count = &self.nodes[src].base_count;
+                    // let emit = dist.prob(base, config, base_count).ln();
                     let trans = self.nodes[src].to(edge_idx).ln();
                     if del < mat && ins < mat {
                         (src_node, mat + trans + emit)
