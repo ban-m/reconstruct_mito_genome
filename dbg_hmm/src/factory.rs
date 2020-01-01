@@ -306,21 +306,44 @@ impl Factory {
         assert!(self.is_empty());
         let nodes = self.trim_unreachable_nodes(nodes);
         let nodes = self.trim_unreachable_nodes_reverse(nodes);
-        let nodes = self.relative_weight_pruning(nodes);
+        let save = nodes.clone();
+        let nodes = self.bridge_pruning(nodes);
         let nodes = self.bridge_pruning(nodes);
         let nodes = self.trim_unreachable_nodes(nodes);
         let nodes = self.trim_unreachable_nodes_reverse(nodes);
-        assert!(self.is_empty());
-        assert!(self.is_empty());
-        let nodes = self.pick_largest_components(nodes);
-        assert!(self.is_empty());
-        let nodes = self.renaming_nodes(nodes);
-        nodes
+        let save = if nodes.len() < 130 {
+            let nodes = self.pick_largest_components(save);
+            let nodes = self.renaming_nodes(nodes);
+            return nodes;
+        } else {
+            nodes.clone()
+        };
+        let nodes = self.select_head_and_tail(nodes);
+        let nodes = self.filter_lightweight(nodes);
+        let nodes = self.trim_unreachable_nodes(nodes);
+        let nodes = self.trim_unreachable_nodes_reverse(nodes);
+        if nodes.len() < 130 {
+            let nodes = self.pick_largest_components(save);
+            let nodes = self.renaming_nodes(nodes);
+            nodes
+        } else {
+            let nodes = self.pick_largest_components(nodes);
+            let nodes = self.renaming_nodes(nodes);
+            nodes
+        }
     }
     fn bridge_pruning(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
         let mut buffer: Vec<(usize, usize)> = Vec::with_capacity(4);
         let (lowlink, orders) = self.lowlink_and_orders(&nodes);
-        let cov = nodes.iter().map(|e| e.tot).sum::<f64>() / nodes.len() as f64;
+        let sum = nodes
+            .iter()
+            .map(|e| e.weight.iter().sum::<f64>())
+            .sum::<f64>();
+        let edges = nodes
+            .iter()
+            .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
+            .sum::<usize>();
+        let ave = sum / edges as f64;
         for (from, node) in nodes.iter_mut().enumerate() {
             buffer.clear();
             let no_bridges = node
@@ -337,14 +360,20 @@ impl Factory {
             if number_of_non_bridges <= 1 {
                 continue;
             }
-            // Maybe we can trim some of non bridges.
-            let sum_of_weight = buffer.iter().map(|&(idx, _)| node.weight[idx]).sum::<f64>();
-            let thr = 0.5 * (1.0 + (-cov / 300.).exp()).recip();
-            for &(idx, _) in &buffer {
-                let w = node.weight[idx];
-                if w < sum_of_weight * thr {
-                    node.remove(idx);
+            // Let's remove only one edge: the lightest,
+            // if the edge is very light.
+            let factor = (1. + (-ave / 30.).exp()).recip() - 0.5;
+            let thr = 0.5 + 0.2 * factor;
+            let (idx, w) = buffer.iter().fold((0, 10_000.), |(idx, min), &(i, _)| {
+                let w = node.weight[i];
+                if w < min {
+                    (i, w)
+                } else {
+                    (idx, min)
                 }
+            });
+            if w < ave * thr {
+                node.remove(idx);
             }
         }
         nodes
@@ -405,48 +434,71 @@ impl Factory {
         self.clear();
         (lowlink, orders)
     }
+    #[allow(dead_code)]
     fn relative_weight_pruning(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
-        let mut buf = Vec::with_capacity(4);
-        let cov = nodes.iter().map(|e| e.tot).sum::<f64>();
-        let thr = 0.5 * (1.0 + (-cov / 300.).exp()).recip();
-        for node in nodes.iter_mut() {
-            let outdeg = node.edges.iter().filter(|e| e.is_some()).count();
-            if outdeg <= 1 {
-                continue;
-            }
-            let expected = node.weight.iter().sum::<f64>() / outdeg as f64;
-            let indices = node
-                .edges
+        let ave = nodes.iter().map(|e| e.tot).sum::<f64>() / nodes.len() as f64;
+        let thr = 0.5 * ave;
+        let is_weak: Vec<_> = nodes
+            .iter()
+            .map(|e| e.tot < thr && !e.is_head && !e.is_tail)
+            .collect();
+        // Maybe we should do coverage tuning.
+        let mut buf = vec![];
+        for (from, node) in nodes.iter_mut().enumerate() {
+            node.edges
                 .iter()
                 .enumerate()
-                .filter_map(|(i, e)| if e.is_some() { Some(i) } else { None })
-                .filter(|&idx| node.weight[idx] / expected < thr);
-            buf.extend(indices);
-            for &idx in &buf {
-                node.remove(idx);
+                .filter_map(|(idx, e)| e.map(|to| (idx, to)))
+                .for_each(|(idx, to)| buf.push((idx, to)));
+            while let Some((idx, to)) = buf.pop() {
+                if is_weak[from] && is_weak[to] {
+                    node.remove(idx);
+                }
             }
-            buf.clear();
         }
+        nodes
+    }
+    fn filter_lightweight(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
+        self.clear();
+        let mean = nodes.iter().map(|e| e.kmer_weight).sum::<f64>() / nodes.len() as f64;
+        let factor = THR + 1. - (1. + (mean / 50.).exp()).recip();
+        let thr = mean / factor;
+        nodes
+            .iter()
+            .for_each(|e| self.is_safe.push((e.kmer_weight > thr) as u8));
+        let mut index = 0;
+        for &b in &self.is_safe {
+            self.temp_index.push(index);
+            index += b as usize;
+        }
+        assert!(self.buffer.is_empty());
+        let mut idx = nodes.len();
+        while let Some(mut node) = nodes.pop() {
+            idx -= 1;
+            if self.is_safe[idx] == 1 {
+                node.remove_if_not_supported(&self.is_safe);
+                node.rename_by(&self.temp_index);
+                self.buffer.push(node);
+            }
+        }
+        self.buffer.reverse();
+        std::mem::swap(&mut nodes, &mut self.buffer);
+        self.clear();
         nodes
     }
     fn trim_unreachable_nodes(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
         self.clear();
         self.dfs_flag.extend(std::iter::repeat(0).take(nodes.len()));
-        self.dfs_stack
-            .extend(nodes.iter().enumerate().filter_map(
-                |(idx, n)| {
-                    if n.is_head {
-                        Some(idx)
-                    } else {
-                        None
-                    }
-                },
-            ));
+        nodes.iter().enumerate().for_each(|(idx, n)| {
+            if n.is_head {
+                self.dfs_stack.push(idx)
+            }
+        });
         if self.dfs_stack.is_empty() {
             // We should pick some "head" nodes.
             self.is_safe.clear();
             self.is_safe.extend(std::iter::repeat(1).take(nodes.len()));
-            for (_, n) in nodes.iter().enumerate() {
+            for n in nodes.iter() {
                 for &to in n.edges.iter().filter_map(|e| e.as_ref()) {
                     self.is_safe[to] = 0;
                 }
@@ -461,10 +513,6 @@ impl Factory {
                 }));
             self.is_safe.clear();
             if self.dfs_stack.is_empty() {
-                // debug!(
-                //     "Forward:This graph is a st-connected. Total Weight:{}",
-                //     nodes.iter().map(|e| e.tot).sum::<f64>()
-                // );
                 self.clear();
                 return nodes;
             }
@@ -576,42 +624,171 @@ impl Factory {
         self.clear();
         nodes
     }
-    // fn cut_lightweight_loop(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
-    //     let thr = nodes.iter().map(|e| e.tot).sum::<f64>() / nodes.len() as f64 / THR;
-    //     self.is_safe.clear();
-    //     self.temp_index.clear();
-    //     nodes
-    //         .iter()
-    //         .for_each(|n| self.is_safe.push((n.tot > thr) as u8));
-    //     nodes.iter().for_each(|_| self.is_safe.push(0));
-    // for (from, ref node) in nodes.iter().enumerate() {
-    //     for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
-    //         self.is_safe[to] |= self.temp_index[from] as u8;
-    //         self.is_safe[from] |= self.temp_index[to] as u8;
-    //     }
-    // }
-    //     self.temp_index.clear();
-    //     let mut index = 0;
-    //     for &b in &self.is_safe {
-    //         self.temp_index.push(index);
-    //         index += b as usize;
-    //     }
-    //     assert!(self.buffer.is_empty());
-    //     let mut idx = nodes.len();
-    //     while let Some(mut node) = nodes.pop() {
-    //         idx -= 1;
-    //         if self.is_safe[idx] == 1 {
-    //             node.remove_if_not_supported(&self.is_safe);
-    //             node.rename_by(&self.temp_index);
-    //             self.buffer.push(node);
-    //         }
-    //     }
-    //     self.buffer.reverse();
-    //     self.is_safe.clear();
-    //     self.temp_index.clear();
-    //     std::mem::swap(&mut nodes, &mut self.buffer);
-    //     nodes
-    // }
+    #[allow(dead_code)]
+    fn indegree_removing(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
+        self.is_safe.clear();
+        self.temp_index.clear();
+        self.is_safe.extend(std::iter::repeat(0).take(nodes.len()));
+        // Record indegree
+        nodes.iter().for_each(|_| self.temp_index.push(0));
+        for node in nodes.iter() {
+            for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
+                self.temp_index[to] += 1;
+            }
+        }
+        let tot = nodes
+            .iter()
+            .map(|e| e.weight.iter().sum::<f64>())
+            .sum::<f64>();
+        let len = nodes
+            .iter()
+            .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
+            .sum::<usize>();
+        let thr = tot / len as f64 / THR;
+        let mut buf = vec![];
+        for node in nodes.iter_mut() {
+            let edges = node
+                .edges
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, e)| e.map(|to| (idx, to)));
+            let num_edges = edges.clone().count();
+            if num_edges <= 1 {
+                continue;
+            }
+            edges
+                .filter(|&(idx, to)| self.temp_index[to] > 1 && node.weight[idx] < thr)
+                .for_each(|e| buf.push(e));
+            while let Some((idx, _)) = buf.pop() {
+                node.remove(idx);
+            }
+        }
+        nodes
+    }
+    #[allow(dead_code)]
+    fn cut_lightweight_loop(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
+        self.clear();
+        self.is_safe.extend(std::iter::repeat(0).take(nodes.len()));
+        // Record indegree to is_safe.
+        for node in nodes.iter() {
+            for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
+                self.is_safe[to] += 1;
+            }
+        }
+        // Record outdegrees.
+        let outdegrees: Vec<_> = nodes
+            .iter()
+            .map(|node| node.edges.iter().filter(|e| e.is_some()).count())
+            .collect();
+        // Calculate the length of the simple path it is recorded to temp_index.
+        // Push putative start nodes.
+        self.dfs_stack.clear();
+        for (idx, node) in nodes.iter().enumerate() {
+            let outdegree = outdegrees[idx];
+            let indegree = self.is_safe[idx];
+            if indegree == 0 && outdegree == 1 {
+                // This is a start of the simple path.
+                self.dfs_stack.push(idx);
+            } else if indegree > 1 || outdegree > 1 {
+                // The children of this node could be starts nodes of a simple path.
+                for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
+                    let indegree = self.is_safe[to];
+                    let outdegree = outdegrees[to];
+                    if indegree < 2 && outdegree < 2 {
+                        self.dfs_stack.push(idx);
+                    }
+                }
+            }
+        }
+        // Pop putative simple path one by one.
+        // Note that a node never reached twice or more.
+        self.temp_index
+            .extend(std::iter::repeat(0).take(nodes.len()));
+        while let Some(start) = self.dfs_stack.pop() {
+            // succeed until reach a branching node.
+            let mut current = start;
+            let mut stack = vec![];
+            while self.is_safe[current] < 2 && outdegrees[current] < 2 {
+                stack.push(current);
+                let next = nodes[current]
+                    .edges
+                    .iter()
+                    .filter_map(|e| e.as_ref())
+                    .nth(0);
+                if let Some(&next) = next {
+                    current = next;
+                } else {
+                    break;
+                }
+            }
+            // Determine the length of the simple path, and set the length of the simple path.
+            let len = stack.len();
+            while let Some(node) = stack.pop() {
+                assert!(self.temp_index[node] == 0);
+                self.temp_index[node] = len;
+            }
+        }
+        // We treat the tail node as special case.
+        self.is_safe.clear();
+        nodes
+            .iter()
+            .for_each(|e| self.is_safe.push(e.is_tail as u8));
+        for node in nodes.iter_mut() {
+            let max = *node
+                .weight
+                .iter()
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap_or(&0.);
+            let factor = THR; // * (1. + -max.exp()).recip();
+            let thr = max / factor;
+            for idx in 0..4 {
+                let to = match node.edges[idx] {
+                    Some(res) => res,
+                    None => continue,
+                };
+                let is_not_tail = self.is_safe[to] != 1;
+                if self.temp_index[to] <= 2 && node.weight[idx] < thr && is_not_tail {
+                    // eprintln!("{:?}Remove{}({:.3})", node, idx, thr);
+                    node.remove(idx);
+                }
+            }
+        }
+        self.clear();
+        nodes
+    }
+    fn select_head_and_tail(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
+        let sum = nodes.iter().map(|e| e.kmer_weight).sum::<f64>();
+        let thr = sum / nodes.len() as f64 / 2.5;
+        self.is_safe.clear();
+        self.is_safe.extend(std::iter::repeat(1).take(nodes.len()));
+        self.temp_index.clear();
+        for (idx, n) in nodes.iter().enumerate() {
+            if (n.is_head || n.is_tail) && n.kmer_weight < thr {
+                self.is_safe[idx] = 0;
+            }
+        }
+        let mut index = 0;
+        for &b in &self.is_safe {
+            self.temp_index.push(index);
+            index += b as usize;
+        }
+        assert!(self.buffer.is_empty());
+        let mut idx = nodes.len();
+        while let Some(mut node) = nodes.pop() {
+            idx -= 1;
+            if self.is_safe[idx] == 1 {
+                node.remove_if_not_supported(&self.is_safe);
+                node.rename_by(&self.temp_index);
+                self.buffer.push(node);
+            }
+        }
+        self.buffer.reverse();
+        self.is_safe.clear();
+        self.temp_index.clear();
+        std::mem::swap(&mut nodes, &mut self.buffer);
+        nodes
+    }
+
     // // Cut tips. We can assume that the graph is a
     // // connected graph or a tree.
     // #[allow(dead_code)]

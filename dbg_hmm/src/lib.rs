@@ -566,6 +566,27 @@ impl DeBruijnGraphHiddenMarkovModel {
         }
         res
     }
+    pub fn dump(&self, template: &[u8]) {
+        use std::collections::HashSet;
+        let kmers: HashSet<_> = template.windows(self.k).map(|e| e.to_vec()).collect();
+        let sum = self.nodes.iter().map(|e| e.kmer_weight).sum::<f64>();
+        let mean = sum / self.nodes.len() as f64;
+        eprintln!("({}/{:.3}){}", mean, kmers.len(), self);
+        for (idx, node) in self.nodes.iter().enumerate() {
+            if kmers.contains(&node.kmer) {
+                eprintln!("OK:{}\t{:?}", idx, node);
+                eprintln!("TOT\tTRUE\t{}", node.kmer_weight);
+            } else {
+                eprintln!("NG:{}\t{:?}", idx, node);
+                eprintln!("TOT\tFALSE\t{}", node.kmer_weight);
+            }
+        }
+        for kmer in kmers {
+            if self.nodes.iter().all(|node| node.kmer != kmer) {
+                eprintln!("Missing:{}", String::from_utf8_lossy(&kmer));
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -715,39 +736,40 @@ mod tests {
         let bases = b"ACTG";
         let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12_122_432);
         let k = 6;
-        for num in 50..200 {
-            let template1: Vec<_> = (0..150)
-                .filter_map(|_| bases.choose(&mut rng))
-                .copied()
-                .collect();
-            let dataset: Vec<Vec<_>> = (0..num)
-                .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
-                .collect();
-            let weight = vec![1.; num];
-            let kmers: std::collections::HashSet<Vec<u8>> = dataset
-                .iter()
-                .flat_map(|e| e.windows(k))
-                .map(|e| e.to_vec())
-                .collect();
-            let dataset: Vec<_> = dataset.iter().map(|e| e.as_slice()).collect();
-            let mut f = Factory::new();
-            let model1 = f.generate_with_weight_prior(&dataset, &weight, k, &mut vec![]);
-            eprintln!("{}", model1);
-            eprintln!("{}", String::from_utf8_lossy(&template1));
-            eprintln!("{}", num);
-            let num = template1
-                .windows(k)
-                .filter(|&kmer| !model1.nodes.iter().any(|node| node.kmer == kmer))
-                .inspect(|kmer| eprintln!("{}", String::from_utf8_lossy(kmer)))
-                .count();
-            eprintln!("{}", num);
-            if num > 0 {
-                for d in dataset {
-                    eprintln!("{}", String::from_utf8_lossy(d));
+        for num in 30..100 {
+            for _ in 0..30 {
+                let template1: Vec<_> = (0..150)
+                    .filter_map(|_| bases.choose(&mut rng))
+                    .copied()
+                    .collect();
+                let dataset: Vec<Vec<_>> = (0..num)
+                    .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
+                    .collect();
+                let weight = vec![1.; num];
+                let kmers: std::collections::HashSet<Vec<u8>> = dataset
+                    .iter()
+                    .flat_map(|e| e.windows(k))
+                    .map(|e| e.to_vec())
+                    .collect();
+                let dataset: Vec<_> = dataset.iter().map(|e| e.as_slice()).collect();
+                let mut f = Factory::new();
+                let model1 = f.generate_with_weight_prior(&dataset, &weight, k, &mut vec![]);
+                let ng = template1
+                    .windows(k)
+                    .filter(|&kmer| !model1.nodes.iter().any(|node| node.kmer == kmer))
+                    .inspect(|kmer| eprintln!("{}", String::from_utf8_lossy(kmer)))
+                    .count();
+                if ng > 0 {
+                    eprintln!("{}\t{}", num, ng);
+                    eprintln!("{}", model1);
+                    eprintln!("T:{}", String::from_utf8_lossy(&template1));
+                    for d in dataset {
+                        eprintln!("{}", String::from_utf8_lossy(d));
+                    }
                 }
-            }
-            for kmer in template1.windows(k).filter(|&kmer| kmers.contains(kmer)) {
-                assert!(model1.nodes.iter().any(|node| node.kmer == kmer));
+                for kmer in template1.windows(k).filter(|&kmer| kmers.contains(kmer)) {
+                    assert!(model1.nodes.iter().any(|node| node.kmer == kmer));
+                }
             }
         }
     }
@@ -993,6 +1015,13 @@ mod tests {
                 }
             })
             .collect();
+        if cov == 168 && t1.len() + 1 == t2.len() {
+            for test in &tests {
+                let m1 = m1.forward(&test, &DEFAULT_CONFIG);
+                let m2 = m2.forward(&test, &DEFAULT_CONFIG);
+                eprintln!("{:.3}\t{:.3}", m1, m2);
+            }
+        }
         let correct = tests
             .into_iter()
             .enumerate()

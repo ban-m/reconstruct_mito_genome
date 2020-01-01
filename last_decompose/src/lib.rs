@@ -50,7 +50,7 @@ const B_PRIOR: f64 = 0.33;
 // const CONTAINED_SCALE: f64 = 4.26264183;
 // This is the initial reverse temprature.
 // Note that, from this rev-temprature, we adjust the start beta by doubling-search.
-const INIT_BETA: f64 = 1.;
+const INIT_BETA: f64 = 0.01;
 // This is the search factor for the doubling-step.
 // const FACTOR: f64 = 1.4;
 // Sampling times for variational bayes.
@@ -73,12 +73,12 @@ const LOOP_NUM_VB: usize = 20;
 // Initial picking probability.
 const INIT_PICK_PROB: f64 = 0.02;
 const PICK_PROB_STEP: f64 = 1.2;
-const MAX_PICK_PROB: f64 = 0.3;
-const PRIOR_ENTROPY: f64 = 1.;
+const MAX_PICK_PROB: f64 = 0.10;
+const PRIOR_ENTROPY: f64 = 0.5;
 const LEARNING_RATE: f64 = 1.;
-const MOMENT: f64 = 0.2;
+// const MOMENT: f64 = 0.2;
 const SOE_PER_DATA_ENTROPY: f64 = 0.01;
-const SOE_PER_DATA_ENTROPY_VB: f64 = 0.005;
+// const SOE_PER_DATA_ENTROPY_VB: f64 = 0.005;
 const K: usize = 6;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
@@ -525,7 +525,7 @@ pub fn variational_bayes(
     answer: &[u8],
     config: &Config,
 ) -> Vec<Vec<f64>> {
-    let id: u64 = thread_rng().gen();
+    let id: u64 = thread_rng().gen::<u64>() % 100_000;
     let border = label.len();
     let seed = data.len() as u64 * 20437;
     let mut weights_of_reads: Vec<Vec<f64>> =
@@ -534,8 +534,8 @@ pub fn variational_bayes(
     //     weights_of_reads[idx] = vec![0.; cluster_num];
     //     weights_of_reads[idx][cl as usize] = 1.;
     // }
-    let soe_thr =
-        SOE_PER_DATA_ENTROPY_VB * (data.len() - label.len()) as f64 / (cluster_num as f64).ln();
+    // let soe_thr =
+    //     SOE_PER_DATA_ENTROPY_VB * (data.len() - label.len()) as f64 / (cluster_num as f64).ln();
     let mut mf = ModelFactory::new(contigs, data, k);
     // Updates Distributions
     let mut models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
@@ -552,8 +552,10 @@ pub fn variational_bayes(
         .collect();
     debug!("Alpha:{:?}", alphas);
     let mut log_ros = vec![vec![0.; cluster_num]; data.len()];
-    debug!("THR:{}", soe_thr);
-    'outer: while beta <= 20. {
+    let mut max_lk = -1000000000.;
+    let mut arg_max = vec![];
+    // debug!("THR:{}", soe_thr);
+    'outer: loop {
         for s in 0..LOOP_NUM_VB {
             // Update weight of reads.
             let wor = &mut weights_of_reads;
@@ -569,17 +571,22 @@ pub fn variational_bayes(
                 .map(|alpha| (alpha - 1.) * beta + 1.)
                 .collect();
             let wr = &weights_of_reads;
-            report(
+            let lk = report(
                 id, wr, border, answer, &alphas, &models, data, beta, s as f64, config,
             );
-            let soe = wr.iter().map(|e| entropy(e)).sum::<f64>();
-            if soe < soe_thr {
-                break 'outer;
+            if lk > max_lk && s > 2 {
+                debug!("Summary\tLKDiff\t{}", lk - max_lk);
+                max_lk = lk;
+                arg_max = weights_of_reads.clone();
             }
         }
-        beta = beta * step;
+        if beta == 1. {
+            break;
+        } else {
+            beta = (beta * step).min(1.);
+        }
     }
-    weights_of_reads
+    arg_max
 }
 
 #[allow(dead_code)]
@@ -714,7 +721,7 @@ fn batch_vb(
                             lk.max(c.null_model(u.bases())) + offset
                         })
                         .sum::<f64>();
-                    let lk = lk / read.seq.len() as f64;
+                    // let lk = lk / read.seq.len() as f64;
                     let prior = digamma(a) - digamma(alpha_tot);
                     *log_ro = (prior + lk) * beta;
                 });
@@ -745,15 +752,16 @@ pub fn soft_clustering(
     config: &Config,
 ) -> Vec<Vec<f64>> {
     assert!(cluster_num > 1);
+    let id: u64 = thread_rng().gen::<u64>() % 100_000;
     // weight_of_read[i] = "the vector of each cluster for i-th read"
-    let mut weight_of_read: Vec<Vec<f64>> =
+    let mut weights_of_reads: Vec<Vec<f64>> =
         construct_initial_weights(label, forbidden, cluster_num, data.len(), data.len() as u64);
-    let soe_thr =
-        SOE_PER_DATA_ENTROPY * (data.len() - label.len()) as f64 / (cluster_num as f64).ln();
+    // let soe_thr =
+    //     SOE_PER_DATA_ENTROPY * (data.len() - label.len()) as f64 / (cluster_num as f64).ln();
     let max_coverage = get_max_coverage(data, contigs);
     let beta_step = 1. + (BETA_STEP - 1.) / (max_coverage as f64).log10();
     info!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
-    let mut betas = vec![INIT_BETA; 10];
+    let mut beta = INIT_BETA;
     let pick_probs: Vec<_> = (0..)
         .map(|i| INIT_PICK_PROB * PICK_PROB_STEP.powi(i))
         .take_while(|&e| e <= MAX_PICK_PROB)
@@ -761,77 +769,29 @@ pub fn soft_clustering(
         .flat_map(|(pick_prob, num)| vec![pick_prob; num])
         .collect();
     let lr = LEARNING_RATE;
-    let mut soe = 1000.;
-    for _s in 0.. {
-        let last_sum_of_entropy = from_weight_of_read(
-            &mut weight_of_read,
-            data,
-            label,
-            k,
-            cluster_num,
-            contigs,
-            answer,
-            config,
-            &betas,
-            soe_thr,
-            &pick_probs,
-            lr,
-        );
-        debug!("SumOfEntropy:{:.3}\t{:.3}", last_sum_of_entropy, soe_thr);
-        let soe_diff = soe - last_sum_of_entropy;
-        if last_sum_of_entropy < soe_thr
-            || (soe_diff < soe_thr && last_sum_of_entropy < 2. * soe_thr)
-        {
-            break;
-        } else {
-            betas = betas.iter().map(|e| e * beta_step).collect();
-        }
-        soe = last_sum_of_entropy;
-    }
-    weight_of_read
-}
-
-fn from_weight_of_read(
-    weight_of_read: &mut [Vec<f64>],
-    data: &[ERead],
-    label: &[u8],
-    k: usize,
-    cluster_num: usize,
-    contigs: &[usize],
-    answer: &[u8],
-    config: &Config,
-    betas: &[f64],
-    soe_thr: f64,
-    pick_probs: &[f64],
-    lr: f64,
-) -> f64 {
-    let seed = weight_of_read.iter().map(|e| e[0]).sum::<f64>().ceil() as u64 * data.len() as u64;
+    let mut mf = ModelFactory::new(contigs, data, k);
+    let mut models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
+        .map(|cl| mf.generate_model(&weights_of_reads, data, cl))
+        .collect();
+    let mut updates = vec![false; data.len()];
+    let seed = data.len() as u64;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let border = label.len();
     let datasize = data.len() as f64;
     let mut gammas: Vec<Vec<_>> = vec![vec![0.; cluster_num]; data.len()];
     let mut moments: Vec<Vec<_>> = vec![vec![]; data.len()];
     let mut ws: Vec<f64> = (0..cluster_num)
-        .map(|i| weight_of_read.iter().map(|g| g[i]).sum::<f64>() / datasize)
+        .map(|i| weights_of_reads.iter().map(|g| g[i]).sum::<f64>() / datasize)
         .collect();
-    assert!((ws.iter().sum::<f64>() - 1.).abs() < 0.0001);
-    assert_eq!(ws.len(), cluster_num);
-    // Cluster -> Contig -> Unit -> DBG/Vec<CUnit>
-    let mut mf = ModelFactory::new(contigs, data, k);
-    let mut models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
-        .map(|cl| mf.generate_model(&weight_of_read, data, cl))
-        .collect();
-    let mut updates = vec![false; data.len()];
-    let all = vec![false; data.len()];
-    let mut soe = 100000.;
-    for &beta in betas {
-        for &pick_prob in pick_probs {
-            updates_flags(&mut updates, &weight_of_read, &mut rng, pick_prob);
-            models.iter_mut().enumerate().for_each(|(cluster, model)| {
-                mf.update_model(&weight_of_read, &all, data, cluster, model);
-            });
+    updates_flags(&mut updates, &weights_of_reads, &mut rng, INIT_PICK_PROB);
+    let (mut max_lk, mut argmax) = (std::f64::MIN, vec![]);
+    'outer: for s in 0.. {
+        for &pick_prob in &pick_probs {
+            assert!((ws.iter().sum::<f64>() - 1.).abs() < 0.0001);
+            assert_eq!(ws.len(), cluster_num);
+            let wor = &mut weights_of_reads;
             minibatch_sgd_by(
-                weight_of_read,
+                wor,
                 &mut gammas,
                 &mut moments,
                 &mut ws,
@@ -843,20 +803,94 @@ fn from_weight_of_read(
                 lr,
                 config,
             );
+            updates_flags(&mut updates, &weights_of_reads, &mut rng, pick_prob);
+            models.iter_mut().enumerate().for_each(|(cluster, model)| {
+                mf.update_model(&weights_of_reads, &updates, data, cluster, model);
+            });
         }
-        let c_soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-        let soe_diff = soe - c_soe;
-        soe = c_soe;
-        // Yey!
-        if soe < soe_thr || (soe_diff < soe_thr && soe < soe_thr * 2.) {
-            debug!("Early return:{:.3}\t{:.3}\t{:.3}", soe, soe_diff, soe_thr);
-            return soe;
+        let wr = &weights_of_reads;
+        let lk = report(
+            id, &wr, border, answer, &ws, &models, data, beta, lr, config,
+        );
+        if lk > max_lk && s > 2 {
+            debug!("Summary\tLKDiff\t{}", lk - max_lk);
+            max_lk = lk;
+            argmax = weights_of_reads.clone();
         }
-        let wr = &weight_of_read;
-        report(0, &wr, border, answer, &ws, &models, data, beta, lr, config);
+        if beta == 1. {
+            break;
+        } else {
+            beta = (beta * beta_step).min(1.);
+        }
     }
-    soe
+    argmax
 }
+
+// fn from_weight_of_read(
+//     weight_of_read: &mut [Vec<f64>],
+//     data: &[ERead],
+//     label: &[u8],
+//     k: usize,
+//     cluster_num: usize,
+//     contigs: &[usize],
+//     answer: &[u8],
+//     config: &Config,
+//     betas: &[f64],
+//     soe_thr: f64,
+//     pick_probs: &[f64],
+//     lr: f64,
+// ) -> f64 {
+//     let seed = weight_of_read.iter().map(|e| e[0]).sum::<f64>().ceil() as u64 * data.len() as u64;
+//     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
+//     let border = label.len();
+//     let datasize = data.len() as f64;
+//     let mut gammas: Vec<Vec<_>> = vec![vec![0.; cluster_num]; data.len()];
+//     let mut moments: Vec<Vec<_>> = vec![vec![]; data.len()];
+//     let mut ws: Vec<f64> = (0..cluster_num)
+//         .map(|i| weight_of_read.iter().map(|g| g[i]).sum::<f64>() / datasize)
+//         .collect();
+//     assert!((ws.iter().sum::<f64>() - 1.).abs() < 0.0001);
+//     assert_eq!(ws.len(), cluster_num);
+//     // Cluster -> Contig -> Unit -> DBG/Vec<CUnit>
+//     let mut mf = ModelFactory::new(contigs, data, k);
+//     let mut models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
+//         .map(|cl| mf.generate_model(&weight_of_read, data, cl))
+//         .collect();
+//     let mut updates = vec![false; data.len()];
+//     let mut soe = 100000.;
+//     for &beta in betas {
+//         for &pick_prob in pick_probs {
+//             updates_flags(&mut updates, &weight_of_read, &mut rng, pick_prob);
+//             models.iter_mut().enumerate().for_each(|(cluster, model)| {
+//                 mf.update_model(&weight_of_read, &updates, data, cluster, model);
+//             });
+//             minibatch_sgd_by(
+//                 weight_of_read,
+//                 &mut gammas,
+//                 &mut moments,
+//                 &mut ws,
+//                 border,
+//                 data,
+//                 &models,
+//                 &updates,
+//                 beta,
+//                 lr,
+//                 config,
+//             );
+//         }
+//         let c_soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
+//         let soe_diff = soe - c_soe;
+//         soe = c_soe;
+//         // Yey!
+//         if soe < soe_thr || (soe_diff < soe_thr && soe < soe_thr * 2.) {
+//             debug!("Early return:{:.3}\t{:.3}\t{:.3}", soe, soe_diff, soe_thr);
+//             return soe;
+//         }
+//         let wr = &weight_of_read;
+//         report(0, &wr, border, answer, &ws, &models, data, beta, lr, config);
+//     }
+//     soe
+// }
 
 fn construct_initial_weights(
     label: &[u8],
@@ -995,12 +1029,18 @@ fn report(
     beta: f64,
     lr: f64,
     c: &Config,
-) {
+) -> f64 {
     let correct = weight_of_read
         .iter()
         .skip(border)
         .zip(answer.iter())
-        .filter(|&(weights, &ans)| weights.iter().all(|&g| g <= weights[ans as usize]))
+        .filter(|&(weights, &ans)| {
+            let c = weights
+                .iter()
+                .filter(|&&g| g <= weights[ans as usize])
+                .count();
+            c == 1
+        })
         .count();
     let acc = correct as f64 / answer.len() as f64;
     let ws: Vec<_> = ws
@@ -1018,6 +1058,7 @@ fn report(
         "Summary\t{}\t{:.3}\t{:.3}\t{}\t{:.3}\t{:.3}\t{}\t{:.2}",
         id, lk, soe, pi, beta, lr, correct, acc
     );
+    lk
 }
 
 fn updates_flags<R: Rng>(
@@ -1072,7 +1113,7 @@ fn minibatch_sgd_by(
             compute_log_probs(&models, &ws, &read, gamma, c);
             gamma.iter_mut().for_each(|g| *g *= beta);
             let w = utils::logsumexp(&gamma);
-            deubg_assert!(!w.is_nan(), "Met Nan at {}", line!());
+            debug_assert!(!w.is_nan(), "Met Nan at {}", line!());
             gamma.iter_mut().for_each(|l| *l = (*l - w).exp());
             debug_assert!((1. - gamma.iter().sum::<f64>()).abs() < 0.001);
             // if moment.is_empty() {
@@ -1252,8 +1293,13 @@ fn likelihood_of_models(
                         .map(|u| {
                             let model = &model[u.contig()][u.unit()];
                             let lk = model.forward(u.bases(), c);
+                            let offset = if PRIOR {
+                                offset(model.weight(), A_PRIOR, B_PRIOR)
+                            } else {
+                                0.
+                            };
                             assert!(!lk.is_nan(), "Met Nan at {}", line!());
-                            lk
+                            lk + offset
                         })
                         .sum::<f64>()
                         + w.ln()
