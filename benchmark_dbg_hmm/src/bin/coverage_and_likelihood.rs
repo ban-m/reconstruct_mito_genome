@@ -10,11 +10,11 @@ use rayon::prelude::*;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let len = 150;
-    let num_seq = 200;
+    let num_seq = 120;
     let k = 6;
     println!("Seed\tCoverage\tLikelihoodRatio\tOriginalLK\tNumEdges");
-    let rep = 15;
-    let covs: Vec<_> = (1..num_seq).collect();
+    let rep = 20;
+    let covs: Vec<_> = (15..num_seq).collect();
     let reps: Vec<_> = (0..rep).collect();
     let result: Vec<_> = reps
         .into_par_iter()

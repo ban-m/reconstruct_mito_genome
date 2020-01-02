@@ -13,7 +13,7 @@ dataset <- read_tsv("./result/merge_test.txt",col_names=FALSE) %>%
 
 
 g <- dataset %>%
-    ggplot() + geom_point(mapping = aes(x = dist, y = lkgain))
+    ggplot() + geom_point(mapping = aes(x = dist/X4, y = lkgain))
 
 
 generalplot(g,"merge_criteria")

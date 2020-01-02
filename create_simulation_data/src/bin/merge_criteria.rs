@@ -31,9 +31,9 @@ fn main() {
         (40, 6, 1342374)
     };
     let p = &gen_sample::Profile {
-        sub: 0.001,
-        ins: 0.001,
-        del: 0.001,
+        sub: 0.0005,
+        ins: 0.0005,
+        del: 0.0005,
     };
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let template = (0..chain_len)
@@ -97,7 +97,7 @@ fn main() {
                 "{}\t{}\t{:.4}\t{:.4}\t{:.4}",
                 i, j, before_lk, after_lk, lkgain
             );
-            println!("{}\t{}\t{}", seed, lkgain, diff);
+            println!("{}\t{}\t{}\t{}", seed, lkgain, diff, chain_len * len);
         }
     }
 }

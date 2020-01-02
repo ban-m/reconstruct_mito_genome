@@ -40,8 +40,10 @@ const NUM_OF_BALL: usize = 100;
 // const A: f64 = -0.245;
 // const B: f64 = 3.6;
 // These A and B are to offset the low-coverage region. For THR=2.0,
-const A_PRIOR: f64 = -0.0104;
-const B_PRIOR: f64 = 0.33;
+const A_PRIOR: f64 = -0.089;
+const B_PRIOR: f64 = 3.10;
+// const A_PRIOR: f64 = -0.0104;
+// const B_PRIOR: f64 = 0.33;
 // These are for THR=3.0;
 // const A: f64 = -0.3223992;
 // const B: f64 = 3.7831344;
@@ -50,13 +52,13 @@ const B_PRIOR: f64 = 0.33;
 // const CONTAINED_SCALE: f64 = 4.26264183;
 // This is the initial reverse temprature.
 // Note that, from this rev-temprature, we adjust the start beta by doubling-search.
-const INIT_BETA: f64 = 0.01;
+const INIT_BETA: f64 = 0.001;
 // This is the search factor for the doubling-step.
-// const FACTOR: f64 = 1.4;
+const FACTOR: f64 = 1.4;
 // Sampling times for variational bayes.
-// const SAMPLING_VB: usize = 10;
+const SAMPLING_VB: usize = 5;
 // Sampling times for Gibbs sampling.
-// const SAMPING: usize = 100;
+const SAMPLING: usize = 100;
 // This is the factor we multiply at each iteration for beta.
 // Note that this factor also scaled for the maximum coverage.
 const BETA_STEP: f64 = 1.2;
@@ -71,14 +73,14 @@ const LOOP_NUM: usize = 4;
 // Loop number for variational Bayes.
 const LOOP_NUM_VB: usize = 20;
 // Initial picking probability.
-const INIT_PICK_PROB: f64 = 0.02;
+const INIT_PICK_PROB: f64 = 0.05;
 const PICK_PROB_STEP: f64 = 1.2;
 const MAX_PICK_PROB: f64 = 0.10;
 const PRIOR_ENTROPY: f64 = 0.5;
 const LEARNING_RATE: f64 = 1.;
 // const MOMENT: f64 = 0.2;
 const SOE_PER_DATA_ENTROPY: f64 = 0.01;
-// const SOE_PER_DATA_ENTROPY_VB: f64 = 0.005;
+const SOE_PER_DATA_ENTROPY_VB: f64 = 0.005;
 const K: usize = 6;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
@@ -470,8 +472,8 @@ pub fn clustering(
 ) -> Vec<u8> {
     let border = label.len();
     assert_eq!(forbidden.len(), data.len());
-    let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
-    // let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
+    // let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
+    let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
     // Maybe we should use randomized choose.
     debug!("Prediction. Dump weights");
     for (weight, ans) in weights.iter().skip(border).zip(answer) {
@@ -545,7 +547,7 @@ pub fn variational_bayes(
     let max_coverage = get_max_coverage(data, contigs);
     let step = 1. + (BETA_STEP - 1.) / (max_coverage as f64).log10();
     debug!("Maximum coverage:{}\tBeta step:{:.4}", max_coverage, step);
-    let mut beta = INIT_BETA;
+    let mut beta = search_initial_beta_vb(&mut mf, wor, data, label, cluster_num, config);
     let mut alphas: Vec<_> = (0..cluster_num)
         .map(|cl| wor.iter().map(|e| e[cl]).sum::<f64>() + ALPHA)
         .map(|alpha| (alpha - 1.) * beta + 1.)
@@ -562,7 +564,6 @@ pub fn variational_bayes(
             let lr = &mut log_ros;
             batch_vb(wor, lr, &alphas, border, data, &models, beta, config);
             // Updates Distributions
-            // There is a "implicit" annealing term at mf.genarate_model.
             models.iter_mut().enumerate().for_each(|(cluster, model)| {
                 *model = mf.generate_model(&wor, data, cluster);
             });
@@ -626,69 +627,68 @@ fn get_assignments(wor: &[Vec<f64>]) -> Vec<u8> {
 //         .collect()
 // }
 
-// fn search_initial_beta_vb(
-//     mf: &mut ModelFactory,
-//     wor: &[Vec<f64>],
-//     data: &[ERead],
-//     mut beta: f64,
-//     label: &[u8],
-//     cluster_num: usize,
-//     c: &Config,
-//     factor: f64,
-// ) -> f64 {
-//     let weight_of_read = wor.to_vec();
-//     let wor = &weight_of_read;
-//     let border = label.len();
-//     let datasize = data.len() as f64;
-//     let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-//     let c_soe = soe_after_sampling_vb(beta, data, wor, border, cluster_num, mf, c);
-//     let mut diff = soe - c_soe;
-//     let thr = SOE_PER_DATA_ENTROPY_VB * datasize / (cluster_num as f64).ln();
-//     debug!("Start serching initial beta...");
-//     while diff < thr {
-//         beta *= factor;
-//         let c_soe = soe_after_sampling_vb(beta, data, wor, border, cluster_num, mf, c);
-//         diff = soe - c_soe;
-//         debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, c_soe, diff);
-//         if beta > 0.7 {
-//             return beta;
-//         }
-//     }
-//     while diff > thr {
-//         beta /= factor;
-//         let c_soe = soe_after_sampling_vb(beta, data, wor, border, cluster_num, mf, c);
-//         diff = soe - c_soe;
-//         debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, c_soe, diff);
-//         if beta < INIT_BETA {
-//             return INIT_BETA;
-//         }
-//     }
-//     beta
-// }
+fn search_initial_beta_vb(
+    mf: &mut ModelFactory,
+    wor: &[Vec<f64>],
+    data: &[ERead],
+    label: &[u8],
+    cluster_num: usize,
+    c: &Config,
+) -> f64 {
+    let weight_of_read = wor.to_vec();
+    let wor = &weight_of_read;
+    let border = label.len();
+    let datasize = data.len() as f64;
+    let mut beta = INIT_BETA / FACTOR;
+    let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
+    let c_soe = soe_after_sampling_vb(beta, data, wor, border, cluster_num, mf, c);
+    let mut diff = soe - c_soe;
+    let thr = SOE_PER_DATA_ENTROPY_VB * datasize / (cluster_num as f64).ln();
+    debug!("Start serching initial beta...");
+    while diff < thr {
+        beta *= FACTOR;
+        let c_soe = soe_after_sampling_vb(beta, data, wor, border, cluster_num, mf, c);
+        diff = soe - c_soe;
+        debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, c_soe, diff);
+        if beta > 0.7 {
+            return beta;
+        }
+    }
+    while diff > thr {
+        beta /= FACTOR;
+        let c_soe = soe_after_sampling_vb(beta, data, wor, border, cluster_num, mf, c);
+        diff = soe - c_soe;
+        debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, c_soe, diff);
+        if beta < INIT_BETA {
+            return INIT_BETA;
+        }
+    }
+    beta
+}
 
-// fn soe_after_sampling_vb(
-//     beta: f64,
-//     data: &[ERead],
-//     wor: &[Vec<f64>],
-//     border: usize,
-//     cluster_num: usize,
-//     mf: &mut ModelFactory,
-//     c: &Config,
-// ) -> f64 {
-//     let alphas: Vec<_> = (0..cluster_num)
-//         .map(|cl| wor.iter().map(|e| e[cl]).sum::<f64>() + ALPHA)
-//         .collect();
-//     let models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
-//         .map(|cl| mf.generate_model(&wor, data, cl))
-//         .collect();
-//     let mut wor: Vec<Vec<f64>> = wor.to_vec();
-//     let mut log_ros = vec![vec![0.; cluster_num]; data.len()];
-//     let lr = &mut log_ros;
-//     for _ in 0..SAMPLING_VB {
-//         batch_vb(&mut wor, lr, &alphas, border, data, &models, beta, c);
-//     }
-//     wor.iter().map(|e| entropy(e)).sum::<f64>()
-// }
+fn soe_after_sampling_vb(
+    beta: f64,
+    data: &[ERead],
+    wor: &[Vec<f64>],
+    border: usize,
+    cluster_num: usize,
+    mf: &mut ModelFactory,
+    c: &Config,
+) -> f64 {
+    let alphas: Vec<_> = (0..cluster_num)
+        .map(|cl| wor.iter().map(|e| e[cl]).sum::<f64>() + ALPHA)
+        .collect();
+    let models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
+        .map(|cl| mf.generate_model(&wor, data, cl))
+        .collect();
+    let mut wor: Vec<Vec<f64>> = wor.to_vec();
+    let mut log_ros = vec![vec![0.; cluster_num]; data.len()];
+    let lr = &mut log_ros;
+    for _ in 0..SAMPLING_VB {
+        batch_vb(&mut wor, lr, &alphas, border, data, &models, beta, c);
+    }
+    wor.iter().map(|e| entropy(e)).sum::<f64>()
+}
 
 fn batch_vb(
     weights_of_reads: &mut [Vec<f64>],
@@ -711,17 +711,28 @@ fn batch_vb(
                 .zip(alphas.iter())
                 .zip(log_ros.iter_mut())
                 .for_each(|((ms, &a), log_ro)| {
-                    let lk = read
+                    let (lk, num) = read
                         .seq
                         .iter()
-                        .map(|u| {
+                        .filter_map(|u| {
                             let model = &ms[u.contig()][u.unit()];
                             let lk = model.forward(u.bases(), c);
                             let offset = offset(model.weight(), A_PRIOR, B_PRIOR);
-                            lk.max(c.null_model(u.bases())) + offset
+                            // Should be -150.max(_)?
+                            // lk.max(c.null_model(u.bases())) + offset
+                            if lk > -150. {
+                                Some(lk + offset)
+                            } else {
+                                None
+                            }
                         })
-                        .sum::<f64>();
-                    // let lk = lk / read.seq.len() as f64;
+                        .fold((0., 0), |(lk, num), x| (lk + x, num + 1));
+                    let lk = if num > 5 {
+                        lk * read.seq.len() as f64 / num as f64
+                    } else {
+                        debug!("Warning:seq:{}, goodModel:{}", read.seq.len(), num);
+                        -150.
+                    };
                     let prior = digamma(a) - digamma(alpha_tot);
                     *log_ro = (prior + lk) * beta;
                 });
@@ -756,12 +767,12 @@ pub fn soft_clustering(
     // weight_of_read[i] = "the vector of each cluster for i-th read"
     let mut weights_of_reads: Vec<Vec<f64>> =
         construct_initial_weights(label, forbidden, cluster_num, data.len(), data.len() as u64);
-    // let soe_thr =
-    //     SOE_PER_DATA_ENTROPY * (data.len() - label.len()) as f64 / (cluster_num as f64).ln();
+    let soe_thr =
+        SOE_PER_DATA_ENTROPY * (data.len() - label.len()) as f64 / (cluster_num as f64).ln();
     let max_coverage = get_max_coverage(data, contigs);
     let beta_step = 1. + (BETA_STEP - 1.) / (max_coverage as f64).log10();
     info!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
-    let mut beta = INIT_BETA;
+    let mut beta = search_initial_beta(data, label, forbidden, k, cluster_num, contigs, config);
     let pick_probs: Vec<_> = (0..)
         .map(|i| INIT_PICK_PROB * PICK_PROB_STEP.powi(i))
         .take_while(|&e| e <= MAX_PICK_PROB)
@@ -807,6 +818,10 @@ pub fn soft_clustering(
             models.iter_mut().enumerate().for_each(|(cluster, model)| {
                 mf.update_model(&weights_of_reads, &updates, data, cluster, model);
             });
+            let soe = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
+            if soe < soe_thr {
+                break;
+            }
         }
         let wr = &weights_of_reads;
         let lk = report(
@@ -940,83 +955,84 @@ fn construct_initial_weights(
 // multiple by FACTOR it while SoE after T times sampling would not decrease.
 // Then, it divides the beta by FACTOR until SoE after T times sampling would not decrease.
 // In other words, it searches for a "platoe" beta for the given data.
-// fn search_initial_beta(
-//     data: &[ERead],
-//     label: &[u8],
-//     forbidden: &[Vec<u8>],
-//     k: usize,
-//     cluster_num: usize,
-//     contigs: &[usize],
-//     c: &Config,
-// ) -> f64 {
-//     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(SEED);
-//     let weight_of_read: Vec<Vec<f64>> =
-//         construct_initial_weights(label, forbidden, cluster_num, data.len(), data.len() as u64);
-//     let wor = &weight_of_read;
-//     let border = label.len();
-//     let datasize = data.len() as f64;
-//     let mut mf = ModelFactory::new(contigs, data, k);
-//     let mut beta = INIT_BETA / FACTOR;
-//     let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-//     let mut diff = 0.;
-//     let thr = SOE_PER_DATA_ENTROPY * (datasize - border as f64) * (cluster_num as f64).ln();
-//     while diff < thr {
-//         beta *= FACTOR;
-//         let c_soe = soe_after_sampling(beta, data, wor, border, &mut rng, cluster_num, &mut mf, c);
-//         diff = soe - c_soe;
-//         debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, c_soe, diff);
-//     }
-//     while diff > thr {
-//         beta /= FACTOR;
-//         let c_soe = soe_after_sampling(beta, data, wor, border, &mut rng, cluster_num, &mut mf, c);
-//         diff = soe - c_soe;
-//         debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, c_soe, diff);
-//     }
-//     beta
-// }
+fn search_initial_beta(
+    data: &[ERead],
+    label: &[u8],
+    forbidden: &[Vec<u8>],
+    k: usize,
+    cluster_num: usize,
+    contigs: &[usize],
+    c: &Config,
+) -> f64 {
+    let seed = data.iter().map(|e| e.seq.len()).sum::<usize>() as u64;
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
+    let weight_of_read: Vec<Vec<f64>> =
+        construct_initial_weights(label, forbidden, cluster_num, data.len(), data.len() as u64);
+    let wor = &weight_of_read;
+    let border = label.len();
+    let datasize = data.len() as f64;
+    let mut mf = ModelFactory::new(contigs, data, k);
+    let mut beta = INIT_BETA / FACTOR;
+    let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
+    let mut diff = 0.;
+    let thr = SOE_PER_DATA_ENTROPY * (datasize - border as f64) * (cluster_num as f64).ln();
+    while diff < thr {
+        beta *= FACTOR;
+        let c_soe = soe_after_sampling(beta, data, wor, border, &mut rng, cluster_num, &mut mf, c);
+        diff = soe - c_soe;
+        debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, c_soe, diff);
+    }
+    while diff > thr {
+        beta /= FACTOR;
+        let c_soe = soe_after_sampling(beta, data, wor, border, &mut rng, cluster_num, &mut mf, c);
+        diff = soe - c_soe;
+        debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, c_soe, diff);
+    }
+    beta
+}
 
-// fn soe_after_sampling<R: Rng>(
-//     beta: f64,
-//     data: &[ERead],
-//     wor: &[Vec<f64>],
-//     border: usize,
-//     rng: &mut R,
-//     cluster_num: usize,
-//     mf: &mut ModelFactory,
-//     c: &Config,
-// ) -> f64 {
-//     let datasize = data.len() as f64;
-//     let mut updates = vec![false; data.len()];
-//     let mut gammas: Vec<Vec<_>> = vec![vec![0.; cluster_num]; data.len()];
-//     let mut moments: Vec<Vec<_>> = vec![vec![]; data.len()];
-//     let mut ws: Vec<f64> = (0..cluster_num)
-//         .map(|i| wor.iter().map(|g| g[i]).sum::<f64>() / datasize)
-//         .collect();
-//     let mut models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
-//         .map(|cl| mf.generate_model(&wor, data, cl))
-//         .collect();
-//     let mut wor: Vec<Vec<f64>> = wor.to_vec();
-//     for _ in 0..SAMPING {
-//         updates_flags(&mut updates, &wor, rng, INIT_PICK_PROB, beta);
-//         models.iter_mut().enumerate().for_each(|(cluster, model)| {
-//             mf.update_model(&wor, &updates, data, cluster, model);
-//         });
-//         minibatch_sgd_by(
-//             &mut wor,
-//             &mut gammas,
-//             &mut moments,
-//             &mut ws,
-//             border,
-//             data,
-//             &models,
-//             &updates,
-//             beta,
-//             LEARNING_RATE,
-//             c,
-//         );
-//     }
-//     wor.iter().map(|e| entropy(e)).sum::<f64>()
-// }
+fn soe_after_sampling<R: Rng>(
+    beta: f64,
+    data: &[ERead],
+    wor: &[Vec<f64>],
+    border: usize,
+    rng: &mut R,
+    cluster_num: usize,
+    mf: &mut ModelFactory,
+    c: &Config,
+) -> f64 {
+    let datasize = data.len() as f64;
+    let mut updates = vec![false; data.len()];
+    let mut gammas: Vec<Vec<_>> = vec![vec![0.; cluster_num]; data.len()];
+    let mut moments: Vec<Vec<_>> = vec![vec![]; data.len()];
+    let mut ws: Vec<f64> = (0..cluster_num)
+        .map(|i| wor.iter().map(|g| g[i]).sum::<f64>() / datasize)
+        .collect();
+    let mut models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
+        .map(|cl| mf.generate_model(&wor, data, cl))
+        .collect();
+    let mut wor: Vec<Vec<f64>> = wor.to_vec();
+    for _ in 0..SAMPLING {
+        updates_flags(&mut updates, &wor, rng, INIT_PICK_PROB);
+        models.iter_mut().enumerate().for_each(|(cluster, model)| {
+            mf.update_model(&wor, &updates, data, cluster, model);
+        });
+        minibatch_sgd_by(
+            &mut wor,
+            &mut gammas,
+            &mut moments,
+            &mut ws,
+            border,
+            data,
+            &models,
+            &updates,
+            beta,
+            LEARNING_RATE,
+            c,
+        );
+    }
+    wor.iter().map(|e| entropy(e)).sum::<f64>()
+}
 
 fn report(
     id: u64,
@@ -1181,32 +1197,32 @@ fn compute_log_probs(
         .zip(ws.iter())
         .zip(gammas.iter_mut())
         .for_each(|((model, w), g)| {
-            *g = read
+            let (lk, num) = read
                 .seq
                 .iter()
-                .map(|u| {
+                .filter_map(|u| {
                     let model = &model[u.contig()][u.unit()];
                     let lk = model.forward(u.bases(), c);
-                    let offset = offset(model.weight(), A_PRIOR, B_PRIOR);
-                    // let offset = if PRIOR {
-                    //     offset(model.weight(), A_PRIOR, B_PRIOR)
-                    // } else {
-                    //     offset(model.weight(), A, B)
-                    // };
-                    // TODO: Maybe we should trim
-                    // some monomers from consideration.
-                    // For example, we can (maybe) regard
-                    // Unit s.t. lk < c.null_model(u.bases()) as a
-                    // "collupsed" units.
-                    // However, this may harmful for some situation,
-                    // especially when do need the boundary by
-                    // forbidden monomers.
+                    let offset = if PRIOR {
+                        offset(model.weight(), A_PRIOR, B_PRIOR)
+                    } else {
+                        0.
+                    };
                     assert!(!lk.is_nan(), "Met Nan at {}", line!());
-                    lk.max(c.null_model(u.bases())) + offset
+                    if lk > -150. {
+                        Some(lk + offset)
+                    } else {
+                        None
+                    }
                 })
-                .sum::<f64>()
-                / read.seq.len() as f64
-                + w.ln()
+                .fold((0., 0), |(lk, num), x| (lk + x, num + 1));
+            let lk = if num > 5 {
+                lk * read.seq.len() as f64 / num as f64
+            } else {
+                debug!("Warning:seq:{}, goodModel:{}", read.seq.len(), num);
+                -150.
+            };
+            *g = lk + w.ln();
         });
 }
 

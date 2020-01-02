@@ -16,7 +16,7 @@ fn main() {
     let min_len = 50;
     let max_len = 200;
     let by = 5;
-    let num_seq = 15;
+    let num_seq = 30;
     let test_num = 100;
     let k = 6;
     let rep = (0..100).collect::<Vec<u64>>();

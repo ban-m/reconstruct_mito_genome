@@ -816,52 +816,57 @@ mod tests {
             .copied()
             .collect();
         let p = Profile {
-            sub: 0.003,
-            ins: 0.003,
-            del: 0.003,
+            sub: 0.03,
+            ins: 0.03,
+            del: 0.03,
         };
-        let template2 = introduce_randomness(&template1, &mut rng, &p);
-        let model1: Vec<Vec<_>> = (0..25)
-            .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
-            .collect();
-        let model2: Vec<Vec<_>> = (0..25)
-            .map(|_| introduce_randomness(&template2, &mut rng, &PROFILE))
-            .collect();
-        let dataset: Vec<_> = model1
-            .iter()
-            .map(|e| e.as_slice())
-            .chain(model2.iter().map(|e| e.as_slice()))
-            .collect();
-        let mut f = Factory::new();
-        let mut buf = vec![];
-        let k = 6;
-        let weight1 = vec![vec![0.8; 25], vec![0.2; 25]].concat();
-        let weight2 = vec![vec![0.2; 25], vec![0.8; 25]].concat();
-        let model1 = f.generate_with_weight_prior(&dataset, &weight1, k, &mut buf);
-        let model2 = f.generate_with_weight_prior(&dataset, &weight2, k, &mut buf);
-        let num = 50;
-        eprintln!("{}\t{}", model1, model2);
-        let correct = (0..num)
-            .filter(|_| {
-                let q = introduce_randomness(&template1, &mut rng, &PROFILE);
-                let lk1 = model1.forward(&q, &DEFAULT_CONFIG);
-                let lk2 = model2.forward(&q, &DEFAULT_CONFIG);
-                lk1 > lk2
-            })
-            .count();
-        // assert!(lk1 > lk2, "{},{},{}", lk1, lk2, i);
-        //}
-        assert!(correct >= num * 4 / 5, "{}", correct);
-        let correct = (0..num)
-            .filter(|_| {
-                let q = introduce_randomness(&template2, &mut rng, &PROFILE);
-                let lk1 = model1.forward(&q, &DEFAULT_CONFIG);
-                let lk2 = model2.forward(&q, &DEFAULT_CONFIG);
-                lk1 < lk2
-                //assert!(lk1 < lk2, "{},{},{}", lk1, lk2, i);
-            })
-            .count();
-        assert!(correct >= num * 4 / 5, "{}", correct);
+        let cov = 30;
+        for _ in 0..5 {
+            let template2 = introduce_randomness(&template1, &mut rng, &p);
+            let model1: Vec<Vec<_>> = (0..cov)
+                .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
+                .collect();
+            let model2: Vec<Vec<_>> = (0..cov)
+                .map(|_| introduce_randomness(&template2, &mut rng, &PROFILE))
+                .collect();
+            let dataset: Vec<_> = model1
+                .iter()
+                .map(|e| e.as_slice())
+                .chain(model2.iter().map(|e| e.as_slice()))
+                .collect();
+            let mut f = Factory::new();
+            let mut buf = vec![];
+            let k = 6;
+            let weight1 = vec![vec![0.8; cov], vec![0.2; cov]].concat();
+            let weight2 = vec![vec![0.2; cov], vec![0.8; cov]].concat();
+            use std::collections::HashSet;
+            let k1: HashSet<_> = template1.windows(k).map(|e| e.to_vec()).collect();
+            let k2: HashSet<_> = template2.windows(k).map(|e| e.to_vec()).collect();
+            let model1 = f.generate_with_weight_prior(&dataset, &weight1, k, &mut buf);
+            let model2 = f.generate_with_weight_prior(&dataset, &weight2, k, &mut buf);
+            let num = 50;
+            eprintln!("({}){}\t({}){}", k1.len(), model1, k2.len(), model2);
+            let correct = (0..num)
+                .filter(|_| {
+                    let q = introduce_randomness(&template1, &mut rng, &PROFILE);
+                    let lk1 = model1.forward(&q, &DEFAULT_CONFIG);
+                    let lk2 = model2.forward(&q, &DEFAULT_CONFIG);
+                    eprintln!("1\t{:.3}\t{:.3}", lk1, lk2);
+                    lk1 > lk2
+                })
+                .count();
+            assert!(correct >= num * 4 / 5, "{}", correct);
+            let correct = (0..num)
+                .filter(|_| {
+                    let q = introduce_randomness(&template2, &mut rng, &PROFILE);
+                    let lk1 = model1.forward(&q, &DEFAULT_CONFIG);
+                    let lk2 = model2.forward(&q, &DEFAULT_CONFIG);
+                    eprintln!("2\t{:.3}\t{:.3}", lk1, lk2);
+                    lk1 < lk2
+                })
+                .count();
+            assert!(correct >= num * 4 / 5, "{}", correct);
+        }
     }
     #[test]
     fn single_error_test() {

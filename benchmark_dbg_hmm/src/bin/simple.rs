@@ -1,18 +1,24 @@
 extern crate dbg_hmm;
 extern crate edlib_sys;
 extern crate rand;
+extern crate rayon;
 use dbg_hmm::gen_sample::*;
 use dbg_hmm::*;
 use rand::{rngs::StdRng, SeedableRng};
+use rayon::prelude::*;
 fn main() {
     let len = 150;
     let k = 6;
     let chain = 40;
-    let mut rng: StdRng = SeedableRng::seed_from_u64(899_892);
+    let seed: u64 = std::env::args()
+        .nth(1)
+        .and_then(|e| e.parse().ok())
+        .unwrap_or(899_902);
+    let mut rng: StdRng = SeedableRng::seed_from_u64(seed);
     let p = Profile {
-        ins: 0.0002,
-        del: 0.0002,
-        sub: 0.0002,
+        ins: 0.0005,
+        del: 0.0005,
+        sub: 0.0005,
     };
     let template1: Vec<_> = (0..chain).map(|_| generate_seq(&mut rng, len)).collect();
     let template2: Vec<_> = template1
@@ -38,16 +44,14 @@ fn main() {
                 .len()
         })
         .collect();
-    eprintln!(
-        "Dist:{}",
-        template1
-            .iter()
-            .zip(template2.iter())
-            .map(|(s, q)| edlib_sys::global_dist(s, q))
-            .sum::<u32>()
-    );
+    let dist = template1
+        .iter()
+        .zip(template2.iter())
+        .map(|(s, q)| edlib_sys::global_dist(s, q))
+        .sum::<u32>();
+    eprintln!("Dist:{}", dist);
     let unit = 30;
-    let (cov1, cov2) = (unit, 4 * unit);
+    let (cov1, cov2) = (unit, 3 * unit);
     let data1: Vec<Vec<_>> = (0..cov1)
         .map(|_| {
             template1
@@ -82,66 +86,51 @@ fn main() {
         eprintln!("({}){}\t({}){}", k1, m1, k2, m2);
     }
     fn offset(x: f64) -> f64 {
-        const A_PRIOR: f64 = -0.0104;
-        const B_PRIOR: f64 = 0.33;
-        (B_PRIOR - x * A_PRIOR).exp()
+        const A_PRIOR: f64 = -0.089;
+        const B_PRIOR: f64 = 3.1;
+        // const A_PRIOR: f64 = -0.0165;
+        // const B_PRIOR: f64 = 0.7;
+        // const A_PRIOR: f64 = -0.003;
+        // const B_PRIOR: f64 = 1.10;
+        // const A_PRIOR: f64 = -0.0089;
+        // const B_PRIOR: f64 = 2.08;
+        (B_PRIOR + x * A_PRIOR).exp()
     }
     eprintln!("{}\t{}", cov1, cov2);
-    for read in data1 {
-        let lk1 = read
-            .iter()
-            .zip(m1.iter())
-            .map(|(s, m)| m.forward(s, &DEFAULT_CONFIG) + offset(m.weight()))
-            .sum::<f64>();
-        let lk2 = read
-            .iter()
-            .zip(m2.iter())
-            .map(|(s, m)| m.forward(s, &DEFAULT_CONFIG) + offset(m.weight()))
-            .sum::<f64>();
-        eprintln!("{}\t{}\t{}", lk1, lk2, lk1 > lk2);
-    }
+    let sum1 = data1
+        .par_iter()
+        .map(|read| {
+            let lk1 = read
+                .iter()
+                .zip(m1.iter())
+                .map(|(s, m)| m.forward(s, &DEFAULT_CONFIG) + offset(m.weight()))
+                .sum::<f64>();
+            let lk2 = read
+                .iter()
+                .zip(m2.iter())
+                .map(|(s, m)| m.forward(s, &DEFAULT_CONFIG) + offset(m.weight()))
+                .sum::<f64>();
+            eprintln!("{}\t{}\t{}", lk1, lk2, lk1 > lk2);
+            (lk1 > lk2) as usize
+        })
+        .sum::<usize>();
     eprintln!("========");
-    for read in data2 {
-        let lk1 = read
-            .iter()
-            .zip(m1.iter())
-            .map(|(s, m)| m.forward(s, &DEFAULT_CONFIG) + offset(m.weight()))
-            .sum::<f64>();
-        let lk2 = read
-            .iter()
-            .zip(m2.iter())
-            .map(|(s, m)| m.forward(s, &DEFAULT_CONFIG) + offset(m.weight()))
-            .sum::<f64>();
-        eprintln!("{}\t{}\t{}", lk1, lk2, lk1 < lk2);
-    }
-}
-
-#[allow(dead_code)]
-fn viterbi_print(q: &[u8], m: &DBGHMM) {
-    let s = m.forward(&q, &DEFAULT_CONFIG);
-    let (max, viterbi) = m.viterbi(&q, &DEFAULT_CONFIG);
-    eprintln!("Forward:{} vs Viterbi{}", s, max);
-    let mut pos = 0;
-    let (mut refr, mut query) = (String::new(), String::new());
-    for (base, state) in viterbi {
-        match state {
-            0 => {
-                refr.push(base as char);
-                query.push(q[pos] as char);
-                pos += 1;
-            }
-            1 => {
-                refr.push('-');
-                query.push(q[pos] as char);
-                pos += 1;
-            }
-            2 => {
-                refr.push(base as char);
-                query.push('-');
-            }
-            _ => {}
-        }
-    }
-    eprintln!("{}", query);
-    eprintln!("{}", refr);
+    let sum2 = data2
+        .par_iter()
+        .map(|read| {
+            let lk1 = read
+                .iter()
+                .zip(m1.iter())
+                .map(|(s, m)| m.forward(s, &DEFAULT_CONFIG) + offset(m.weight()))
+                .sum::<f64>();
+            let lk2 = read
+                .iter()
+                .zip(m2.iter())
+                .map(|(s, m)| m.forward(s, &DEFAULT_CONFIG) + offset(m.weight()))
+                .sum::<f64>();
+            eprintln!("{}\t{}\t{}", lk1, lk2, lk1 < lk2);
+            (lk1 < lk2) as usize
+        })
+        .sum::<usize>();
+    println!("{}:{}:{}/{},{}/{}", seed, dist, sum1, cov1, sum2, cov2);
 }

@@ -8,7 +8,7 @@
 #$ -V
 #$ -m e
 set -ue
-COVERAGE=30
+COVERAGE=40
 CLUSTERS=6
 for seed in `seq 10 10 200`
 do

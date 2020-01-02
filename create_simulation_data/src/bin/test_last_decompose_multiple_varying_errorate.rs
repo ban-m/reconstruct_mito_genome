@@ -112,6 +112,10 @@ fn benchmark(
         create_simulation_data::generate_mul_data(&templates, coverage, test_num, &mut rng, probs);
     let contigs = vec![chain_len];
     let c = &dbg_hmm::DEFAULT_CONFIG;
+    {
+        let probs: Vec<_> = probs.iter().map(|e| format!("{:3}", e)).collect();
+        debug!("Probs:[{}]", probs.join(","));
+    };
     let data: Vec<_> = dataset
         .into_iter()
         .enumerate()

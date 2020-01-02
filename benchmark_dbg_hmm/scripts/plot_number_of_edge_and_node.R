@@ -12,3 +12,9 @@ g <- dataset %>% filter(Coverage < 200) %>%
     ggplot() + geom_point(aes(x = Coverage, y = Count, color = Type)) +
     facet_wrap(.~Method)
 generalplot(g,"number_of_edge_and_node")
+
+g <- dataset %>% filter(Coverage < 30) %>% 
+    gather(key = Type, value = Count, -Coverage, -Weight, -Method) %>%
+    ggplot() + geom_point(aes(x = Coverage, y = Count, color = Type)) +
+    facet_wrap(.~Method)
+generalplot(g,"number_of_edge_and_node_30")

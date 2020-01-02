@@ -363,7 +363,7 @@ impl Factory {
             // Let's remove only one edge: the lightest,
             // if the edge is very light.
             let factor = (1. + (-ave / 30.).exp()).recip() - 0.5;
-            let thr = 0.5 + 0.2 * factor;
+            let thr = 0.4 + 0.2 * factor;
             let (idx, w) = buffer.iter().fold((0, 10_000.), |(idx, min), &(i, _)| {
                 let w = node.weight[i];
                 if w < min {
@@ -460,9 +460,11 @@ impl Factory {
     }
     fn filter_lightweight(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
         self.clear();
-        let mean = nodes.iter().map(|e| e.kmer_weight).sum::<f64>() / nodes.len() as f64;
-        let factor = THR + 1. - (1. + (mean / 50.).exp()).recip();
-        let thr = mean / factor;
+        let len = nodes.len() as f64;
+        let ws = nodes.iter().map(|e| e.kmer_weight);
+        let mean = ws.clone().sum::<f64>() / len;
+        let factor = THR + 1. - (1. + (mean / 10.).exp()).recip();
+        let thr = mean * factor;
         nodes
             .iter()
             .for_each(|e| self.is_safe.push((e.kmer_weight > thr) as u8));

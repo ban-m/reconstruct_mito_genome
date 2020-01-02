@@ -3,8 +3,8 @@
 #$ -N MockGenomePred
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/mock_genome_workflow2.log
-#$ -o ./logfiles/mock_genome_workflow2.log
+#$ -e ./logfiles/mock_genome_workflow.log
+#$ -o ./logfiles/mock_genome_workflow.log
 #$ -V
 #$ -m e
 
