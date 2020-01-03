@@ -2,10 +2,19 @@ library("tidyverse")
 loadNamespace("cowplot")
 generalplot <- function(g,name){
     cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
-                    plot = g + cowplot::theme_cowplot())
+                    plot = g + cowplot::theme_cowplot(font_size=12),
+                    dpi=350,width = 178,height = 86,units="mm")
     cowplot::ggsave(filename = paste0("./png/",name,".png"),
-                    plot = g + cowplot::theme_cowplot())
+                    plot = g + cowplot::theme_cowplot(font_size=12),
+                    dpi = 350,width = 178,height = 86,units="mm")
 }
+
+## generalplot <- function(g,name){
+##     cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
+##                     plot = g + cowplot::theme_cowplot())
+##     cowplot::ggsave(filename = paste0("./png/",name,".png"),
+##                     plot = g + cowplot::theme_cowplot())
+## }
 args <- commandArgs(trailingOnly = TRUE)
 filename <- args[1]
 outputname <- args[2]
@@ -28,9 +37,10 @@ print(summary, n = Inf)
 
 g <- dataset %>%
     ggplot() +
-    geom_point(mapping = aes(x = Coverage, y = Accuracy), alpha = 0.5) + 
+    geom_point(mapping = aes(x = Coverage, y = Accuracy), alpha = 0.5, size = 1, stroke = 0) + 
     geom_line(mapping = aes(x = Coverage, y = UpperBound), data = upperbound)  + 
     facet_grid(Type~Dist)
+
 generalplot(g,paste0(outputname,"_point"))
 
 g <- dataset %>%

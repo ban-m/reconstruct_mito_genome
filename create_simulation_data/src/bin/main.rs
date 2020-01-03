@@ -9,8 +9,8 @@ const REP1: (usize, usize) = (4193, 199_390);
 const REP2: (usize, usize) = (56_409, 258_637);
 // 0.1%, 0.45%, 0.45%.
 const SUB: f64 = 0.003;
-const DEL: f64 = 0.004;
-const IN: f64 = 0.004;
+const DEL: f64 = 0.003;
+const IN: f64 = 0.003;
 
 fn main() -> std::io::Result<()> {
     let args: Vec<_> = std::env::args().collect();
@@ -46,7 +46,7 @@ fn main() -> std::io::Result<()> {
         let c1 = split_reverse(&seq);
         // seed.
         let c1 = introduce_randomness(&c1, 3423424);
-        let header = "depth=1 circular=true".to_string();
+        let header = "depth=0.4 circular=true".to_string();
         wtr.write_record(&fasta::Record::with_data(
             "right_child",
             &Some(header.clone()),

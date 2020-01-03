@@ -34,7 +34,7 @@ fn main() {
     let chain_len = 40;
     let k = 6;
     let len = 150;
-    for p in 1..=1 {
+    for p in 1..=10 {
         let p = p as f64 / 6000.;
         println!("ErrorRate:{:3}", p * 6.);
         let p = &gen_sample::Profile {
@@ -49,6 +49,7 @@ fn main() {
             seed, p, coverage, test_num, chain_len, k, len, &probs, clusters,
         );
         debug!("Elapsed {:?}", Instant::now() - s);
+        let mut line = "RESULT".to_string();
         for (idx, preds) in hmm.into_iter().enumerate() {
             let tp = preds[idx];
             let tot = preds.iter().sum::<u32>();
@@ -57,14 +58,18 @@ fn main() {
                 print!("{}\t", ans);
             }
             println!("Total:{:.4}", tp as f64 / tot as f64);
+            line += &format!("\t{}", tp as f64 / tot as f64);
         }
         for (idx, ds) in dists.into_iter().enumerate() {
             print!("Distance from {}:", idx);
             for d in ds {
+                line += &format!("\t{}", d);
                 print!("{}\t", d);
             }
             println!();
         }
+        line += &format!("\t{}", test_num);
+        println!("{}", line);
     }
 }
 

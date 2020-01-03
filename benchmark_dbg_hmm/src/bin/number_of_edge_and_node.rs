@@ -24,6 +24,6 @@ fn main() {
         let m = f.generate_with_weight_prior(&ms, &w, k, &mut vec![]);
         println!("{}\t{}\t{}\t{}\tA", i, m.node_num(), m.edge_num(), m.weight());
         let m = f.generate_from_ref(&ms, k);
-        println!("{}\t{}\t{}\t{}\tH", i, m.node_num(), m.edge_num(), m.weight());
+        println!("{}\t{}\t{}\t{}\tB", i, m.node_num(), m.edge_num(), m.weight());
     }
 }

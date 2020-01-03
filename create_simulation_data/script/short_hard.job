@@ -3,15 +3,15 @@
 #$ -N MockGenomePred
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/mock_genome_easy.log
-#$ -o ./logfiles/mock_genome_easy.log
+#$ -e ./logfiles/mock_genome_short_hard.log
+#$ -o ./logfiles/mock_genome_short_hard.log
 #$ -V
 #$ -m e
 
 ROOT=${PWD}
-READ=${ROOT}/data/easy/mock_genome_read.fa
-REFERENCE=${ROOT}/data/easy/mock_genome_ref.fa
-OUTPUT=${ROOT}/result/easy
+READ=${ROOT}/data/short_hard/reads.fa
+REFERENCE=${ROOT}/data/short_hard/mock_genome_ref.fa
+OUTPUT=${ROOT}/result/short_hard/
 CORES=24
 
 # ----- Alignment -----

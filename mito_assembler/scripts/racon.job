@@ -1,0 +1,21 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N Racon
+#$ -cwd
+#$ -pe smp 24
+#$ -V
+#$ -m e
+set -ue
+READS=$1
+CONTIGS=$2
+OUTPATH=$3
+echo ${READS} ${CONTIGS} ${OUTPATH}
+cp ${CONTIGS} ${OUTPATH}/polish_0.fasta
+for i in `seq 0 10`
+do
+    j=$((i+1))
+    minimap2 -x map-pb ${OUTPATH}/polish_${i}.fasta ${READS} > ${OUTPATH}/remap.paf
+    racon -u -t 24 ${READS} ${OUTPATH}/remap.paf ${OUTPATH}/polish_${i}.fasta \
+          > ${OUTPATH}/polish_${j}.fasta
+done
+

@@ -2,10 +2,19 @@ library("tidyverse")
 loadNamespace("cowplot")
 generalplot <- function(g,name){
     cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
-                    plot = g + cowplot::theme_cowplot())
+                    plot = g + cowplot::theme_cowplot(font_size=12),
+                    dpi=350,width = 178,height = 86,units="mm")
     cowplot::ggsave(filename = paste0("./png/",name,".png"),
-                    plot = g + cowplot::theme_cowplot())
+                    plot = g + cowplot::theme_cowplot(font_size=12),
+                    dpi = 350,width = 178,height = 86,units="mm")
 }
+
+## generalplot <- function(g,name){
+##     cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
+##                     plot = g + cowplot::theme_cowplot())
+##     cowplot::ggsave(filename = paste0("./png/",name,".png"),
+##                     plot = g + cowplot::theme_cowplot())
+## }
 args <- commandArgs(trailingOnly = TRUE)
 filename <- args[1]
 outputname <- args[2]

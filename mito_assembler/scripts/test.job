@@ -7,5 +7,11 @@
 #$ -o ./logfiles/test
 #$ -V
 #$ -m e
-conda activate pbbioconda
-bam2fastq 
+ROOT=${PWD}
+for read in ./result/mock_genome/yg/*.fasta
+do
+    echo ${read}
+    name=${read%.fasta}
+    name=${name##*/}
+    echo ${name}
+done
