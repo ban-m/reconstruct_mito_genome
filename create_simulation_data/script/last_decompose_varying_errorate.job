@@ -7,12 +7,29 @@
 #$ -o ./logfiles/last_decompose_vb.log
 #$ -V
 #$ -m e
+#$ -t 1:5
 set -ue
-OUTPUT=./result/last_decompose_gibbs_ve.txt
-OUTLOG_PREFIX=./logfiles/last_decompose_gibbs_ve
+OUTPUT=./result/last_decompose_gibbs_ve_${SGE_TASK_ID}.txt
+OUTLOG_PREFIX=./logfiles/last_decompose_gibbs_ve_${SGE_TASK_ID}
 # RUSTFLAGS="-C target-cpu=native" cargo build --release
 
 echo "-----start-----" >> ${OUTPUT}
+
+# TEST_NUM=200
+# COVERAGE=0
+# PROBS="0.2 0.8"
+# ./target/release/test_last_decompose_multiple_varying_errorate \
+#     ${TEST_NUM} ${COVERAGE} ${SGE_TASK_ID} ${PROBS} >> ${OUTPUT} \
+#     2>> ${OUTLOG_PREFIX}.log
+
+for TEST_NUM in `seq 60 20 150`
+do
+    COVERAGE=0
+    PROBS="0.5 0.5"
+    ./target/release/test_last_decompose_multiple_varying_errorate \
+        ${TEST_NUM} ${COVERAGE} ${SGE_TASK_ID} ${PROBS} >> ${OUTPUT} \
+        2>> ${OUTLOG_PREFIX}.log
+done
 
 # TEST_NUM=200
 # COVERAGE=0
@@ -25,17 +42,17 @@ echo "-----start-----" >> ${OUTPUT}
 # done
 
 
-for TEST_NUM in `seq 50 10 150`
-do
-    COVERAGE=0
-    PROBS="0.5 0.5"
-    for seed in 10 20 30 40 50
-    do
-        ./target/release/test_last_decompose_multiple_varying_errorate \
-            ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT} \
-            2>> ${OUTLOG_PREFIX}.even.100.log
-    done
-done
+# for TEST_NUM in `seq 50 10 150`
+# do
+#     COVERAGE=0
+#     PROBS="0.5 0.5"
+#     for seed in 10 20 30 40 50
+#     do
+#         ./target/release/test_last_decompose_multiple_varying_errorate \
+#             ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT} \
+#             2>> ${OUTLOG_PREFIX}.even.100.log
+#     done
+# done
 
 # TEST_NUM=300
 # COVERAGE=0

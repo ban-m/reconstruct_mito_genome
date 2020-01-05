@@ -3,9 +3,18 @@ extern crate last_tiling;
 use std::collections::HashMap;
 fn main() -> std::io::Result<()> {
     let args: Vec<_> = std::env::args().collect();
-    let tab: Vec<_> = last_tiling::parse_tab_file(&args[1])?;
-    let read: Vec<_> = bio_utils::fasta::parse_into_vec(&args[2])?;
-    let contig: Vec<_> = bio_utils::fasta::parse_into_vec(&args[3])?;
+    let tab: Vec<_> = match last_tiling::parse_tab_file(&args[1]) {
+        Ok(res) => res,
+        Err(why) => panic!("{:?},{}", why, &args[1]),
+    };
+    let read: Vec<_> = match bio_utils::fasta::parse_into_vec(&args[2]) {
+        Ok(res) => res,
+        Err(why) => panic!("{:?},{}", why, &args[2]),
+    };
+    let contig: Vec<_> = match bio_utils::fasta::parse_into_vec(&args[3]) {
+        Ok(res) => res,
+        Err(why) => panic!("{:?},{}", why, &args[3]),
+    };
     eprintln!("{}", tab.len());
     {
         let summary = summarize_tab(tab, read, contig);

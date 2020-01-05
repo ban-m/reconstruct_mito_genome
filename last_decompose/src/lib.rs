@@ -69,14 +69,14 @@ const ALPHA: f64 = 1.01;
 // This is the parameter for de Bruijn prior.
 // const BETA: f64 = 0.5;
 // Loop number for Gibbs sampling.
-const LOOP_NUM: usize = 4;
+const LOOP_NUM: usize = 20;
 // Loop number for variational Bayes.
 const LOOP_NUM_VB: usize = 20;
 // Initial picking probability.
-const INIT_PICK_PROB: f64 = 0.05;
-const PICK_PROB_STEP: f64 = 1.2;
-const MAX_PICK_PROB: f64 = 0.10;
-const PRIOR_ENTROPY: f64 = 0.5;
+const INIT_PICK_PROB: f64 = 0.10;
+// const PICK_PROB_STEP: f64 = 1.2;
+// const MAX_PICK_PROB: f64 = 0.10;
+// const PRIOR_ENTROPY: f64 = 0.5;
 const LEARNING_RATE: f64 = 1.;
 // const MOMENT: f64 = 0.2;
 const SOE_PER_DATA_ENTROPY: f64 = 0.05;
@@ -774,19 +774,30 @@ pub fn soft_clustering(
     // weight_of_read[i] = "the vector of each cluster for i-th read"
     let mut weights_of_reads: Vec<Vec<f64>> =
         construct_initial_weights(label, forbidden, cluster_num, data.len(), data.len() as u64);
+    // {
+    //     debug!("DEBUGGING MODE.");
+    //     // Here, we intentionally skew the predictions.
+    //     let middle = data.len() / 2;
+    //     for (idx, &cl) in answer.iter().enumerate() {
+    //         let weight = if idx < middle && cl == 0 || idx > middle && cl == 1 {
+    //             0.8
+    //         } else {
+    //             0.2
+    //         };
+    //         weights_of_reads[idx] = vec![1. - weight; cluster_num];
+    //         weights_of_reads[idx][0] = weight;
+    //         let sum = weights_of_reads[idx].iter().sum::<f64>();
+    //         weights_of_reads[idx].iter_mut().for_each(|e| *e /= sum);
+    //     }
+    // }
     let soe_thr =
         SOE_PER_DATA_ENTROPY * (data.len() - label.len()) as f64 / (cluster_num as f64).ln();
     let max_coverage = get_max_coverage(data, contigs);
     let beta_step = 1. + (BETA_STEP - 1.) / (max_coverage as f64).log10();
     info!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
-    // let mut beta = search_initial_beta(data, label, forbidden, k, cluster_num, contigs, config);
-    let mut beta = 0.008;
-    let pick_probs: Vec<_> = (0..)
-        .map(|i| INIT_PICK_PROB * PICK_PROB_STEP.powi(i))
-        .take_while(|&e| e <= MAX_PICK_PROB)
-        .map(|pick_prob| (pick_prob, pick_prob.recip().floor() as usize * LOOP_NUM))
-        .flat_map(|(pick_prob, num)| vec![pick_prob; num])
-        .collect();
+    let mut beta = search_initial_beta(data, label, forbidden, k, cluster_num, contigs, config);
+    let pick_up_len = INIT_PICK_PROB.recip().floor() as usize * LOOP_NUM;
+    let pick_probs: Vec<_> = vec![INIT_PICK_PROB; pick_up_len];
     let lr = LEARNING_RATE;
     let mut mf = ModelFactory::new(contigs, data, k);
     let mut models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
@@ -804,8 +815,11 @@ pub fn soft_clustering(
         .collect();
     updates_flags(&mut updates, &weights_of_reads, &mut rng, INIT_PICK_PROB);
     // let (mut max_lk, mut argmax) = (std::f64::MIN, vec![]);
+    // let intervals = get_intervals(contigs);
+    // debug!("INTERVALS{:?}", intervals);
     'outer: for _s in 0.. {
         for &pick_prob in &pick_probs {
+            //      for &(c, s, t) in &intervals {
             assert!((ws.iter().sum::<f64>() - 1.).abs() < 0.0001);
             assert_eq!(ws.len(), cluster_num);
             let wor = &mut weights_of_reads;
@@ -827,27 +841,43 @@ pub fn soft_clustering(
                 mf.update_model(&weights_of_reads, &updates, data, cluster, model);
             });
             let soe = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
-            if soe < soe_thr {
+            let wr = &weights_of_reads;
+            let _lk = report(
+                id, &wr, border, answer, &ws, &models, data, beta, lr, config,
+            );
+            if soe < soe_thr && beta == 1. {
+                break 'outer;
+            } else if soe < soe_thr {
                 break;
             }
         }
-        let wr = &weights_of_reads;
-        let _lk = report(
-            id, &wr, border, answer, &ws, &models, data, beta, lr, config,
-        );
-        // if lk > max_lk && s > 0 {
-        //     debug!("Summary\tLKDiff\t{}", lk - max_lk);
-        //     max_lk = lk;
-        //     argmax = weights_of_reads.clone();
-        // }
-        if beta == 1. {
-            break;
-        } else {
-            beta = (beta * beta_step).min(1.);
-        }
+        beta = (beta * beta_step).min(1.);
     }
     weights_of_reads
-    // argmax
+}
+#[allow(dead_code)]
+fn get_intervals(contigs: &[usize]) -> Vec<(u16, u16, u16)> {
+    const INTERVAL_NUM: usize = 200;
+    fn create_chunks(idx: usize, len: usize) -> Vec<(usize, usize, usize)> {
+        let mut ps: Vec<_> = (0..)
+            .map(|e| e * INTERVAL_NUM)
+            .take_while(|&l| l <= len)
+            .collect();
+        ps.push(len);
+        assert!(ps.len() > 1);
+        if ps.len() <= 2 {
+            return vec![(idx, ps[0], ps[1])];
+        }
+        let forward = (0..ps.len() - 2).map(|i| (idx, ps[i], ps[i + 2]));
+        let reverse = (2..ps.len()).rev().map(|i| (idx, ps[i - 2], ps[i]));
+        forward.chain(reverse).collect()
+    }
+    contigs
+        .iter()
+        .enumerate()
+        .flat_map(|(idx, &len)| create_chunks(idx, len))
+        .map(|(c, s, t)| (c as u16, s as u16, t as u16))
+        .collect()
 }
 
 // fn from_weight_of_read(
@@ -1093,16 +1123,17 @@ fn updates_flags<R: Rng>(
     rng: &mut R,
     pick_prob: f64,
 ) {
-    let datasize = weight_of_read.len() as f64;
-    let sum_of_entropy = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-    let denom = sum_of_entropy + PRIOR_ENTROPY * weight_of_read.len() as f64;
+    // let datasize = weight_of_read.len() as f64;
+    // let sum_of_entropy = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
+    //let denom = sum_of_entropy + PRIOR_ENTROPY * weight_of_read.len() as f64;
     loop {
         let num_ok = updates
             .iter_mut()
             .zip(weight_of_read.iter())
-            .map(|(b, w)| {
-                let frac = (entropy(w) + PRIOR_ENTROPY) / denom;
-                let prob = (frac * datasize * pick_prob).min(1.);
+            .map(|(b, _w)| {
+                //let frac = (entropy(w) + PRIOR_ENTROPY) / denom;
+                // let prob = (frac * datasize * pick_prob).min(1.);
+                let prob = pick_prob;
                 *b = rng.gen_bool(prob);
                 *b
             })

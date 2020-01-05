@@ -17,5 +17,6 @@ function create_mock() {
     cat ${OUTPATH}/mock_genome.fa | paste - - | head -n1 | tr '\t' '\n' > ${OUTPATH}/mock_genome_ref.fa
 }
 
-create_mock ./data/short_hard 20000
-create_mock ./data/long_hard 300000
+# create_mock ./data/short_hard 20000
+create_mock ./data/middle_hard 200000
+# create_mock ./data/long_hard 300000

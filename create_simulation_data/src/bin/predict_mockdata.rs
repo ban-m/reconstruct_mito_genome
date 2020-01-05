@@ -115,7 +115,7 @@ fn predict(
     ans: &HashMap<String, bool>,
     config: &dbg_hmm::Config,
 ) -> Option<Vec<(String, u8)>> {
-    // In this function, 
+    // In this function, we sort the training reads.
     let (data, border) = setup(training, tests, alignments, contig);
     let answer: Vec<_> = data.iter().map(|e| ans[e.id()]).collect::<Vec<_>>();
     let label: Vec<u8> = answer[..border]

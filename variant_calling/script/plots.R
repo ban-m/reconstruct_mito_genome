@@ -18,7 +18,7 @@ g <-data %>%  filter(MAF < 0.2) %>%
 ggsave(filename = str_c("./pics/", outputname, "_histogram.png"), g)
 
 g <-data %>%  filter(MAF<0.5) %>% ggplot() +
-    geom_point(mapping = aes(x = Pos, y = MAF, color = Type), size = 0.2) + facet_grid(Type ~ .)
+    geom_point(mapping = aes(x = Pos, y = MAF, color = Type), size = 0.2) + facet_grid(Type ~ .) + ylim(c(0,0.5))
 ggsave(filename = str_c("./pics/",outputname,"_point.png"), g)
 
 data <- data %>% filter(Type == "Sub")

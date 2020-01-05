@@ -104,7 +104,7 @@ fn summarize_contig(
 struct Read {
     name: String,
     units: Vec<Unit>,
-    cluster: i32,
+    cluster: Vec<i32>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 enum Unit {
@@ -134,7 +134,7 @@ fn summarize_reads(
         .collect()
 }
 
-fn get_cluster(read: &last_tiling::EncodedRead, cr: &[last_decompose::CriticalRegion]) -> i32 {
+fn get_cluster(read: &last_tiling::EncodedRead, cr: &[last_decompose::CriticalRegion]) -> Vec<i32> {
     let read = last_decompose::ERead::new(read.clone());
     cr.iter()
         .enumerate()
@@ -145,7 +145,6 @@ fn get_cluster(read: &last_tiling::EncodedRead, cr: &[last_decompose::CriticalRe
                 None
             }
         })
-        .nth(0)
         .map(|idx| idx as i32)
-        .unwrap_or(-1)
+        .collect()
 }

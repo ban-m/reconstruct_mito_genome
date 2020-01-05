@@ -11,7 +11,7 @@ const gap_jitters = d3.randomNormal(0,0.01);
 const read_thick = 4;
 const eplison = 5.001;
 const jitters = d3.randomNormal(0,eplison);
-
+const confluent_margin = 0.01;
 // Radius
 const contig_radius = 350;
 const coverage_min = contig_radius+contig_thick;
@@ -48,6 +48,12 @@ const start_stop_layer = svg.append("g")
 const read_layer = svg.append("g")
       .attr("transform", `translate(${width/2},${height/2+offset})`)
       .attr("class","read");
+const cr_layer = svg.append("g")
+      .attr("transform", `translate(${width/2},${height/2+offset})`)
+      .attr("class","critical-region");
+const tooltip = d3.select("body").append("div")
+      .attr("class", "tooltip")
+      .style("opacity", 0);
 const info = d3.select("#info");
 
 const calcScale = (contigs) => {
@@ -135,7 +141,7 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
     // should have either "G"(for Gap) or "E"(for Encode)
     let path = d3.path();
     let units = Array.from(read.units).reverse();
-    const r = read_radius + (read['cluster'] + 1); // + jitters();
+    const r = read_radius; //  + (read['cluster'] + 1); // + jitters();
     let gap = 0;
     let unit = {};
     while(!unit.hasOwnProperty("E")){
@@ -148,6 +154,7 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
     };
     // Current ID of the contig 
     let contig = unit.E[0];
+    let current_unit = unit.E[1];
     let start = start_pos[contig] - Math.PI/2;
     let radian = start + bp_scale(unit_length*unit.E[1]);
     if (gap != 0){
@@ -156,7 +163,6 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
     }else{
         path.moveTo(read_radius * Math.cos(radian), read_radius * Math.sin(radian));
     }
-    // gap = 0;
     for (unit of units.reverse()){
         if (unit.hasOwnProperty("G")){
             // if (unit.G > unit_length * 2){
@@ -164,23 +170,13 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
             // }
             continue;
         }
-        if (unit.E[0] == contig){
+        const diff = Math.abs(unit.E[1]-current_unit);
+        current_unit = unit.E[1];
+        if (unit.E[0] == contig && diff < 100){
             radian = start + bp_scale(unit_length*unit.E[1]);
             path.lineTo(r * Math.cos(radian), r*Math.sin(radian));
         }else{
             // Change contig. Connect them.
-            // If there are remaining gap, clean them.
-            // if (gap != 0){
-            //     const control_radian = start_pos[contig] - Math.PI/2;
-            //     const new_radian = control_radian - gap_position;
-            //     const control_x = handle_points_radius * Math.cos(control_radian);
-            //     const control_y = handle_points_radius * Math.sin(control_radian);
-            //     const jt = gap_jitters();
-            //     path.quadraticCurveTo(control_x, control_y, r * Math.cos(new_radian), r * Math.sin(new_radian));
-            //     path.moveTo(gap_scale(gap) * Math.cos(new_radian + jt), gap_scale(gap)*Math.sin(new_radian + jt));
-            //     path.lineTo(r * Math.cos(new_radian), r * Math.sin(new_radian));
-            // }
-            // gap = 0;
             const new_radian = start_pos[unit.E[0]];
             radian = new_radian + bp_scale(unit_length*unit.E[1]) - Math.PI/2;
             // Bezier Curve to new point from here.
@@ -239,17 +235,13 @@ const selectRead = (read,unitlen) => {
     // Requirements: input object should have "units" property,
     // which is actually vector of object with "Gap" or "Encode" property.
     // Filter read as you like.
-    const from = 0;
-    const to = 1;
-    const set = new Set(read.units.filter(u => u.hasOwnProperty("E")).map(u => u.E[0]));
-    const max_gap = Math.max(...read.units.filter(u => u.hasOwnProperty("G")).map(u => u.G));
+    // const from = 0;
+    // const to = 1;
+    // const set = new Set(read.units.filter(u => u.hasOwnProperty("E")).map(u => u.E[0]));
+    // const max_gap = Math.max(...read.units.filter(u => u.hasOwnProperty("G")).map(u => u.G));
+    // return read.cluster.includes(24);
+    // return read.cluster.length == 0;
     return true;
-    // return set.has(4) && set.size == 1;
-    // return set.has(from) && set.has(to) && read.units.length > 15 ;
-    // return read.units.length < 140 && read.units.length > 75 && set.size > 1 && set.has(0) && set.has(1) && max_gap < 4000;
-    // return set.size == 1 && (set.has(0) || set.has(1)) && calcID(read,unitlen).type == "Contig" ; // && max_gap < 4000;
-    // return set.has(0) && set.has(4) ;
-    // return !set.has(6);
 };
 
 const getNumOfGapRead = reads => {
@@ -270,6 +262,118 @@ const getNumOfGapRead = reads => {
     }).length;
 };
 
+
+
+// Below, critical object is a json ob
+// {'CP': {'contig1': {'contig': 0,
+//    'start_unit': 132,
+//    'end_unit': 500,
+//    'direction': 'UpStream'},
+//   'contig2': {'contig': 0,
+//    'start_unit': 1223,
+//    'end_unit': 2432,
+//    'direction': 'DownStream'}}}
+// {'CR': {'pos': {'contig': 0,
+//    'start_unit': 132,
+//    'end_unit': 500,
+//    'direction': 'UpStream'}}}
+
+const criticalpairToPath = (cp, handle_points, bp_scale,start_pos, unit_length)=>{
+    const r = read_radius;
+    let path = d3.path();
+    // Move to contig1
+    const contig1 = cp["contig1"];
+    const contig1_start_angle = start_pos[contig1["contig"]] - Math.PI/2;
+    const start_angle_1 = contig1_start_angle + bp_scale(unit_length*contig1["start_unit"]);
+    const end_angle_1 = contig1_start_angle + bp_scale(unit_length*contig1["end_unit"]);
+    path.moveTo(r * Math.cos(start_angle_1), r * Math.sin(start_angle_1));
+    path.arc(0,0,r,start_angle_1, end_angle_1);
+    // Bezier Curve to contig2.
+    const contig2 = cp["contig2"];
+    const contig2_start_angle = start_pos[contig2["contig"]] - Math.PI/2;
+    const start_angle_2 = contig2_start_angle + bp_scale(unit_length*contig2["start_unit"]);
+    const control_radius = handle_points[contig1["contig"]][contig2["contig"]] - Math.PI/2;
+    const control_x = handle_points_radius*Math.cos(control_radius);
+    const control_y = handle_points_radius*Math.sin(control_radius);
+    path.quadraticCurveTo(control_x,control_y,r*Math.cos(start_angle_2),r*Math.sin(start_angle_2));
+    const end_angle_2 = contig2_start_angle + bp_scale(unit_length*contig2["end_unit"]);
+    path.arc(0,0,r, start_angle_2, end_angle_2);
+    path.quadraticCurveTo(control_x,control_y,r*Math.cos(start_angle_1),r*Math.sin(start_angle_1));
+    return path.toString();
+};
+
+const confluentregionToPath = (cr, handle_points, bp_scale,start_pos, unit_length)=>{
+    const r = read_radius + 50;
+    let path = d3.path();
+    const contig = cr["pos"];
+    const contig_start_angle = start_pos[contig["contig"]] - Math.PI/2;
+    const start_angle = contig_start_angle + bp_scale(unit_length*contig["start_unit"]) - confluent_margin;
+    const end_angle = contig_start_angle + bp_scale(unit_length*contig["end_unit"]) + confluent_margin;
+    path.moveTo(r * Math.cos(start_angle), r * Math.sin(start_angle));
+    path.lineTo(r * Math.cos(end_angle), r * Math.sin(end_angle));
+    return path.toString();
+};
+
+const crToPath = (cr, handle_points, bp_scale,start_pos, unit_length)=>{
+    // Input: JSON object, JSON object, Integer
+    // Output: String
+    // Requirements: Critical region object, scales
+    // Return the path btw critical region, or confluent path.
+    if (cr.hasOwnProperty("CP")){
+        return criticalpairToPath(cr["CP"], handle_points, bp_scale, start_pos, unit_length);
+    }else if (cr.hasOwnProperty("CR")){
+        return confluentregionToPath(cr["CR"], handle_points, bp_scale, start_pos, unit_length);
+    }else{
+        console.log(`Error ${cr}`);
+        return 1;
+    }
+};
+
+const kFormatter = (num)=> {
+    return Math.abs(num) > 999 ? Math.sign(num)*((Math.abs(num)/1000).toFixed(1)) + 'k' : Math.sign(num)*Math.abs(num);
+};
+
+const contigToHTML = (contig) =>{
+    const start = kFormatter(contig["start_unit"]*150);
+    const end = kFormatter(contig["end_unit"]*150);
+    const direction = contig["direction"];
+    return `<ul>
+<li>Start:${start} bp</li>
+<li>End:${end} bp</li>
+<li>Direction:${direction} </li>
+</ul>`;
+};
+
+const criticalpairToHTML = (cp,idx, count) => {
+    const header = `<div>CriticalPair:${idx}</div>`;
+    const contig1 = contigToHTML(cp["contig1"]);
+    const contig2 = contigToHTML(cp["contig2"]);
+    const support = `Supporing Reads:${count}`;
+    return header + contig1 + contig2 + support;
+};
+
+const confluentregionToHTML = (cr,idx, count) => {
+    const header = `<div>ConfluentRegion:${idx}</div>`;
+    const contig = contigToHTML(cr["pos"]);
+    const support = `Supporing Reads:${count}`;
+    return header + contig + support;
+};
+
+const crToHTML = (cr,idx, count) => {
+    // Input: JSON object, integer
+    // Output: String
+    // Requirements: Critical region object
+    // Return the HTML contents corresponds to the given cr.
+    if (cr.hasOwnProperty("CP")){
+        return criticalpairToHTML(cr["CP"],idx, count);
+    }else if (cr.hasOwnProperty("CR")){
+        return confluentregionToHTML(cr["CR"],idx, count);
+    }else{
+        console.log(`Error ${cr}`);
+        return "Error";
+    }
+};
+
 const plotData = (dataset, repeats, unit_length) =>
       Promise.all([dataset, repeats]
                   .map(file => d3.json(file)))
@@ -286,6 +390,7 @@ const plotData = (dataset, repeats, unit_length) =>
           //             "units":[{"Gap":1000},
           //                      {"Encode":[0,0]},{"Encode":[0,1]},{"Encode":[0,2]},{"Encode":[2,100]},
           //                      {"Gap":2000}]});
+          const critical_regions = values.critical_regions;
           // Calculate coordinate.
           const bp_scale = calcScale(contigs);
           const coverage_scale = calcCovScale(contigs);
@@ -378,15 +483,37 @@ const plotData = (dataset, repeats, unit_length) =>
               .attr("d",read => readToPath(read,handle_points,bp_scale,start_pos,unit_length))
               .attr("fill","none")
               .attr("opacity",0.3)
-              .attr("stroke",read => {
-                  return d3.schemeCategory10[(read['cluster'] + 1) % 10];
-                  // const identity = calcID(read,unit_length);
-                  // if (identity.type == "Gap"){
+              .attr("stroke",read => "black");
+                  // if (read['cluster'].length == 0){
                   //     return "black";
                   // }else{
-                  //     return d3.schemeCategory10[identity.id % 10];
+                  //     return d3.schemeCategory10[(read['cluster'] + 1) % 10];
                   // }
-              });
+          // });
+          // Draw critical regions.
+          cr_layer
+              .selectAll(".cr")
+              .data(critical_regions)
+              .enter()
+              .append("path")
+              .attr("class", "cr")
+              .attr("d", cr => crToPath(cr, handle_points, bp_scale, start_pos, unit_length))
+              .attr("stroke", (cr,idx) => (cr.hasOwnProperty("CP")) ? "none" : d3.schemeCategory10[(idx+1)%10])
+              .attr("stroke-width", 100)
+              .attr("opacity",cr => (cr.hasOwnProperty("CP")) ? 0.4 : 0.5)
+              .attr("fill",  (_cr,idx) => d3.schemeCategory10[(idx+1)%10])
+              .on("mouseover", function(d,idx) {
+                  const supporing_reads = reads.filter(read => read['cluster'].includes(idx)).length;
+                  // tooltip.transition()		
+                  //     .duration(200)		
+                  //     .style("opacity", .9);
+                  tooltip.style("opacity", 0.9);
+                  const contents = crToHTML(d,idx,supporing_reads);
+                  tooltip.html(contents)
+                      .style("left", (d3.event.pageX) + "px")	
+                      .style("top", (d3.event.pageY - 28) + "px");
+              })
+              .on("mouseout", d => tooltip.style("opacity",0));
           info.append("div")
               .attr("class","numofgapread")
               .append("p")
@@ -483,77 +610,3 @@ const plotData = (dataset, repeats, unit_length) =>
       .then(ok => ok,
             why => console.log(why));
 
-
-// Below, critical object is a json ob
-// {'CP': {'contig1': {'contig': 0,
-//    'start_unit': 132,
-//    'end_unit': 500,
-//    'direction': 'UpStream'},
-//   'contig2': {'contig': 0,
-//    'start_unit': 1223,
-//    'end_unit': 2432,
-//    'direction': 'DownStream'}}}
-// {'CR': {'pos': {'contig': 0,
-//    'start_unit': 132,
-//    'end_unit': 500,
-//    'direction': 'UpStream'}}}
-
-const make_path_between = (cr, scales,unit_length)=>{
-    // Input: JSON object, JSON object, Integer
-    // Output: String
-    // Requirements: Critical region object, scales
-    // Return the path btw critical region, or confluent path.
-    let p = d3.path();
-    const inner = cr.CP;
-    const start1 = scales.start_pos[inner.contig1.contig] +
-          scales.bp_scale(inner.contig1.start_unit * unit_length) - Math.PI/2;
-    const end1 = scales.start_pos[inner.contig1.contig] +
-          scales.bp_scale(inner.contig1.start_unit * unit_length) - Math.PI/2;
-    const start2 = scales.start_pos[inner.contig2.contig] +
-          scales.bp_scale(inner.contig2.start_unit * unit_length) - Math.PI/2;
-    const end2 = scales.start_pos[inner.contig2.contig] +
-          scales.bp_scale(inner.contig2.start_unit * unit_length) - Math.PI/2;
-    const hp = scales.handle_points[inner.contig1.contig][inner.contig2.contig] - Math.PI/2;
-    const hpx = handle_points_radius * Math.cos(hp);
-    const hpy = handle_points_radius * Math.sin(hp);
-    p.moveTo(read_radius * Math.cos(start1), read_radius * Math.sin(start1));
-    p.lineTo(read_radius * Math.cos(start2), read_radius * Math.sin(start2));
-    return p.toString();
-};
-
-const overlay_cr = (scales,critical_regions, unit_length) =>
-      d3.json(critical_regions)
-      .then(critical_regions => {
-          console.log(scales);
-          console.log(critical_regions);
-          contigs_layer
-              .selectAll("critical_region")
-              .data(critical_regions.filter(d => d.hasOwnProperty("CP")))
-              .enter()
-              .append("path")
-              .attr("class","critical_region")
-              .attr("d", cr => make_path_between(cr, scales,unit_length))
-              .attr("stroke-width",4)
-              .attr("stroke", "yellow");
-          contigs_layer
-              .selectAll("critical_region")
-              .data(critical_regions.filter(d => d.hasOwnProperty("RJ")))
-              .enter()
-              .append("path")
-              .attr("class","critical_region")
-              .attr("d", d => {
-                  const inner = d.RJ.pos;
-                  const r = scales.start_pos[inner.contig];
-                  const start = r+ scales.bp_scale(unit_length*inner.start_unit);
-                  const end = r + scales.bp_scale(unit_length*inner.end_unit);
-                  const arc = d3.arc()
-                        .innerRadius(read_radius - 10)
-                        .outerRadius(read_radius)
-                        .startAngle(start)
-                        .endAngle(end);
-                  return arc();
-              })
-              .attr("fill", "yellow");
-      })
-      .then(ok => console.log("OK"),
-            why => console.log(`Error:${why}`));
