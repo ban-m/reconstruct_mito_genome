@@ -9,7 +9,6 @@ extern crate last_decompose;
 extern crate rand;
 extern crate rand_xoshiro;
 use bio_utils::fasta::Record;
-use last_decompose::clustering;
 use last_tiling::Contigs;
 use last_tiling::LastTAB;
 use rand::{Rng, SeedableRng};
@@ -133,7 +132,8 @@ fn predict(
             .skip(border)
             .map(|&e| if e { 0 } else { 1 })
             .collect();
-        clustering(&data, &label, &forbid, K, 2, &contigs, &answer, config)
+        // last_decompose::clustering(&data, &label, &forbid, K, 2, &contigs, &answer, config);
+        last_decompose::clustering_chunking(&data, &label, &forbid, K, 2, &contigs, &answer, config)
     };
     let result: Vec<_> = data[border..]
         .iter()

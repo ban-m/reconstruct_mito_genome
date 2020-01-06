@@ -14,9 +14,10 @@ use rayon::prelude::*;
 mod unit_clustering;
 pub mod utils;
 pub use unit_clustering::unit_clustering;
-// mod assignments;
+pub mod bipartite_matching;
 mod eread;
 pub mod find_breakpoint;
+mod find_union;
 use dbg_hmm::*;
 pub use eread::*;
 pub use find_breakpoint::CriticalRegion;
@@ -28,9 +29,14 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand::{thread_rng, Rng};
 use rand_xoshiro::Xoshiro256StarStar;
+use std::collections::{HashMap, HashSet};
 pub mod error_profile;
 const PRIOR: bool = true;
 const NUM_OF_BALL: usize = 100;
+// 1000 units = one window
+const WINDOW_SIZE: usize = 300;
+// Adjacent windows overlap 100 unit.
+const OVERLAP: usize = 100;
 // These are parameters to calibrate the
 // contained effect. The parameters are set by
 // tuning on the commit 2f0208f586c2ebd53c13386e109a514273629a8e
@@ -177,7 +183,7 @@ pub fn decompose(
     let contigs: Vec<_> = (0..contigs.get_num_of_contigs())
         .map(|e| contigs.get_last_unit(e as u16).unwrap() as usize + 1)
         .collect();
-    let predicts = clustering(
+    let predicts = clustering_chunking(
         &dataset,
         &labels,
         &forbidden,
@@ -189,7 +195,7 @@ pub fn decompose(
     );
     dataset
         .into_iter()
-        .zip(labels.iter().chain(predicts.iter()))
+        .zip(predicts.iter())
         .map(|(read, cl)| (read.id().to_string(), *cl))
         .collect()
 }
@@ -237,7 +243,6 @@ fn get_masked_region(
     masked
 }
 
-use std::collections::HashMap;
 pub fn clustering_via_alignment(
     reads: &[usize],
     label: &[u8],
@@ -460,6 +465,179 @@ impl<'a> ModelFactory<'a> {
     }
 }
 
+fn create_windows(idx: usize, len: usize) -> Vec<(usize, usize, usize)> {
+    (0..)
+        .map(|i| i * (WINDOW_SIZE - OVERLAP))
+        .take_while(|&start_pos| start_pos + WINDOW_SIZE / 2 < len || start_pos == 0)
+        .map(|start_pos| {
+            if start_pos + (WINDOW_SIZE - OVERLAP) + WINDOW_SIZE / 2 < len {
+                (idx, start_pos, start_pos + WINDOW_SIZE)
+            } else {
+                (idx, start_pos, len)
+            }
+        })
+        .collect()
+}
+
+fn select_within(
+    (contig, start, end): (usize, usize, usize),
+    data: &[ERead],
+    label: &[u8],
+    forbidden: &[Vec<u8>],
+    answer: &[u8],
+) -> (Vec<ERead>, Vec<u8>, Vec<Vec<u8>>, Vec<u8>) {
+    assert!(data.len() == label.len() + answer.len());
+    let (contig, start, end) = (contig as u16, start as u16, end as u16);
+    let (mut s_data, mut s_label, mut s_forbid, mut s_answer) = (vec![], vec![], vec![], vec![]);
+    let border = label.len();
+    for i in 0..border {
+        let read = &data[i];
+        let count = read.include_units(contig, start, end);
+        if count > 4 {
+            s_data.push(read.clone_within(contig, start, end));
+            s_label.push(label[i]);
+            s_forbid.push(forbidden[i].clone());
+            // Do not need push answer.
+        }
+    }
+    for i in border..data.len() {
+        let read = &data[i];
+        let count = read.include_units(contig, start, end);
+        if count > 4 {
+            s_data.push(read.clone_within(contig, start, end));
+            s_forbid.push(forbidden[i].clone());
+            s_answer.push(answer[i - border]);
+        }
+    }
+    (s_data, s_label, s_forbid, s_answer)
+}
+
+fn find_matching(prev: &[HashSet<String>], after: &[HashSet<String>]) -> Vec<(usize, usize)> {
+    let nodes_1 = prev.len();
+    let nodes_2 = after.len();
+    let graph: Vec<Vec<(usize, f64)>> = prev
+        .iter()
+        .map(|cl1| {
+            after
+                .iter()
+                .enumerate()
+                .map(|(idx, cl2)| (idx, sim(cl1, cl2)))
+                .collect()
+        })
+        .collect();
+    debug!("Dump graph");
+    for (idx, edges) in graph.iter().enumerate() {
+        for (to, weight) in edges.iter() {
+            debug!("{}->({:.3})->{}", idx, weight, to);
+        }
+    }
+    let res = bipartite_matching::maximum_weight_matching(nodes_1, nodes_2, &graph);
+    debug!("Path Selected.");
+    for &(from, to) in &res {
+        debug!("{}-({})-{}", from, sim(&prev[from], &after[to]), to);
+    }
+    res
+}
+
+// Define similarity between two cluster.
+fn sim(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
+    a.intersection(&b).count() as f64
+}
+
+/// Clustering after chunking the reference into several chunks.
+pub fn clustering_chunking(
+    data: &[ERead],
+    label: &[u8],
+    forbidden: &[Vec<u8>],
+    k: usize,
+    cluster_num: usize,
+    contigs: &[usize],
+    answer: &[u8],
+    c: &Config,
+) -> Vec<u8> {
+    let windows: Vec<_> = contigs
+        .iter()
+        .enumerate()
+        .flat_map(|(idx, len)| create_windows(idx, *len))
+        .collect();
+    let clusterings: Vec<Vec<HashSet<String>>> = windows
+        .iter()
+        .map(|&region| {
+            {
+                let (contig, start, end) = region;
+                debug!("{}:{}-{}", contig, start, end);
+            }
+            let (data, label, forbidden, answer) =
+                select_within(region, data, label, forbidden, answer);
+            debug!("Read:{}", data.len());
+            assert_eq!(data.len(), forbidden.len());
+            assert_eq!(data.len(), label.len() + answer.len());
+            let predictions = {
+                let (d, l, f, a) = (&data, &label, &forbidden, &answer);
+                clustering(d, l, f, k, cluster_num, contigs, a, c)
+            };
+            assert_eq!(predictions.len(), data.len());
+            (0..cluster_num)
+                .map(|cluster_idx| {
+                    let cluster_idx = cluster_idx as u8;
+                    predictions
+                        .iter()
+                        .zip(data.iter())
+                        .filter_map(|(&p, r)| if p == cluster_idx { Some(r.id()) } else { None })
+                        .map(|id| id.to_string())
+                        .collect()
+                })
+                .collect()
+        })
+        .collect();
+    // Merging.
+    let mut fu = find_union::FindUnion::new(cluster_num * windows.len());
+    for idx in 0..clusterings.len() {
+        let prev_idx = idx;
+        let after_idx = (idx + 1) % clusterings.len();
+        let prev = &clusterings[prev_idx];
+        let after = &clusterings[after_idx];
+        assert!(prev.len() == cluster_num);
+        assert!(after.len() == cluster_num);
+        for (i, j) in find_matching(prev, after) {
+            let i = i + prev_idx * cluster_num;
+            let j = j + after_idx * cluster_num;
+            fu.unite(i, j).unwrap();
+        }
+    }
+    // Then, iteratively take components.
+    let mut result: HashMap<String, u8> = HashMap::new();
+    let mut current = 0;
+    for i in 0..(cluster_num * windows.len()) {
+        let parent = fu.find(i).unwrap();
+        if parent != i {
+            continue;
+        }
+        debug!("Find cluster");
+        for (w, clusters) in clusterings.iter().enumerate() {
+            for (j, cluster) in clusters.iter().enumerate() {
+                if parent == fu.find(j + w * cluster_num).unwrap() {
+                    debug!("{}:{}", w, j);
+                    for id in cluster {
+                        result.insert(id.clone(), current);
+                    }
+                }
+            }
+        }
+        debug!("These clusters assigned as {}", current);
+        current += 1;
+    }
+    data.iter()
+        .map(|read| match result.get(read.id()) {
+            Some(res) => *res,
+            None => {
+                debug!("Read {} does not belong to any cluster.", read.id());
+                0
+            }
+        })
+        .collect()
+}
+
 pub fn clustering(
     data: &[ERead],
     label: &[u8],
@@ -470,24 +648,24 @@ pub fn clustering(
     answer: &[u8],
     c: &Config,
 ) -> Vec<u8> {
-    let border = label.len();
     assert_eq!(forbidden.len(), data.len());
-    eprintln!("SOFT_CLUSTERING");
+    assert_eq!(label.len() + answer.len(), data.len());
+    debug!("SOFT_CLUSTERING");
     let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
     // eprintln!("VARIATIONAL BAYE's");
     // let weights = variational_bayes(data, label, forbidden, k, cluster_num, contigs, answer, c);
     // Maybe we should use randomized choose.
-    debug!("Prediction. Dump weights");
-    for (weight, ans) in weights.iter().skip(border).zip(answer) {
+    debug!("EWIGHTS\tPrediction. Dump weights");
+    assert_eq!(weights.len(), label.len() + answer.len());
+    for (weight, ans) in weights.iter().zip(label.iter().chain(answer.iter())) {
         let weights: String = weight
             .iter()
             .map(|e| format!("{:.3},", e))
             .fold(String::new(), |x, y| x + &y);
-        debug!("{}\t{}", weights, ans);
+        debug!("WEIGHTS\t{}\t{}", weights, ans);
     }
     weights
         .iter()
-        .skip(border)
         .map(|weight| {
             assert_eq!(weight.len(), cluster_num);
             let (cl, _max): (u8, f64) = weight.iter().enumerate().fold(
@@ -574,6 +752,10 @@ pub fn variational_bayes(
                 .map(|alpha| (alpha - 1.) * beta + 1.)
                 .collect();
             let wr = &weights_of_reads;
+            let soe = wr.iter().map(|e| entropy(e)).sum::<f64>();
+            if soe < soe_thr {
+                break;
+            }
             let _lk = report(
                 id, wr, border, answer, &alphas, &models, data, beta, s as f64, config,
             );
@@ -582,10 +764,6 @@ pub fn variational_bayes(
             //     max_lk = lk;
             //     arg_max = weights_of_reads.clone();
             // }
-            let soe = wr.iter().map(|e| entropy(e)).sum::<f64>();
-            if soe < soe_thr {
-                break;
-            }
         }
         if beta == 1. {
             break;
@@ -841,16 +1019,14 @@ pub fn soft_clustering(
                 mf.update_model(&weights_of_reads, &updates, data, cluster, model);
             });
             let soe = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
-            let wr = &weights_of_reads;
-            let _lk = report(
-                id, &wr, border, answer, &ws, &models, data, beta, lr, config,
-            );
             if soe < soe_thr && beta == 1. {
                 break 'outer;
             } else if soe < soe_thr {
                 break;
             }
         }
+        let wr = &weights_of_reads;
+        let _lk = report(id, wr, border, answer, &ws, &models, data, beta, lr, config);
         beta = (beta * beta_step).min(1.);
     }
     weights_of_reads
@@ -1027,7 +1203,7 @@ fn search_initial_beta(
         diff = soe - c_soe;
         debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, c_soe, diff);
     }
-    beta / FACTOR
+    beta / BETA_STEP
 }
 
 fn soe_after_sampling<R: Rng>(
@@ -1257,11 +1433,12 @@ fn compute_log_probs(
                     }
                 })
                 .fold((0., 0), |(lk, num), x| (lk + x, num + 1));
-            let lk = if num > 5 {
-                lk * read.seq.len() as f64 / num as f64
+            let len = read.seq.len();
+            let lk = if num > 0 {
+                lk * len as f64 / num as f64
             } else {
-                debug!("Warning:seq:{}, goodModel:{}", read.seq.len(), num);
-                -150. * read.seq.len() as f64
+                debug!("Warning:{}:{}, goodModel:{}", read.id(), len, num);
+                -150.
             };
             *g = lk + w.ln();
         });

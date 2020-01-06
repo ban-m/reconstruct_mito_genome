@@ -1,9 +1,9 @@
 #!/bin/bash
 set -ue
 ROOT=${PWD}
-READS=${PWD}/../create_simulation_data/data/mock_genome_read.fa
-OUTPATH=${PWD}/result/mock_genome
-REFERENCE=${PWD}/../create_simulation_data/data/mock_genome_ref.fa
+READS=${PWD}/../create_simulation_data/data/complex/read_complex1.fa
+OUTPATH=${PWD}/result/complex1
+REFERENCE=${PWD}/../create_simulation_data/data/complex/reference.fa
 qsub -sync yes ./scripts/yellow_gate.job ${READS} ${OUTPATH} ${REFERENCE}
 for reads in ${OUTPATH}/yg/*.fasta
 do

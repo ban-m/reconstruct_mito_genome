@@ -82,7 +82,15 @@ cargo run --release --bin convert_to_d3_data \
       -- ${OUTPATH}/circos/contig.json ${OUTPATH}/circos/reads.json \
       ${OUTPATH}/circos/repeats.json \
       > ${OUTPATH}/circos/d3.json
+cargo run --release --bin convert_to_d3_data_lightweight \
+      -- ${OUTPATH}/circos/contig.json ${OUTPATH}/circos/reads.json \
+      ${OUTPATH}/circos/repeats.json \
+      > ${OUTPATH}/circos/d3_lightweight.json
+
 cat ./scripts/template.html | sed -e "s@/data/SED_@./@g" > ${OUTPATH}/circos/viewer.html
+cat ./scripts/template.html | sed -e "s@/data/SED_@./@g" |\
+    sed -e "s/drawer/drawer_lightweight/g" |\
+    sed -e "s/d3\.js/d3_lightweight\.js/g" > ${OUTPATH}/circos/viewer_lightweight.html
 
 
 # LASTTAB=${OUTPATH}/last_db/no_repeat_reads.tab

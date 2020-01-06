@@ -1,9 +1,12 @@
-/// Find maximum weight matching between the given bipartite matching.
-/// First, it converts the given graph into flow graph,
-/// where the const is the negative weight of each edges,
-/// and capacity is just 1.
-/// Then, the minimum cost flow is corresponding to the maximum matching of the original graph.
-/// Also, the flow at each edges either 1 or 0(can be proven).
+// Find maximum weight matching between the given bipartite matching.
+// First, it converts the given graph into flow graph,
+// where the const is the negative weight of each edges,
+// and capacity is just 1.
+// Then, the minimum cost flow is corresponding to the maximum matching of the original graph.
+// Also, the flow at each edges either 1 or 0(can be proven).
+// Note that the `original_graph` should be a adjacency list. In other words,
+// If there is only one edge from index 1 of nodes_1 to index 2 of nodes_2,
+// then original_graph[1] should be vec![(2,10.)] or something like that.
 pub fn maximum_weight_matching(
     nodes_1: usize,
     nodes_2: usize,
@@ -19,6 +22,14 @@ pub fn maximum_weight_matching(
             graph[i + 1].push((j + nodes_1 + 1, 1, -weight));
         }
     }
+    // Add edges from 0(start)-> nodes in nodes_1
+    for i in 1..nodes_1 + 1 {
+        graph[0].push((i, 1, 0.));
+    }
+    // Add edges from nodes in nodes_2 -> nodes_1 + nodes_2 + 1(end)
+    for i in (nodes_1 + 1)..(nodes_1 + nodes_2 + 1) {
+        graph[i].push((nodes_1 + nodes_2 + 1, 1, 0.));
+    }
     let mut mcf = MinCostFlow::new(graph);
     // We have trivial solution res = 0, where there is no flow.
     // Thus, it is garanteed that the minimum cost flow exists.
@@ -27,6 +38,16 @@ pub fn maximum_weight_matching(
     assert!(res <= 0.);
     if res < 0. {
         mcf.enumerate_edge_used()
+            .into_iter()
+            .filter(|&(s, e)| s != 0 && e != nodes_1 + nodes_2 + 1)
+            .map(|(s, e)| {
+                if s < e {
+                    (s - 1, e - nodes_1 - 1)
+                } else {
+                    (s - nodes_1 - 1, e - 1)
+                }
+            })
+            .collect()
     } else {
         // No marging.
         vec![]
@@ -117,33 +138,13 @@ impl MinCostFlow {
                 cost += self.edges[next_node][from_edge_idx].cost;
                 temp = next_node;
             }
-            //eprintln!("cost:{}", cost);
+            // eprintln!("cost:{}", cost);
             Some((1, cost))
         }
-    }
-    // Return minimum cost with flow of `flow`
-    #[allow(dead_code)]
-    fn min_cost_flow(&mut self, start: usize, end: usize, flow: u64) -> Option<f64> {
-        let mut current_flow = 0;
-        let mut cost = 0.;
-        // eprintln!("target flow:{}", flow);
-        while current_flow < flow {
-            let (f, c) = match self.minimum_cost_flow(start, end) {
-                Some(res) => res,
-                None => {
-                    return None;
-                }
-            };
-            cost += c;
-            current_flow += f;
-            //eprintln!("current flow:{}", current_flow);
-        }
-        Some(cost)
     }
     // Return minimum cost flow. There' no requirement on the total flow.
     // It is sometimes non-trivial because
     // there can be "negative cost flow."
-    #[allow(dead_code)]
     fn min_flow_nolimit(&mut self, start: usize, end: usize) -> f64 {
         let mut cost = 0.;
         while let Some((_f, c)) = self.minimum_cost_flow(start, end) {

@@ -18,58 +18,66 @@ fn main() {
         .build_global()
         .unwrap();
     let args: Vec<_> = std::env::args().collect();
-    let (test_num, coverage, probs, clusters, seed) = if args.len() > 3 {
-        let tn = args[1].parse::<usize>().unwrap();
-        let cov = args[2].parse::<usize>().unwrap();
-        let seed = args[3].parse::<u64>().unwrap();
-        let prob: Vec<_> = args[4..]
+    let (probs, clusters, seed) = {
+        let seed = args[1].parse::<u64>().unwrap();
+        let prob: Vec<_> = args[2..]
             .iter()
             .filter_map(|e| e.parse::<f64>().ok())
             .collect();
         let clusters = prob.len();
-        (tn, cov, prob, clusters, seed)
-    } else {
-        (200, 0, vec![2f64.recip(); 2], 2, 11920981)
+        (prob, clusters, seed)
     };
+    debug!("Seed:{}", seed);
+    let coverage = 0;
     let chain_len = 40;
     let k = 6;
     let len = 150;
-    for p in (1..=20).step_by(2) {
-        let p = p as f64 / 6000.;
-        println!("ErrorRate:{:3}", p * 6.);
-        let p = &gen_sample::Profile {
-            sub: p,
-            ins: p,
-            del: p,
-        };
-        use std::time::Instant;
-        println!("TestNum:{}\tLabeled:{}", test_num, coverage);
-        let s = Instant::now();
-        let (hmm, dists) = benchmark(
-            seed, p, coverage, test_num, chain_len, k, len, &probs, clusters,
-        );
-        debug!("Elapsed {:?}", Instant::now() - s);
-        let mut line = "RESULT".to_string();
-        for (idx, preds) in hmm.into_iter().enumerate() {
-            let tp = preds[idx];
-            let tot = preds.iter().sum::<u32>();
-            print!("Predicted as {}:", idx);
-            for ans in preds {
-                print!("{}\t", ans);
+    let prob: Vec<_> = (1..=20).step_by(2).collect();
+    let test_nums: Vec<_> = (50..201).step_by(30).collect();
+    for p in prob {
+        for &test_num in &test_nums {
+            let p = p as f64 / 6000.;
+            println!("ErrorRate:{:3}", p * 6.);
+            let p = &gen_sample::Profile {
+                sub: p,
+                ins: p,
+                del: p,
+            };
+            use std::time::Instant;
+            println!("TestNum:{}\tLabeled:{}", test_num, coverage);
+            let s = Instant::now();
+            let (hmm, dists) = benchmark(
+                seed, p, coverage, test_num, chain_len, k, len, &probs, clusters,
+            );
+            debug!("Elapsed {:?}", Instant::now() - s);
+            let mut line = "RESULT".to_string();
+            let num_of_reads: Vec<_> = (0..clusters)
+                .map(|cl| hmm.iter().map(|pred| pred[cl]).sum::<u32>())
+                .collect();
+            for nor in &num_of_reads {
+                line += &format!("\t{}", nor);
             }
-            println!("Total:{:.4}", tp as f64 / tot as f64);
-            line += &format!("\t{}", tp as f64 / tot as f64);
-        }
-        for (idx, ds) in dists.into_iter().enumerate() {
-            print!("Distance from {}:", idx);
-            for d in ds {
-                line += &format!("\t{}", d);
-                print!("{}\t", d);
+            for (idx, preds) in hmm.into_iter().enumerate() {
+                let tp = preds[idx];
+                let tot = num_of_reads[idx];
+                print!("Predicted as {}:", idx);
+                for ans in preds {
+                    print!("{}\t", ans);
+                    line += &format!("\t{}", ans);
+                }
+                println!("Total:{:.4}", tp as f64 / tot as f64);
             }
-            println!();
+            for (idx, ds) in dists.into_iter().enumerate() {
+                print!("Distance from {}:", idx);
+                for d in ds {
+                    line += &format!("\t{}", d);
+                    print!("{}\t", d);
+                }
+                println!();
+            }
+            line += &format!("\t{}", test_num);
+            println!("{}", line);
         }
-        line += &format!("\t{}", test_num);
-        println!("{}", line);
     }
 }
 

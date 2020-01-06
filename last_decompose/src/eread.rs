@@ -100,7 +100,7 @@ impl ERead {
                     && is_gap_size_moderate
                 {
                     // we can fill the gap!
-                    debug!("Fill gap!");
+                    // debug!("Fill gap!");
                     let contig = prev.contig;
                     let unit = if prev.is_forward() {
                         prev.unit + 1
@@ -187,6 +187,28 @@ impl ERead {
             .iter()
             .filter(|unit| unit.contig == contig)
             .any(|unit| start < unit.unit && unit.unit < end)
+    }
+    pub fn include_units(&self, contig: u16, start: u16, end: u16) -> usize {
+        self.seq
+            .iter()
+            .filter(|unit| unit.contig == contig)
+            .filter(|unit| start <= unit.unit && unit.unit < end)
+            .count()
+    }
+    pub fn clone_within(&self, contig: u16, start: u16, end: u16) -> Self {
+        let seq: Vec<_> = self
+            .seq
+            .iter()
+            .filter(|unit| unit.contig == contig)
+            .filter(|unit| start <= unit.unit && unit.unit < end)
+            .cloned()
+            .collect();
+        Self {
+            id: self.id.clone(),
+            seq,
+            has_head_clip: self.has_head_clip,
+            has_tail_clip: self.has_tail_clip,
+        }
     }
     pub fn seq_mut(&mut self) -> &mut Vec<CUnit> {
         self.seq.as_mut()

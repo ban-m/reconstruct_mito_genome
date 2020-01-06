@@ -5,6 +5,7 @@ qsub -sync yes ./script/run_workflow.job\
      /data/ban-m/a_thaliana/sequel_reads/sequel.fasta\
      ${PWD}/result/pacbio\
      ${REFERENCE}
+exit 0;
 
 # /data/ban-m/a_thaliana/genome/mitochondria_enhanced_reference.fa
 READ_DIR=/grid/ban-m/arabidopsis_thaliana/sequel/MPI_dataset/
