@@ -1,6 +1,7 @@
-for TEST_NUM in `seq 100 5 200`
-do
-    echo ${TEST_NUM}
-done
+#!/bin/bash
+if [ -d ./result ]
+then
+    echo "yes"
+fi
 
 

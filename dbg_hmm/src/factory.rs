@@ -238,16 +238,17 @@ impl Factory {
         self.inner
             .extend(std::iter::repeat((weight, std::usize::MAX)).take(tk));
         buf.extend(std::iter::repeat(weight).take(tk * 4));
-        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(dataset.len() as u64);
-        //let mut rng = rand::thread_rng();
-        let ep = 0.0000001;
+        let seed = ws.iter().sum::<f64>().floor().abs() as u64 + dataset.len() as u64;
+        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
+        let ep = 0.000000001;
         let mask = (1 << 2 * k) - 1;
         let e_mask = (1 << 2 * (k + 1)) - 1;
         // Record all the k-mers and k+1-mers.
         dataset
             .iter()
             .zip(ws.iter())
-            .filter(|&(seq, &w)| w > ep && seq.len() >= k + 1)
+            // .filter(|&(seq, w)| w > ep && seq.len() >= k + 1)
+            .filter(|&(seq, _)| seq.len() > k)
             .for_each(|(seq, w)| {
                 let mut node = to_u64(&seq[..k]);
                 self.inner[node].0 += w;
@@ -312,6 +313,11 @@ impl Factory {
         let nodes = self.trim_unreachable_nodes(nodes);
         let nodes = self.trim_unreachable_nodes_reverse(nodes);
         let save = if nodes.len() < 130 {
+            // debug!(
+            //     "Model Broken by bridge pruning:{}->{}",
+            //     save.len(),
+            //     nodes.len()
+            // );
             let nodes = self.pick_largest_components(save);
             let nodes = self.renaming_nodes(nodes);
             return nodes;
@@ -323,10 +329,17 @@ impl Factory {
         let nodes = self.trim_unreachable_nodes(nodes);
         let nodes = self.trim_unreachable_nodes_reverse(nodes);
         if nodes.len() < 130 {
+            // debug!("Model Broken at select h/t:{}->{}", save.len(), nodes.len());
+            // let b_head = save.iter().filter(|e| e.is_head).count();
+            // let b_tail = save.iter().filter(|e| e.is_tail).count();
+            // let head = nodes.iter().filter(|e| e.is_head).count();
+            // let tail = nodes.iter().filter(|e| e.is_tail).count();
+            // debug!("{}:{}->{}:{}", b_head, b_tail, head, tail);
             let nodes = self.pick_largest_components(save);
             let nodes = self.renaming_nodes(nodes);
             nodes
         } else {
+            //debug!("OK!:{}->{}", save.len(), nodes.len());
             let nodes = self.pick_largest_components(nodes);
             let nodes = self.renaming_nodes(nodes);
             nodes
@@ -463,8 +476,8 @@ impl Factory {
         let len = nodes.len() as f64;
         let ws = nodes.iter().map(|e| e.kmer_weight);
         let mean = ws.clone().sum::<f64>() / len;
-        let factor = THR + 1. - (1. + (mean / 10.).exp()).recip();
-        let thr = mean * factor;
+        // let factor = THR - (1. + (mean / 10.).exp()).recip() / 2.;
+        let thr = mean / THR;
         nodes
             .iter()
             .for_each(|e| self.is_safe.push((e.kmer_weight > thr) as u8));

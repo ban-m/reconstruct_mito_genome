@@ -33,7 +33,9 @@ fn main() {
     let k = 6;
     let len = 150;
     let prob: Vec<_> = (1..=20).step_by(2).collect();
+    // let prob: Vec<_> = vec![1,2];
     let test_nums: Vec<_> = (50..201).step_by(30).collect();
+    // let test_nums = vec![70];
     for p in prob {
         for &test_num in &test_nums {
             let p = p as f64 / 6000.;

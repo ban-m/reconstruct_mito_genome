@@ -25,4 +25,3 @@ do
          ./scripts/racon.job\
          ${reads} ${contig} ${OUTPATH}/${name}
 done
-

@@ -332,6 +332,24 @@ const crToPath = (cr, handle_points, bp_scale,start_pos, unit_length)=>{
     }
 };
 
+const htgap = (read) => {
+    let sum = 0;
+    if (read.units[read.units.length-1].hasOwnProperty("G")){
+        sum += read.units[read.units.length-1].G;
+    }
+    if (read.units[0].hasOwnProperty("G")){
+        sum += read.units[0].G;
+    }
+    return sum;
+};
+
+const calcGap = (reads)=>{
+    const len = reads.length;
+    const sum = reads.map(read => htgap(read))
+          .reduce((acc,x)=>acc+x, 0);
+    return sum / len * 2;
+};
+
 const kFormatter = (num)=> {
     return Math.abs(num) > 999 ? Math.sign(num)*((Math.abs(num)/1000).toFixed(1)) + 'k' : Math.sign(num)*Math.abs(num);
 };
@@ -347,30 +365,36 @@ const contigToHTML = (contig) =>{
 </ul>`;
 };
 
-const criticalpairToHTML = (cp,idx, count) => {
+const criticalpairToHTML = (cp,idx, reads) => {
+    const count = reads.length;
+    const meangap = calcGap(reads);
     const header = `<div>CriticalPair:${idx}</div>`;
     const contig1 = contigToHTML(cp["contig1"]);
     const contig2 = contigToHTML(cp["contig2"]);
-    const support = `Supporing Reads:${count}`;
-    return header + contig1 + contig2 + support;
+    const support = `Supporing Reads:${count}<br>`;
+    const gap = `Mean gap length:${meangap.toFixed(1)}`;
+    return header + contig1 + contig2 + support + gap;
 };
 
-const confluentregionToHTML = (cr,idx, count) => {
+const confluentregionToHTML = (cr,idx, reads) => {
+    const count = reads.length;
+    const meangap = calcGap(reads);
     const header = `<div>ConfluentRegion:${idx}</div>`;
     const contig = contigToHTML(cr["pos"]);
-    const support = `Supporing Reads:${count}`;
-    return header + contig + support;
+    const support = `Supporing Reads:${count}<br>`;
+    const gap = `Mean gap length:${meangap.toFixed(1)}`;
+    return header + contig + support + gap;
 };
 
-const crToHTML = (cr,idx, count) => {
-    // Input: JSON object, integer
+const crToHTML = (cr,idx, reads) => {
+    // Input: JSON object, Array
     // Output: String
     // Requirements: Critical region object
     // Return the HTML contents corresponds to the given cr.
     if (cr.hasOwnProperty("CP")){
-        return criticalpairToHTML(cr["CP"],idx, count);
+        return criticalpairToHTML(cr["CP"],idx, reads);
     }else if (cr.hasOwnProperty("CR")){
-        return confluentregionToHTML(cr["CR"],idx, count);
+        return confluentregionToHTML(cr["CR"],idx, reads);
     }else{
         console.log(`Error ${cr}`);
         return "Error";
@@ -405,7 +429,6 @@ const calcCoverageOf = (reads, contigs)=>{
             }
         }
     }
-    console.log('done');
     return results;
 };
 
@@ -522,14 +545,16 @@ const plotData = (dataset, repeats, unit_length) =>
               .append("path")
               .attr("class", "cr")
               .attr("d", cr => crToPath(cr, handle_points, bp_scale, start_pos, unit_length))
-              .attr("stroke", (cr,idx) => (cr.hasOwnProperty("CP")) ? "none" : d3.schemeCategory10[(idx+1)%10])
-              .attr("stroke-width", 100)
+              //.attr("stroke", (cr,idx) => (cr.hasOwnProperty("CP")) ? "none" : d3.schemeCategory10[(idx+1)%10])
+              .attr("stroke", (_,idx) => d3.schemeCategory10[(idx+1)%10])
+              .attr("stroke-width", (cr,idx) => (cr.hasOwnProperty("CP")) ? 5 : 100)
+              .attr("stroke-linecap", (cr,idx) => (cr.hasOwnProperty("CP")) ? "round" : "none")
               .attr("opacity",cr => (cr.hasOwnProperty("CP")) ? 0.4 : 0.5)
-              .attr("fill",  (_cr,idx) => d3.schemeCategory10[(idx+1)%10])
+              .attr("fill",  (_,idx) => d3.schemeCategory10[(idx+1)%10])
               .on("mouseover", function(d,idx) {
                   const supporting_reads = reads.filter(r => r['cluster'].includes(idx));
                   tooltip.style("opacity", 0.9);
-                  const contents = crToHTML(d,idx,supporting_reads.length);
+                  const contents = crToHTML(d,idx,supporting_reads);
                   console.log(supporting_reads[0].name);
                   tooltip.html(contents)
                       .style("left", (d3.event.pageX + 50) + "px")	
@@ -544,13 +569,13 @@ const plotData = (dataset, repeats, unit_length) =>
                       .attr("d", coverage => {
                           const start = start_pos[coverage.id];
                           const arc = d3.lineRadial()
-                                .angle((_, i) => start + bp_scale(i * unit_length))
+                                .angle((d,i) => start + bp_scale(i * unit_length))
                                 .radius(d => coverage_scale(d));
                           return arc(coverage.cov);
                       })
                       .attr("fill","none")
                       .attr("opacity", 0.9)
-                      .attr("stroke-width", 4)
+                      .attr("stroke-width", 1)
                       .attr("stroke", d3.schemeCategory10[(idx +1)% 10]);
               })
               .on("mouseout", d => {

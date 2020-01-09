@@ -75,7 +75,7 @@ fn benchmark(
     let contigs = vec![chain_len];
     let mut mf = last_decompose::ModelFactory::new(&contigs, &data, k);
     let weights: Vec<_> = (0..data.len()).map(|_| vec![0.5, 0.5]).collect();
-    let models = mf.generate_model(&weights, &data, 0);
+    let models = mf.generate_model(&weights, &data, 0, &dbg_hmm::DEFAULT_CONFIG);
     for read in &data {
         for u in read.seq.iter() {
             let model = &models[u.contig()][u.unit()];

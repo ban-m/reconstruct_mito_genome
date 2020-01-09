@@ -62,10 +62,13 @@ fn main() -> std::io::Result<()> {
         .collect();
     debug!("Answer and Distance hashmaps are built");
     let (training, testset): (Vec<_>, Vec<_>) = if args[4] == "random" {
-        debug!("Random mode");
+        debug!("No training. Pure non-supervised");
+        (vec![], reads)
+    } else if args[4] == "semi" {
+        debug!("Semi Random mode");
         let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1893749823);
         let (training, testset): (Vec<_>, Vec<_>) =
-            reads.into_iter().partition(|_| rng.gen_bool(0.));
+            reads.into_iter().partition(|_| rng.gen_bool(0.1));
         (training, testset)
     } else {
         debug!("Half mode");
@@ -87,7 +90,7 @@ fn main() -> std::io::Result<()> {
     for (readid, predict) in result {
         let answer = if answer[&readid] { 0 } else { 1 };
         let dist = dist[&readid];
-        writeln!(&mut wtr, "{}\t{}\t{}\t{}", readid, answer, predict, dist,)?;
+        writeln!(&mut wtr, "{}\t{}\t{}\t{}", readid, answer, predict, dist)?;
         match (predict, answer) {
             (0, 0) => t_p += 1,
             (0, 1) => f_n += 1,
@@ -135,7 +138,7 @@ fn predict(
         // last_decompose::clustering(&data, &label, &forbid, K, 2, &contigs, &answer, config);
         last_decompose::clustering_chunking(&data, &label, &forbid, K, 2, &contigs, &answer, config)
     };
-    let result: Vec<_> = data[border..]
+    let result: Vec<_> = data
         .iter()
         .zip(result)
         .map(|(read, cluster)| {

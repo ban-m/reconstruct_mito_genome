@@ -5,7 +5,11 @@ extern crate last_tiling;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
+extern crate mito_assembler;
+use mito_assembler::dump_viewer;
 use clap::{App, Arg};
+use last_decompose::find_breakpoint::{ReadClassify};
+use last_decompose::ERead;
 fn main() -> std::io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let matches = App::new("YellowGate")
@@ -94,23 +98,28 @@ fn main() -> std::io::Result<()> {
     let contigs = last_tiling::contig::Contigs::new(reference);
     let repeats = last_tiling::into_repeats(&self_aln, &contigs);
     let encoded_reads = last_tiling::encoding(&reads, &contigs, &alignments);
-    use last_decompose::ERead;
     let encoded_reads: Vec<_> = encoded_reads
         .into_iter()
         .map(ERead::new_no_gapfill)
         .collect();
     let critical_regions = last_decompose::critical_regions(&encoded_reads, &contigs, &repeats);
     for c in &critical_regions {
-        debug!("{:?}", c);
+        let counts = encoded_reads
+            .iter()
+            .filter(|read| c.along_with(read))
+            .count();
+        debug!("{:?} having {} reads.", c, counts);
     }
     use std::collections::HashMap;
+    let cr = &critical_regions;
+    let mock_ans: HashMap<String, u8> = HashMap::new();
     let results: HashMap<String, u8> =
-        last_decompose::decompose(encoded_reads, &critical_regions, &contigs, &repeats, config)
+        last_decompose::decompose(encoded_reads, &cr, &contigs, &repeats, config, &mock_ans)
             .into_iter()
             .collect();
     use bio_utils::fasta;
-    let mut decomposed: HashMap<u8, Vec<fasta::Record>> = HashMap::new();
-    for read in reads {
+    let mut decomposed: HashMap<u8, Vec<&fasta::Record>> = HashMap::new();
+    for read in &reads {
         if let Some(cluster) = results.get(read.id()) {
             let cls = decomposed.entry(*cluster).or_insert(vec![]);
             cls.push(read);
@@ -129,7 +138,7 @@ fn main() -> std::io::Result<()> {
     use std::io::{BufWriter, Write};
     let readlist = format!("{}/readlist.tsv", output_dir);
     let mut readlist = BufWriter::new(std::fs::File::create(readlist)?);
-    for (cluster_id, reads) in decomposed {
+    for (&cluster_id, reads) in decomposed.iter() {
         let outpath = format!("{}/{}.fasta", output_dir, cluster_id);
         let wtr = match std::fs::File::create(&outpath) {
             Ok(res) => res,
@@ -144,8 +153,21 @@ fn main() -> std::io::Result<()> {
         let mut wtr = fasta::Writer::new(wtr);
         for read in reads {
             writeln!(&mut readlist, "{}\t{}", cluster_id, read.id())?;
-            wtr.write_record(&read)?;
+            wtr.write_record(read)?;
         }
     }
+    let encoded_reads = last_tiling::encoding(&reads, &contigs, &alignments);
+    let res = dump_viewer(&results, &encoded_reads, &critical_regions, &contigs)?;
+    let dir = format!("{}/viwer", output_dir);
+    if let Err(why) = std::fs::create_dir_all(&dir) {
+        error!("Error Occured while outputing reads.");
+        error!("{:?}", why);
+        error!("This program did not work successfully.");
+        error!("Shutting down...");
+        std::process::exit(1);
+    }
+    let file = format!("{}/data.json", dir);
+    let mut writer = BufWriter::new(std::fs::File::create(&file)?);
+    writeln!(&mut writer, "{}", res)?;
     Ok(())
 }

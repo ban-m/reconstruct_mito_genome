@@ -75,7 +75,6 @@ impl Kmer {
         if self.tot > 0.0001 {
             for i in 0..4 {
                 self.weight[i] /= self.tot;
-                //self.weight[i + 4] /= self.tot;
             }
             assert!(
                 (1. - self.weight.iter().sum::<f64>()).abs() < 0.001,

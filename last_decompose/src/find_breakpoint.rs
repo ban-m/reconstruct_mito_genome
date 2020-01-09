@@ -303,14 +303,35 @@ pub fn critical_regions(
     for c in contigs.names().iter() {
         debug!("->{}({}len)", c, contigs.get(c).unwrap().len());
     }
+    let tot = contigs
+        .get_last_units()
+        .iter()
+        .map(|&e| e as usize)
+        .sum::<usize>();
+    let mean = (reads.len() / tot).max(20);
+    debug!("Total units:{}\tMean:{}", tot, mean);
     for from in 0..num_of_contig {
         if let Some(res) = critical_region_within(from, reads, contigs, repeats) {
             regions.extend(res);
         }
-        // debug!("Inner end");
-        // debug!("Confluent region");
+        let thr = mean;
         if let Some(res) = critical_region_confluent(from, reads, contigs) {
-            regions.extend(res);
+            // Check if the region has been already added.
+            for cr in res {
+                let in_confluent: Vec<&ERead> = reads.iter().filter(|r| cr.along_with(r)).collect();
+                let has_been_added = regions.iter().any(|e| {
+                    let count = in_confluent.iter().filter(|r| e.along_with(r)).count();
+                    if count > thr {
+                        debug!("{:?} and {:?} shares {} reads.", e, cr, count);
+                        true
+                    } else {
+                        false
+                    }
+                });
+                if !has_been_added {
+                    regions.push(cr);
+                }
+            }
         }
     }
     regions
@@ -500,7 +521,7 @@ fn critical_region_confluent(
             .iter()
             .filter(|read| !read.does_touch(contig, s_thr, s) && read.does_touch(contig, t, t_thr))
             .collect();
-        let thr = (width * ave * FACTOR).max(20);
+        let thr = (width * ave * FACTOR).max(20 * width);
         // Case1.
         if st_upstream.len() >= thr {
             let c1 = Position::new(contig, s, t, Direction::UpStream);

@@ -12,8 +12,8 @@ dataset <- read_tsv("./result/merge_test.txt",col_names=FALSE) %>%
     rename(seed = X1, lkgain = X2, dist = X3)
 
 
-g <- dataset %>%
-    ggplot() + geom_point(mapping = aes(x = dist/X4, y = lkgain))
+g <- dataset %>% filter(dist < 5) %>% 
+    ggplot() + geom_point(mapping = aes(x = dist, y = lkgain))
 
 
 generalplot(g,"merge_criteria")

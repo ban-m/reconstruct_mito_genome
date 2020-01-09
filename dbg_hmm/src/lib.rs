@@ -48,6 +48,7 @@ pub struct DeBruijnGraphHiddenMarkovModel {
     k: usize,
     // roughtly the same as coverage.
     weight: f64,
+    is_broken: bool,
 }
 
 impl std::fmt::Display for DBGHMM {
@@ -59,48 +60,57 @@ impl std::fmt::Display for DBGHMM {
             .sum::<usize>();
         write!(
             f,
-            "K:{}\tNodes:{}\tEdges:{}\tWeight:{:.3}",
+            "K:{}\tNodes:{}\tEdges:{}\tWeight:{:.3}\tBroke:{}",
             self.k,
             self.nodes.len(),
             edges,
-            self.weight
+            self.weight,
+            self.is_broken,
         )
     }
 }
 
 impl DeBruijnGraphHiddenMarkovModel {
     pub fn from(nodes: Vec<Kmer>, k: usize, weight: f64) -> Self {
-        // let (edges, edges_offset) = {
-        //     let mut edges = vec![100_000; nodes.len() * 4];
-        //     let mut idx: Vec<_> = (0..nodes.len()).map(|e| e * 4).collect();
-        //     for (from, n) in nodes.iter().enumerate() {
-        //         for &to in n.edges.iter().filter_map(|e| e.as_ref()) {
-        //             edges[idx[to]] = from;
-        //             idx[to] += 1;
-        //         }
-        //     }
-        //     let mut idx = vec![];
-        //     let mut curser = 0;
-        //     let edges: Vec<_> = edges
-        //         .chunks_exact(4)
-        //         .flat_map(|edges| {
-        //             idx.push(curser);
-        //             curser += edges.iter().filter(|&&src| src < 100_000).count();
-        //             edges.iter().filter(|&&src| src < 100_000)
-        //         })
-        //         .copied()
-        //         .collect();
-        //     idx.push(edges.len());
-        //     (edges, idx)
-        // };
-
+        // by default, it is not broken.
         Self {
             nodes,
             k,
             weight,
-            // edges,
-            // edges_offset,
+            is_broken: false,
         }
+    }
+    /// is_broken might be changed. The current value would be returned.
+    pub fn check(&mut self, testcase: &[&[u8]], c: &Config, limit: f64) -> bool {
+        use rand::{thread_rng, Rng};
+        let pick_prob = (10. / testcase.len() as f64).min(1.);
+        let mut rng = thread_rng();
+        let is_broken = !testcase
+            .iter()
+            .enumerate()
+            .filter(|&(idx, _)| idx < 2 || rng.gen_bool(pick_prob))
+            .any(|(_, test)| self.forward(test, c) > limit);
+        self.is_broken = is_broken;
+        // if self.is_broken {
+        //     debug!("Broken Model:{}", self);
+        // }
+        is_broken
+    }
+    /// is_broken might be changed. The current value would be returned.
+    pub fn check_vec(&mut self, testcase: &[Vec<u8>], c: &Config, limit: f64) -> bool {
+        use rand::{thread_rng, Rng};
+        let pick_prob = (10. / testcase.len() as f64).min(1.);
+        let mut rng = thread_rng();
+        let is_broken = !testcase
+            .iter()
+            .enumerate()
+            .filter(|&(idx, _)| idx < 2 || rng.gen_bool(pick_prob))
+            .any(|(_, test)| self.forward(test, c) > limit);
+        self.is_broken = is_broken;
+        is_broken
+    }
+    pub fn is_broken(&self) -> bool {
+        self.is_broken
     }
     pub fn new(dataset: &[Vec<u8>], k: usize) -> Self {
         let mut f = Factory::new();
@@ -119,10 +129,6 @@ impl DeBruijnGraphHiddenMarkovModel {
         let mut buf = vec![];
         f.generate_with_weight_prior(dataset, ws, k, &mut buf)
     }
-    // // Calc hat. Return (c,d)
-    // fn is_non_zero(idx: usize, xs: &[f64]) -> bool {
-    //     xs[idx * 3..(idx + 1) * 3].iter().any(|&e| e > 0.00001)
-    // }
     fn sum(xs: &[f64]) -> f64 {
         assert!(xs.len() % 4 == 0);
         xs.chunks_exact(f64s::lanes())
@@ -297,7 +303,7 @@ impl DeBruijnGraphHiddenMarkovModel {
     #[cfg(target_feature = "sse")]
     pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
         assert!(obs.len() > self.k);
-        if self.weight() < 2. {
+        if self.weight() < 2. || self.is_broken() {
             return config.null_model(obs);
         }
         // Alignemnts: [mat, ins, del,  mat, ins, del,  ....]
@@ -463,6 +469,9 @@ impl DeBruijnGraphHiddenMarkovModel {
     }
     // Viterbi algorithm. Return Vec<(base,state)>.
     pub fn viterbi(&self, obs: &[u8], config: &Config) -> (f64, Vec<(u8, u8)>) {
+        if self.weight() < 2. || self.is_broken() {
+            return (0., vec![]);
+        }
         assert!(obs.len() > self.k);
         // Alignemnts: [mat, ins, del, mat, ins, del, ....]
         let (_, _, prev) = self.initialize(&obs[..self.k], config);

@@ -14,7 +14,7 @@ echo -e "Read:${4} OUTPUT_DIR:${1}" 1>&2
 echo -e "OUTPUT_PREFIX:${2}" 1>&2
 
 canu \
-	genomeSize=1M \
-    gridEngineMemoryOption="-l mem_free=MEMORY" \
+	genomeSize=500K \
+    gridEngineResourceOption="-pe smp THREADS -l mem_free=MEMORY"\
     gridOptions="-S /bin/bash -V" \
     -d $1 -p $2 $3 $4

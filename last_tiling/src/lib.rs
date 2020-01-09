@@ -13,12 +13,10 @@ pub mod contig;
 pub mod lasttab;
 pub mod repeat;
 pub mod unit;
-
 pub use contig::Contigs;
 pub use lasttab::LastTAB;
 pub use lasttab::Op;
 pub use unit::EncodedRead;
-
 use bio_utils::fasta;
 use rayon::prelude::*;
 use repeat::RepeatPairs;

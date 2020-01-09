@@ -134,7 +134,7 @@ qsub -o ./logfiles/flye_nanopore.out -e ./logfiles/flye_nanopore.log \
      ./script/flye.job \
      nano-raw \
      ${ONT_FILTERED} \
-     ${ONT_OUTPUT}/flye \
+     ${ONT_OUTPUT}/flye 
      
 rm -rf ${SEQUEL_OUTPUT}/flye
 mkdir -p ${SEQUEL_OUTPUT}/flye

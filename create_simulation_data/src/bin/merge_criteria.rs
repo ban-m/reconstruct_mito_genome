@@ -28,27 +28,23 @@ fn main() {
         let seed: u64 = args[3].parse().unwrap();
         (coverage, clusters, seed)
     } else {
-        (40, 6, 1342374)
+        (60, 6, 1342374)
     };
     let p = &gen_sample::Profile {
-        sub: 0.0005,
-        ins: 0.0005,
-        del: 0.0005,
+        sub: 0.00005,
+        ins: 0.00005,
+        del: 0.00005,
     };
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let template = (0..chain_len)
         .map(|_| gen_sample::generate_seq(&mut rng, len))
         .collect::<Vec<_>>();
     let templates: Vec<_> = (0..clusters)
-        .map(|cl| {
-            if cl < 2 {
-                template.clone()
-            } else {
-                template
-                    .iter()
-                    .map(|e| gen_sample::introduce_randomness(e, &mut rng, p))
-                    .collect::<Vec<_>>()
-            }
+        .map(|_| {
+            template
+                .iter()
+                .map(|e| gen_sample::introduce_randomness(e, &mut rng, p))
+                .collect::<Vec<_>>()
         })
         .collect();
     let dataset: Vec<_> = templates

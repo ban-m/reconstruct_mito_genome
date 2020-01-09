@@ -13,12 +13,13 @@ args <- commandArgs(trailingOnly=TRUE)
 filename <- args[1]
 outputname <- args[2]
 
-dataset <- read_tsv(filename,col_names = FALSE) %>% 
-    nest(-X1) %>% select(-c(1)) %>% 
+dataset <- read_tsv(filename,col_names = FALSE) %>%
+    select(-X1) %>% 
+    nest(-X2) %>% select(-c(1)) %>% 
     mutate(Replicate = factor(row_number())) %>%
     mutate(data = map(data, function(x) x %>% mutate(Iteration = 1:dim(x)[1]))) %>% 
     unnest() %>%
-    rename(LogLikelihood = X2) 
+    mutate(Accuracy = pmax(X10, 1-X10))
 
-g <- dataset %>% ggplot() + geom_line(aes(x = Iteration, y = LogLikelihood, color = Replicate))
+g <- dataset %>% ggplot() + geom_line(aes(x = Iteration, y = Accuracy, color = Replicate))
 generalplot(g, outputname)
