@@ -21,7 +21,7 @@ fn main() -> std::io::Result<()> {
     let args: Vec<_> = std::env::args().collect();
     let reads: Vec<_> = bio_utils::fasta::parse_into_vec(&args[1])?
         .into_iter()
-        .filter(|r| r.desc().unwrap().contains("sample"))
+        // .filter(|r| r.desc().unwrap().contains("sample"))
         .collect();
     debug!("{} reads in total.", reads.len());
     let reference = last_tiling::Contigs::from_file(&args[2])?;
@@ -36,7 +36,7 @@ fn main() -> std::io::Result<()> {
     let answer: HashMap<_, _> = reads
         .iter()
         .filter_map(|e| {
-            let is_original = e.desc()?.contains("sample1");
+            let is_original = e.desc()?.contains("master_circle");
             Some((e.id().to_string(), is_original))
         })
         .collect();
@@ -68,7 +68,7 @@ fn main() -> std::io::Result<()> {
         debug!("Semi Random mode");
         let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1893749823);
         let (training, testset): (Vec<_>, Vec<_>) =
-            reads.into_iter().partition(|_| rng.gen_bool(0.1));
+            reads.into_iter().partition(|_| rng.gen_bool(0.05));
         (training, testset)
     } else {
         debug!("Half mode");
@@ -125,6 +125,7 @@ fn predict(
         .map(|&e| if e { 0 } else { 1 })
         .collect();
     let forbid: Vec<_> = data.iter().map(|_| vec![]).collect();
+    debug!("Dump contig...");
     let contigs: Vec<_> = (0..contig.get_num_of_contigs())
         .map(|e| contig.get_last_unit(e as u16).unwrap() as usize + 1)
         .collect();
@@ -163,7 +164,7 @@ fn setup(
             .filter_map(|e| e.encode())
             .map(|e| e.unit)
             .min()
-            .unwrap()
+            .unwrap_or(0)
     });
     let training_size = training.len();
     training.append(&mut tests);

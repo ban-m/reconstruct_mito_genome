@@ -5,10 +5,10 @@ function create_mock() {
     OUTPATH=$1
     LEN=$2
     mkdir -p ${OUTPATH}
-    cargo run --release --bin create_mock_genomes_hard -- ${LEN} > ${OUTPATH}/mock_genome.fa
+    cargo run --release --bin create_mock_genomes_extreme -- ${LEN} > ${OUTPATH}/mock_genome.fa
     badread simulate \
             --reference ${OUTPATH}/mock_genome.fa \
-            --quantity 150x --error_model pacbio \
+            --quantity 160x --error_model pacbio \
             --qscore_model pacbio --identity 85,95,3 \
             --junk_reads 0 --random_reads 0 --chimeras 0 \
             --length 15000,1000 > ${OUTPATH}/reads.fq
@@ -17,6 +17,6 @@ function create_mock() {
     cat ${OUTPATH}/mock_genome.fa | paste - - | head -n1 | tr '\t' '\n' > ${OUTPATH}/mock_genome_ref.fa
 }
 
-create_mock ./data/short_hard 20000
-# create_mock ./data/middle_hard 200000
-# create_mock ./data/long_hard 300000
+create_mock ./data/short_extreme 20000
+# create_mock ./data/middle_extreme 200000
+# create_mock ./data/long_extreme 300000

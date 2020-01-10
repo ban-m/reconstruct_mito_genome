@@ -5,8 +5,6 @@
 //! and the [forwardalgorithm](DeBruijnGraphHiddenMarkovModel::forward)
 //! to calculate the probability this graph would generate the given observation.
 //! As a shorthand for the vary long name, I also supply [DBGHMM] as a alias for [DeBruijnGraphHiddenMarkovModel].
-extern crate edlib_sys;
-extern crate env_logger;
 #[allow(unused_imports)]
 #[macro_use]
 extern crate log;
@@ -877,72 +875,42 @@ mod tests {
             assert!(correct >= num * 4 / 5, "{}", correct);
         }
     }
-    #[test]
-    fn single_error_test_aln() {
-        let bases = b"ACTG";
-        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1234565);
-        let coverage = 200;
-        let start = 20;
-        let step = 4;
-        let mut f = Factory::new();
-        let results: Vec<_> = (start..coverage)
-            .step_by(step)
-            .map(|cov| {
-                let template1: Vec<_> = (0..150)
-                    .filter_map(|_| bases.choose(&mut rng))
-                    .copied()
-                    .collect();
-                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 1, 0, 0);
-                let sub = check_aln(&template1, &template2, &mut rng, cov, &mut f);
-                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 1, 0);
-                let del = check_aln(&template1, &template2, &mut rng, cov, &mut f);
-                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 0, 1);
-                let ins = check_aln(&template1, &template2, &mut rng, cov, &mut f);
-                (cov, (sub, del, ins))
-            })
-            .collect();
-        let (sub, del, ins) = results
-            .iter()
-            .fold((0, 0, 0), |(x, y, z), &(_, (a, b, c))| {
-                (x + a, y + b, z + c)
-            });
-        for (cov, res) in results {
-            eprintln!("Cov:{},Sub:{},Del:{},Ins:{}", cov, res.0, res.1, res.2);
-        }
-        eprintln!("Tot:{}", (start..coverage).step_by(step).count() * 100);
-        eprintln!("Sub:{},Del:{},Ins:{}", sub, del, ins);
-        assert!(false);
-    }
-    fn check_aln<R: rand::Rng>(
-        t1: &[u8],
-        t2: &[u8],
-        rng: &mut R,
-        cov: usize,
-        f: &mut Factory,
-    ) -> usize {
-        let model1: Vec<_> = (0..cov)
-            .map(|_| introduce_randomness(&t1, rng, &PROFILE))
-            .collect();
-        let model2: Vec<_> = (0..cov)
-            .map(|_| introduce_randomness(&t2, rng, &PROFILE))
-            .collect();
-        let correct = (0..100)
-            .filter(|e| {
-                if e % 2 == 0 {
-                    let q = introduce_randomness(&t1, rng, &PROFILE);
-                    let d1: u32 = model1.iter().map(|e| edlib_sys::global_dist(&q, e)).sum();
-                    let d2: u32 = model2.iter().map(|e| edlib_sys::global_dist(&q, e)).sum();
-                    d1 < d2
-                } else {
-                    let q = introduce_randomness(&t2, rng, &PROFILE);
-                    let d1: u32 = model1.iter().map(|e| edlib_sys::global_dist(&q, e)).sum();
-                    let d2: u32 = model2.iter().map(|e| edlib_sys::global_dist(&q, e)).sum();
-                    d1 > d2
-                }
-            })
-            .count();
-        correct
-    }
+    // #[test]
+    // fn single_error_test_aln() {
+    //     let bases = b"ACTG";
+    //     let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1234565);
+    //     let coverage = 200;
+    //     let start = 20;
+    //     let step = 4;
+    //     let mut f = Factory::new();
+    //     let results: Vec<_> = (start..coverage)
+    //         .step_by(step)
+    //         .map(|cov| {
+    //             let template1: Vec<_> = (0..150)
+    //                 .filter_map(|_| bases.choose(&mut rng))
+    //                 .copied()
+    //                 .collect();
+    //             let template2 = gen_sample::introduce_errors(&template1, &mut rng, 1, 0, 0);
+    //             let sub = check_aln(&template1, &template2, &mut rng, cov, &mut f);
+    //             let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 1, 0);
+    //             let del = check_aln(&template1, &template2, &mut rng, cov, &mut f);
+    //             let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 0, 1);
+    //             let ins = check_aln(&template1, &template2, &mut rng, cov, &mut f);
+    //             (cov, (sub, del, ins))
+    //         })
+    //         .collect();
+    //     let (sub, del, ins) = results
+    //         .iter()
+    //         .fold((0, 0, 0), |(x, y, z), &(_, (a, b, c))| {
+    //             (x + a, y + b, z + c)
+    //         });
+    //     for (cov, res) in results {
+    //         eprintln!("Cov:{},Sub:{},Del:{},Ins:{}", cov, res.0, res.1, res.2);
+    //     }
+    //     eprintln!("Tot:{}", (start..coverage).step_by(step).count() * 100);
+    //     eprintln!("Sub:{},Del:{},Ins:{}", sub, del, ins);
+    //     assert!(false);
+    // }
     #[test]
     fn single_error_test() {
         let bases = b"ACTG";

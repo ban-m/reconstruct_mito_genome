@@ -32,7 +32,7 @@ fn main() -> std::io::Result<()> {
                 Some(res) => res,
                 None => return (id, 0),
             };
-            if desc.contains("master_circle") {
+            if desc.contains("sample1") {
                 (id, 0)
             } else {
                 (id, 1)

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<html>
+  <head>
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <link rel="stylesheet" type="text/css" href="/scripts/style.css">
+  </head>
+  <body>
+    <div class = "title">
+      Circos plot of Plant mitochondria.
+    </div>
+    <div id = "plot"></div>
+    <div id = "info"></div>
+    <script src="/scripts/drawer_lightweight.js"></script>
+    <script>
+      const dataset = "/result/complex1/viwer/data.json";
+      const repeats = "/result/complex1/viwer/repeats.json";
+      const unit_length = 150;
+      plotData(dataset,repeats,150);
+    </script>
+  </body>
+</html>

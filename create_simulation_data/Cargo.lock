@@ -376,13 +376,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "dbg_hmm"
 version = "0.1.0"
 dependencies = [
- "edlib_sys 0.1.0",
- "env_logger 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "packed_simd 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand_xoshiro 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "rayon 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

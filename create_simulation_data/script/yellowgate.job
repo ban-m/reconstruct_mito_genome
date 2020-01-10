@@ -3,18 +3,24 @@
 #$ -N MockGenomePred
 #$ -cwd
 #$ -pe smp 24
-#$ -e ./logfiles/complex1.log
-#$ -o ./logfiles/complex1.log
+#$ -e ./logfiles/yg.log
+#$ -o ./logfiles/yg.log
 #$ -V
 #$ -m e
 
 ROOT=${PWD}
-READ=${ROOT}/data/complex/read_complex1.fa
-REFERENCE=${ROOT}/data/complex/reference.fa
-OUTPUT=${ROOT}/result/complex1_test
+READ=$1
+REFERENCE=$2
+OUTPUT=$3
 CORES=24
 
+
 # ----- Alignment -----
+if [ -d ${OUTPUT} ]
+then
+    echo "Removing previous results..."
+    rm -r ${OUTPUT}
+fi
 mkdir -p ${OUTPUT}/last_db
 cd ${OUTPUT}/last_db
 lastdb -R00 -Q0 reference ${REFERENCE}
@@ -25,14 +31,10 @@ lastal -f tab -P${CORES} -R00 -Q0 -p reference.matrix reference ${REFERENCE} > s
 cd ${ROOT}
 
 # ----- Prediction ------
-./target/release/predict_mockdata \
-    ${READ} ${REFERENCE} ${OUTPUT}/last_db/alignments.tab random\
-    > ${OUTPUT}/predictions_random.tsv
-
-# ./target/release/yellowgate \
-#     ${READ}\
-#     ${REFERENCE} \
-#     ${OUTPUT}/last_db/alignments.tab \
-#     ${OUTPUT}/last_db/self.tab \
-#     ${OUTPUT} > ${OUTPUT}/yg.out 2> ${OUTPUT}/yg.log
+./target/release/yellowgate \
+    ${READ}\
+    ${REFERENCE} \
+    ${OUTPUT}/last_db/alignments.tab \
+    ${OUTPUT}/last_db/self.tab \
+    ${OUTPUT} > ${OUTPUT}/yg.out 2> ${OUTPUT}/yg.log
 

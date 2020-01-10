@@ -6,7 +6,9 @@ use std::cmp::{Ord, Ordering, PartialOrd};
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 /// The threshould used to determine whether two regions would be regarded as pairs.
-const FACTOR: usize = 2;
+const fn factor(x: usize) -> usize {
+    x * 3 / 2
+}
 /// How many reads are needed to construct a separate class.
 /// Note that it should be more than 1, since there is a
 /// danger of chimeric reads.
@@ -67,6 +69,7 @@ pub struct Position {
     start_unit: u16,
     end_unit: u16,
     direction: Direction,
+    longest: u16,
 }
 
 impl Ord for Position {
@@ -102,13 +105,14 @@ pub enum Direction {
 }
 
 impl Position {
-    fn new(contig: u16, s: u16, e: u16, direction: Direction) -> Self {
+    fn new(contig: u16, s: u16, e: u16, direction: Direction, max: u16) -> Self {
         let (start_unit, end_unit) = (s, e);
         Self {
             contig,
             start_unit,
             end_unit,
             direction,
+            longest: max,
         }
     }
     pub fn range(&self) -> (i32, i32) {
@@ -130,7 +134,11 @@ impl Position {
         let s = self.start_unit;
         let t = self.end_unit;
         let (s_thr, t_thr) = (s.max(CHECK_THR) - CHECK_THR, t + CHECK_THR);
-        r.does_touch(self.contig, s_thr, s) && r.does_touch(self.contig, t, t_thr)
+        if t_thr < self.longest {
+            r.does_touch(self.contig, s_thr, s) && r.does_touch(self.contig, t, t_thr)
+        } else {
+            r.does_touch(self.contig, s_thr, s) && r.does_touch(self.contig, 0, CHECK_THR)
+        }
     }
     fn along_with(&self, r: &ERead) -> bool {
         let s = self.start_unit;
@@ -365,7 +373,7 @@ fn critical_region_within(
     let ave = reads.len() / last_unit;
     let inner_region = {
         let inner_counts = inner_count.iter().map(|e| e.len()).collect::<Vec<_>>();
-        let inner_region: Vec<_> = peak_detection(&inner_counts, ave * FACTOR)
+        let inner_region: Vec<_> = peak_detection(&inner_counts, factor(ave))
             .into_iter()
             .chain(repeats.iter().flat_map(|repeats| {
                 (repeats
@@ -429,15 +437,16 @@ fn critical_region_within(
             assert!(st_upstream.intersection(&st_downstream).count() == 0);
             assert!(xy_upstream.intersection(&xy_downstream).count() == 0);
             let width = (t - s).max(y - x) as usize;
-            let thr = width * ave * FACTOR;
+            let thr = factor(width * ave);
             // Case1.
+            let last_unit = last_unit as u16;
             if st_upstream.intersection(&xy_downstream).count() >= thr {
                 // debug!(
                 //     "Up-Down:{}",
                 //     st_upstream.intersection(&xy_downstream).count()
                 // );
-                let c1 = Position::new(contig, s, t, Direction::UpStream);
-                let c2 = Position::new(contig, x, y, Direction::DownStream);
+                let c1 = Position::new(contig, s, t, Direction::UpStream, last_unit);
+                let c2 = Position::new(contig, x, y, Direction::DownStream, last_unit);
                 result.push(CriticalRegion::CP(ContigPair::new(c1, c2)));
             }
             // Case2
@@ -446,20 +455,20 @@ fn critical_region_within(
                 //     "Down-Up:{}",
                 //     st_downstream.intersection(&xy_upstream).count()
                 // );
-                let c1 = Position::new(contig, s, t, Direction::DownStream);
-                let c2 = Position::new(contig, x, y, Direction::UpStream);
+                let c1 = Position::new(contig, s, t, Direction::DownStream, last_unit);
+                let c2 = Position::new(contig, x, y, Direction::UpStream, last_unit);
                 result.push(CriticalRegion::CP(ContigPair::new(c1, c2)));
             }
             // Case3
             if st_upstream.intersection(&xy_upstream).count() >= thr {
-                let c1 = Position::new(contig, s, t, Direction::UpStream);
-                let c2 = Position::new(contig, x, y, Direction::UpStream);
+                let c1 = Position::new(contig, s, t, Direction::UpStream, last_unit);
+                let c2 = Position::new(contig, x, y, Direction::UpStream, last_unit);
                 result.push(CriticalRegion::CP(ContigPair::new(c1, c2)));
             }
             // Case4
             if st_downstream.intersection(&xy_downstream).count() >= thr {
-                let c1 = Position::new(contig, s, t, Direction::DownStream);
-                let c2 = Position::new(contig, x, y, Direction::DownStream);
+                let c1 = Position::new(contig, s, t, Direction::DownStream, last_unit);
+                let c2 = Position::new(contig, x, y, Direction::DownStream, last_unit);
                 result.push(CriticalRegion::CP(ContigPair::new(c1, c2)));
             }
         }
@@ -492,6 +501,7 @@ fn critical_region_confluent(
         merge_overlap_and_remove_contained(clip_region)
             .into_iter()
             .map(|(s, e)| (s as u16, e as u16))
+            .filter(|&(s, e)| CHECK_THR < s || CHECK_THR < e)
             .collect::<Vec<_>>()
     };
     // debug!("Aggregated!");
@@ -509,7 +519,7 @@ fn critical_region_confluent(
         // ----s||||t-----
         // Case1: <---s(entry)y     : (s,t):UpStream
         // Case2:     s(entry)t---> : (s,t):DownStream
-        let width = (t - s) as usize;
+        let width = (t - s + 2 * CHECK_THR) as usize;
         let (s_thr, t_thr) = (s.max(CHECK_THR) - CHECK_THR, t + CHECK_THR);
         // Here, we maybe want to get circulaized genome region.
         // It should not happen in x-y, because we force 0 < t < x < y.
@@ -521,15 +531,16 @@ fn critical_region_confluent(
             .iter()
             .filter(|read| !read.does_touch(contig, s_thr, s) && read.does_touch(contig, t, t_thr))
             .collect();
-        let thr = (width * ave * FACTOR).max(20 * width);
+        let thr = factor(width.max(20) * ave);
+        let last_unit = last_unit as u16;
         // Case1.
         if st_upstream.len() >= thr {
-            let c1 = Position::new(contig, s, t, Direction::UpStream);
+            let c1 = Position::new(contig, s, t, Direction::UpStream, last_unit);
             result.push(CriticalRegion::CR(ConfluentRegion::new(c1)));
         }
         // Case2
         if st_downstream.len() >= thr {
-            let c1 = Position::new(contig, s, t, Direction::DownStream);
+            let c1 = Position::new(contig, s, t, Direction::DownStream, last_unit);
             result.push(CriticalRegion::CR(ConfluentRegion::new(c1)));
         }
     }

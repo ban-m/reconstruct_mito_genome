@@ -19,7 +19,12 @@ ggsave(filename = str_c("./pics/", outputname, "_histogram.png"), g)
 
 g <-data %>%  filter(MAF<0.5) %>% ggplot() +
     geom_point(mapping = aes(x = Pos, y = MAF, color = Type), size = 0.2) + facet_grid(Type ~ .) + ylim(c(0,0.5))
-ggsave(filename = str_c("./pics/",outputname,"_point.png"), g)
+generalplot(filename = str_c("./pics/",outputname,"_point.png"), g)
+
+g <-data %>%  filter(MAF<0.5) %>% ggplot() +
+    geom_point(mapping = aes(x = Pos, y = MAF, color = Type), size = 0.2) + ylim(c(0,0.5))
+generalplot(filename = str_c("./pics/",outputname,"_point_merged.png"), g)
+
 
 data <- data %>% filter(Type == "Sub")
 filtered <- data %>%

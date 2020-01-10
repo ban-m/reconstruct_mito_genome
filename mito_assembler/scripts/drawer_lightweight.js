@@ -142,9 +142,10 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
     // Output: String
     // Requirements: read should have units attribute, each of which elements
     // should have either "G"(for Gap) or "E"(for Encode)
+    // Note that E consists of 
     let path = d3.path();
     let units = Array.from(read.units).reverse();
-    const r = read_radius; //  + (read['cluster'] + 1); // + jitters();
+    const r = read_radius;
     let gap = 0;
     let unit = {};
     while(!unit.hasOwnProperty("E")){
@@ -156,81 +157,46 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
         }
     };
     // Current ID of the contig 
-    let contig = unit.E[0];
-    let current_unit = unit.E[1];
-    let start = start_pos[contig] - Math.PI/2;
-    let radian = start + bp_scale(unit_length*unit.E[1]);
+    let current_contig = unit.E[0];
+    let start = start_pos[current_contig] - Math.PI/2;
+    let s_radian = start + bp_scale(unit_length*unit.E[1]);
+    let e_radian = start + bp_scale(unit_length*unit.E[3]);
     if (gap != 0){
-        path.moveTo(gap_scale(gap) * Math.cos(radian), gap_scale(gap)*Math.sin(radian));
-        path.lineTo(read_radius * Math.cos(radian), read_radius * Math.sin(radian));
+        path.moveTo(gap_scale(gap) * Math.cos(s_radian), gap_scale(gap)*Math.sin(s_radian));
+        path.lineTo(read_radius * Math.cos(s_radian), read_radius * Math.sin(s_radian));
     }else{
-        path.moveTo(read_radius * Math.cos(radian), read_radius * Math.sin(radian));
+        path.moveTo(read_radius * Math.cos(s_radian), read_radius * Math.sin(s_radian));
     }
+    path.arc(0,0,r,s_radian, e_radian);
+    let current_unit = unit.E[3];
     for (unit of units.reverse()){
         if (unit.hasOwnProperty("G")){
-            // if (unit.G > unit_length * 2){
-            //     gap = unit.G;
-            // }
             continue;
         }
         const diff = Math.abs(unit.E[1]-current_unit);
         current_unit = unit.E[1];
-        if (unit.E[0] == contig && diff < 100){
-            radian = start + bp_scale(unit_length*unit.E[1]);
-            path.lineTo(r * Math.cos(radian), r*Math.sin(radian));
+        if (unit.E[0] == current_contig && diff < 100){
+            s_radian = start + bp_scale(unit_length*unit.E[1]);
+            e_radian = start + bp_scale(unit_length*unit.E[3]);
+            path.arc(0,0,r,s_radian,e_radian);
+            current_unit = unit.E[3];
         }else{
             // Change contig. Connect them.
-            const new_radian = start_pos[unit.E[0]];
-            radian = new_radian + bp_scale(unit_length*unit.E[1]) - Math.PI/2;
+            start = start_pos[unit.E[0]] - Math.PI/2;
+            s_radian = start + bp_scale(unit_length*unit.E[1]);
+            e_radian = start + bp_scale(unit_length*unit.E[3]);
             // Bezier Curve to new point from here.
-            const control_radius = handle_points[contig][unit.E[0]] - Math.PI/2;
+            const control_radius = handle_points[current_contig][unit.E[0]] - Math.PI/2;
             const control_x = handle_points_radius*Math.cos(control_radius);
             const control_y = handle_points_radius*Math.sin(control_radius);
-            contig = unit.E[0];
-            start = start_pos[contig] - Math.PI/2;
-            path.quadraticCurveTo(control_x,control_y,r*Math.cos(radian),r*Math.sin(radian));
+            current_contig = unit.E[2];
+            path.quadraticCurveTo(control_x,control_y,r*Math.cos(s_radian),r*Math.sin(s_radian));
+            path.arc(0,0,r,s_radian,e_radian);
+            current_unit = unit.E[3];
         }
     }
     return path.toString();
 };
-
-const calcID = (read,unit_length)=>{
-    // Input: Json object
-    // Output: JSON object having "type" property and "id" property(maybe).
-    // Requirements: read should have "units" property, which is a vector
-    // and each of element should have eigther "Gap" or "Encode" type.
-    // Returns the most assigned type of given read.
-    const gap = read
-          .units
-          .filter(unit => unit.hasOwnProperty("G"))
-          .reduce((g, unit) => g + unit.G,0);
-    const summary = read
-          .units
-          .filter(unit => unit.hasOwnProperty("E"))
-          .map(unit => unit.E[0])
-          .reduce((map,ctg)=>{
-              if (map.has(ctg)){
-                  map.set(ctg,map.get(ctg)+unit_length);
-              }else{
-                  map.set(ctg,unit_length);
-              }
-              return map;
-          }, new Map());
-    let max = undefined;
-    summary
-        .forEach((len,ctg)=>{
-            if (max == undefined || max.len < len){
-                max = {"ctg":ctg, "len":len};
-            }else {
-                max = max;
-            }});
-    if (max == undefined){
-        return {"type":"Gap"};
-    }else{
-        return (max.len < gap ? {"type":"Gap"} : {"type":"Contig", "id":max.ctg});
-    }
-};
-
 
 const selectRead = (read,unitlen) => {
     // Input: JSON object, Num
@@ -420,15 +386,23 @@ const calcCoverageOf = (reads, contigs)=>{
                 length: covs.length,
                 cov: coverage
                };});
+    console.log("Start");
     for (const read of reads){
         for (const unit of read.units){
             if (unit.hasOwnProperty('E')){
                 const c = unit.E[0];
-                const p = unit.E[1];
-                results[c].cov[p] += 1;
+                const s = unit.E[1];
+                const e = unit.E[3];
+                const start = Math.min(s,e);
+                const end = Math.max(s,e);
+                Array(end-start)
+                    .fill(0)
+                    .map((_,idx)=>idx+start)
+                    .forEach((i)=> results[c].cov[i] +=1);
             }
         }
     }
+    console.log("Done");
     return results;
 };
 
@@ -442,8 +416,9 @@ const plotData = (dataset, repeats, unit_length) =>
           // This is also an array.
           // const reads = values.reads;
           // Or select reads as you like.
-          const reads = values.reads.filter(r => selectRead(r,unit_length));
+          const reads = values.reads;
           const critical_regions = values.critical_regions;
+          const clusters = values.clusters;
           // Calculate coordinate.
           const bp_scale = calcScale(contigs);
           const coverage_scale = calcCovScale(contigs);
@@ -545,43 +520,69 @@ const plotData = (dataset, repeats, unit_length) =>
               .append("path")
               .attr("class", "cr")
               .attr("d", cr => crToPath(cr, handle_points, bp_scale, start_pos, unit_length))
-              .attr("stroke", (_,idx) => d3.schemeCategory10[(idx+1)%10])
+              .attr("stroke", (cr,idx) => {
+                  const searched = clusters.filter(cl => {
+                      return cl.critical_regions.includes(idx);
+                  })
+                        .map((d,idx) => {
+                            return {cluster:d,
+                                    cluster_idx:idx};
+                        });
+                  if (searched.length == 0){
+                      return "black";
+                  }
+                  const {cluster, cluster_idx} = searched[0];
+                  return d3.schemeCategory10[(cluster_idx+1)%10];
+              })
               .attr("stroke-width", (cr,idx) => (cr.hasOwnProperty("CP")) ? 5 : 100)
               .attr("stroke-linecap", (cr,idx) => (cr.hasOwnProperty("CP")) ? "round" : "none")
               .attr("opacity",cr => (cr.hasOwnProperty("CP")) ? 0.4 : 0.5)
-              .attr("fill",  (_,idx) => d3.schemeCategory10[(idx+1)%10])
+              .attr("fill",  (cr,idx) => d3.schemeCategory10[(idx+1)%10])
               .on("mouseover", function(d,idx) {
-                  const supporting_reads = reads.filter(r => r['cluster'].includes(idx));
+                  // First, determine the cluster.
+                  const searched = clusters.filter(cl => {
+                      return cl.critical_regions.includes(idx);
+                  })
+                        .map((d,idx) => {
+                            return {cluster:d,
+                                    cluster_idx:idx};
+                        });
+                  if (searched.length == 0){
+                      return;
+                  }
+                  const {cluster, cluster_idx} = searched[0];
+                  const supporting_reads = reads.filter(r => r['cluster'] == cluster_idx);
                   tooltip.style("opacity", 0.9);
                   const contents = crToHTML(d,idx,supporting_reads);
-                  console.log(supporting_reads[0].name);
                   tooltip.html(contents)
                       .style("left", (d3.event.pageX + 50) + "px")	
                       .style("top", (d3.event.pageY - 50) + "px");
-                  const coverages = calcCoverageOf(supporting_reads, contigs);
                   temp_coverage_layer
                       .selectAll(".tempcoverage")
-                      .data(coverages)
+                      .data(cluster.contigs)
                       .enter()
                       .append("path")
                       .attr("class", "tempcoverage")
-                      .attr("d", coverage => {
-                          const start = start_pos[coverage.id];
+                      .attr("d", contig => {
+                          console.log("Writing");
+                          const start = start_pos[contig.id];
                           const arc = d3.lineRadial()
-                                .angle((d,i) => start + bp_scale(i * unit_length))
+                                .angle((_,i) => start + bp_scale(i * unit_length))
                                 .radius(d => coverage_scale(d));
-                          return arc(coverage.cov);
+                          return arc(contig.coverages);
                       })
                       .attr("fill","none")
                       .attr("opacity", 0.9)
-                      .attr("stroke-width", 1)
+                      .attr("stroke-width", 2)
                       .attr("stroke", d3.schemeCategory10[(idx +1)% 10]);
               })
               .on("mouseout", d => {
+                  console.log("Detauch");
                   temp_coverage_layer
                       .selectAll(".tempcoverage")
                       .remove();
                   tooltip.style("opacity",0);
+                  console.log("Detauched");
               });
           info.append("div")
               .attr("class","numofgapread")

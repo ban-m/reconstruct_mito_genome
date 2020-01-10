@@ -48,7 +48,8 @@ const LK_LIMIT: f64 = -150.;
 // const A: f64 = -0.245;
 // const B: f64 = 3.6;
 // These A and B are to offset the low-coverage region. For THR=2.0,
-const A_PRIOR: f64 = -0.089;
+// const A_PRIOR: f64 = -0.089;
+const A_PRIOR: f64 = -0.1;
 const B_PRIOR: f64 = 3.1;
 // const A_PRIOR: f64 = -0.0104;
 // const B_PRIOR: f64 = 0.33;
@@ -79,7 +80,7 @@ const ALPHA: f64 = 1.01;
 // const BETA: f64 = 0.5;
 // Loop number for Gibbs sampling.
 // const LOOP_NUM: usize = 20;
-const LOOP_NUM: usize = 13;
+const LOOP_NUM: usize = 10;
 // Loop number for variational Bayes.
 const LOOP_NUM_VB: usize = 20;
 // Initial picking probability.
@@ -105,6 +106,9 @@ pub fn decompose(
     config: dbg_hmm::Config,
     answer: &HashMap<String, u8>,
 ) -> Vec<(String, u8)> {
+    for (idx, cr) in critical_regions.iter().enumerate() {
+        debug!("{}\t{}", idx, cr);
+    }
     let datasize = encoded_reads.len();
     let mut unassigned_reads: Vec<_> = vec![];
     let mut assigned_reads: Vec<_> = vec![];
@@ -124,28 +128,13 @@ pub fn decompose(
     }
     assert_eq!(labels.len(), assigned_reads.len());
     assert_eq!(assigned_reads.len() + unassigned_reads.len(), datasize);
-    let forbidden = {
-        let mut forbidden = vec![vec![]; labels.len()];
-        forbidden.extend(unassigned_reads.iter().map(|read| {
-            critical_regions
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, cr)| {
-                    if cr.is_spanned_by(&read) {
-                        Some(idx as u8)
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<u8>>()
-        }));
-        forbidden
-    };
     let masked_region = get_masked_region(&critical_regions, &contigs, repeats);
     // Remove contained reads.
+    let mut forbidden = vec![];
     let assigned_reads: Vec<_> = assigned_reads
         .into_iter()
         .map(|mut read| {
+            forbidden.push(vec![]);
             let seq = read
                 .seq()
                 .iter()
@@ -160,20 +149,46 @@ pub fn decompose(
     // This should not decrease the number of assigned reads,
     // as each assigned reads should escaped from repetitive regions.
     assert_eq!(assigned_reads.len(), labels.len());
+    debug!(
+        "Unassigned reads before removing contained:{}",
+        unassigned_reads.len()
+    );
     let unassigned_reads: Vec<_> = unassigned_reads
         .into_iter()
-        .map(|mut read| {
-            let seq = read
+        .filter_map(|mut read| {
+            let crs: Vec<_> = critical_regions
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, cr)| {
+                    if cr.is_spanned_by(&read) {
+                        Some(idx as u8)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            let seq: Vec<_> = read
                 .seq()
                 .iter()
-                .filter(|unit| !masked_region[unit.contig as usize][unit.unit as usize])
+                .filter(|unit| !masked_region[unit.contig()][unit.unit()])
                 .cloned()
                 .collect();
+            if seq.is_empty() {
+                debug!("Read {} would be an empty read.", read);
+            }
             *read.seq_mut() = seq;
-            read
+            if !read.is_empty() {
+                forbidden.push(crs);
+                Some(read)
+            } else {
+                None
+            }
         })
-        .filter(|read| !read.is_empty())
         .collect();
+    debug!(
+        "Unassigned reads after removing contained:{}",
+        unassigned_reads.len()
+    );
     let answer: Vec<_> = unassigned_reads
         .iter()
         .map(|read| match answer.get(read.id()) {
@@ -182,6 +197,7 @@ pub fn decompose(
         })
         .collect();
     let dataset = vec![assigned_reads, unassigned_reads].concat();
+    assert_eq!(forbidden.len(), dataset.len());
     let total_units = dataset.iter().map(|read| read.seq().len()).sum::<usize>();
     debug!(
         "There are {} reads and {} units.",
@@ -508,24 +524,19 @@ fn select_within(
     assert_eq!(data.len(), label.len() + answer.len());
     let (contig, start, end) = (contig as u16, start as u16, end as u16);
     let (mut s_data, mut s_label, mut s_forbid, mut s_answer) = (vec![], vec![], vec![], vec![]);
+    debug!("Selecting {}\t{}\t{}...", contig, start, end);
     let border = label.len();
-    for i in 0..border {
-        let read = &data[i];
-        let count = read.include_units(contig, start, end);
-        if count > 10 {
-            s_data.push(read.clone_within(contig, start, end));
-            s_label.push(label[i]);
-            s_forbid.push(forbidden[i].clone());
-            // Do not need push answer.
-        }
-    }
-    for i in border..data.len() {
+    for i in 0..data.len() {
         let read = &data[i];
         let count = read.include_units(contig, start, end);
         if count > 10 {
             s_data.push(read.clone_within(contig, start, end));
             s_forbid.push(forbidden[i].clone());
-            s_answer.push(answer[i - border]);
+            if i < border {
+                s_label.push(label[i]);
+            } else {
+                s_answer.push(answer[i - border]);
+            }
         }
     }
     (s_data, s_label, s_forbid, s_answer)
@@ -579,7 +590,6 @@ pub fn clustering_chunking(
         .enumerate()
         .flat_map(|(idx, len)| create_windows(idx, *len))
         .collect();
-    // let windows = vec![(0, 900, 1100)];
     let clusterings: Vec<Vec<HashSet<String>>> = windows
         .iter()
         .map(|&region| {
@@ -932,6 +942,9 @@ pub fn soft_clustering(
 ) -> Vec<Vec<f64>> {
     assert!(cluster_num > 1);
     debug!("{} reads.", data.len());
+    debug!("Labels:{}", label.len());
+    let informative = forbidden.iter().filter(|e| !e.is_empty()).count();
+    debug!("{} informative forbiddens", informative);
     for i in 0..cluster_num {
         let c = answer.iter().filter(|&&e| e == i as u8).count();
         debug!("Answer:{}\t{}", i, c);

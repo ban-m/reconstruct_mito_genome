@@ -4,5 +4,6 @@
 #         ./result/easy_simulated_genome/big_maf_counts.txt
 
 Rscript --vanilla --slave \
-        ./script/plots.R result/simulated_genome_long_hard/minor_allel_freq.tsv simulated_genome_long_hard \
-        ./result/simulated_genome_long_hard/big_maf_counts.txt
+        ./script/plots.R \
+        result/short_extreme/minor_allel_freq.tsv short_extreme \
+        ./result/short_extreme/big_maf_counts.txt
