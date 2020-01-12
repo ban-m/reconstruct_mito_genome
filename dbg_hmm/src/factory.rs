@@ -101,7 +101,7 @@ impl Factory {
     }
     pub fn generate_from_ref(&mut self, dataset: &[&[u8]], k: usize) -> DBGHMM {
         assert!(k <= 32, "k should be less than 32.");
-        eprintln!("======DEPRECATED FUNCTION=======\nDO NOT CALL `generate_from_ref.`");
+        // eprintln!("======DEPRECATED FUNCTION=======\nDO NOT CALL `generate_from_ref.`");
         let tk = 4u32.pow(k as u32) as usize;
         self.inner.clear();
         self.inner
@@ -192,33 +192,6 @@ impl Factory {
         self.clear();
         DBGHMM::from(nodes, k, weight)
     }
-    fn sort_nodes(mut nodes: Vec<Kmer>) -> Vec<Kmer> {
-        let mut positions: Vec<(usize, bool)> =
-            nodes.iter().map(|e| e.is_head).enumerate().collect();
-        positions.sort_by(|e, f| match (e.1, f.1) {
-            (true, true) | (false, false) => std::cmp::Ordering::Equal,
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-        });
-        let next_position: Vec<usize> = {
-            let mut pos = vec![0; nodes.len()];
-            for (next_pos, (previous, _)) in positions.into_iter().enumerate() {
-                pos[previous] = next_pos;
-            }
-            pos
-        };
-        let mut result = vec![None; nodes.len()];
-        let mut idx = nodes.len();
-        while let Some(mut node) = nodes.pop() {
-            idx -= 1;
-            node.rename_by(&next_position);
-            result[next_position[idx]] = Some(node);
-        }
-        assert!(result.iter().all(|e| e.is_some()));
-        assert!(nodes.is_empty());
-        nodes.extend(result.into_iter().filter_map(|e| e));
-        nodes
-    }
     pub fn generate_with_weight_prior(
         &mut self,
         dataset: &[&[u8]],
@@ -233,7 +206,8 @@ impl Factory {
         }
         assert!(k <= 32, "k should be less than 32.");
         use super::PRIOR_FACTOR;
-        let tk = 4u32.pow(k as u32) as usize;
+        let tk = (1 << (k * 2)) as usize;
+        // let tk = 4u32.pow(k as u32) as usize;
         let weight = PRIOR_FACTOR * coverage;
         self.inner
             .extend(std::iter::repeat((weight, std::usize::MAX)).take(tk));
@@ -247,7 +221,6 @@ impl Factory {
         dataset
             .iter()
             .zip(ws.iter())
-            // .filter(|&(seq, w)| w > ep && seq.len() >= k + 1)
             .filter(|&(seq, _)| seq.len() > k)
             .for_each(|(seq, w)| {
                 let mut node = to_u64(&seq[..k]);
@@ -292,12 +265,42 @@ impl Factory {
             }
         }
         let nodes = Self::sort_nodes(nodes);
+        // Here, we record the base counts.
         self.clear();
         let mut nodes = self.clean_up_nodes_exp(nodes);
         nodes.iter_mut().for_each(Kmer::finalize);
         self.clear();
         DBGHMM::from(nodes, k, coverage)
     }
+    fn sort_nodes(mut nodes: Vec<Kmer>) -> Vec<Kmer> {
+        let mut positions: Vec<(usize, bool)> =
+            nodes.iter().map(|e| e.is_head).enumerate().collect();
+        let cmp = |&(_, a): &(usize, bool), &(_, b): &(usize, bool)| match (a, b) {
+            (true, true) | (false, false) => std::cmp::Ordering::Equal,
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+        };
+        positions.sort_by(cmp);
+        let next_position: Vec<usize> = {
+            let mut pos = vec![0; nodes.len()];
+            for (next_pos, (previous, _)) in positions.into_iter().enumerate() {
+                pos[previous] = next_pos;
+            }
+            pos
+        };
+        let mut result = vec![None; nodes.len()];
+        let mut idx = nodes.len();
+        while let Some(mut node) = nodes.pop() {
+            idx -= 1;
+            node.rename_by(&next_position);
+            result[next_position[idx]] = Some(node);
+        }
+        assert!(result.iter().all(|e| e.is_some()));
+        assert!(nodes.is_empty());
+        nodes.extend(result.into_iter().filter_map(|e| e));
+        nodes
+    }
+
     fn clean_up_nodes(&mut self, nodes: Vec<Kmer>) -> Vec<Kmer> {
         let mut nodes = self.renaming_nodes(nodes);
         nodes.iter_mut().for_each(Kmer::finalize);
@@ -345,6 +348,46 @@ impl Factory {
             nodes
         }
     }
+    // fn trim_ht_edges(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
+    //     let mut buf = Vec::with_capacity(4);
+    //     self.clear();
+    //     // Remove non-head -> head edges.
+    //     nodes
+    //         .iter()
+    //         .for_each(|n| self.is_safe.push(n.is_head as u8));
+    //     for node in nodes.iter_mut().filter(|e| !e.is_head) {
+    //         let removes = node
+    //             .edges
+    //             .iter()
+    //             .enumerate()
+    //             .filter_map(|(idx, to)| to.map(|to| (idx, to)))
+    //             .filter(|(_, to)| self.is_safe[*to] == 1)
+    //             .map(|(idx, _)| idx);
+    //         buf.extend(removes);
+    //         while let Some(idx) = buf.pop() {
+    //             node.remove(idx);
+    //         }
+    //     }
+    //     self.is_safe.clear();
+    //     nodes
+    //         .iter()
+    //         .for_each(|n| self.is_safe.push(n.is_tail as u8));
+    //     for node in nodes.iter_mut().filter(|e| e.is_tail) {
+    //         let removes = node
+    //             .edges
+    //             .iter()
+    //             .enumerate()
+    //             .filter_map(|(idx, to)| to.map(|to| (idx, to)))
+    //             .filter(|(_, to)| self.is_safe[*to] == 0)
+    //             .map(|(idx, _)| idx);
+    //         buf.extend(removes);
+    //         while let Some(idx) = buf.pop() {
+    //             node.remove(idx);
+    //         }
+    //     }
+    //     self.clear();
+    //     nodes
+    // }
     fn bridge_pruning(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
         let mut buffer: Vec<(usize, usize)> = Vec::with_capacity(4);
         let (lowlink, orders) = self.lowlink_and_orders(&nodes);
@@ -1146,7 +1189,6 @@ impl Factory {
             _ => unreachable!(),
         }
     }
-
     fn get_indices_exp<R: Rng>(
         &mut self,
         x: &[u8],

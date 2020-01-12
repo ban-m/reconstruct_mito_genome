@@ -36,7 +36,7 @@ fn main() -> std::io::Result<()> {
     let answer: HashMap<_, _> = reads
         .iter()
         .filter_map(|e| {
-            let is_original = e.desc()?.contains("master_circle");
+            let is_original = e.desc()?.contains("sample1");
             Some((e.id().to_string(), is_original))
         })
         .collect();

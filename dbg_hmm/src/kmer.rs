@@ -32,16 +32,17 @@ impl std::fmt::Debug for Kmer {
         writeln!(f, "tot:{}", self.tot)?;
         writeln!(f, "is_tail:{}", self.is_tail)?;
         writeln!(f, "is_head:{}", self.is_head)?;
-        writeln!(f, "has_edge:{}", self.has_edge)?;
+        write!(f, "has_edge:{}", self.has_edge)?;
+        let mut res = String::new();
         for (i, to) in self
             .edges
             .iter()
             .enumerate()
             .filter_map(|(idx, e)| e.map(|to| (idx, to)))
         {
-            writeln!(f, "->{}({})", to, i)?;
+            res.push_str(&format!("\n->{}({})", to, i));
         }
-        Ok(())
+        write!(f, "{}", res)
     }
 }
 
@@ -83,8 +84,12 @@ impl Kmer {
             );
         }
         let tot = self.base_count.iter().sum::<f64>();
-        self.base_count.iter_mut().for_each(|e| *e /= tot);
         self.has_edge = self.edges.iter().any(|e| e.is_some());
+        if tot > 0.01 {
+            self.base_count.iter_mut().for_each(|e| *e /= tot);
+        } else {
+            self.base_count = [0.25; 4];
+        }
         assert!((1. - self.base_count.iter().sum::<f64>()).abs() < 0.001);
     }
     // renaming all the edges by `map`
@@ -138,35 +143,36 @@ impl Kmer {
     // return P(idx|self)
     #[inline]
     pub fn to(&self, idx: usize) -> f64 {
-        self.weight[idx]
+        1.
+        //self.weight[idx]
     }
     // return P(base|self), observation probability.
-    // Note that, this function does depends on the
-    // previous state's "base-count". Is it correct?
     #[inline]
     pub fn prob(&self, base: u8, config: &Config) -> f64 {
-        if self.last != base {
-            config.mismatch / 3.
-        } else {
+        let p = self.base_count[BASE_TABLE[base as usize]];
+        let q = if self.last == base {
             1. - config.mismatch
-        }
+        } else {
+            config.mismatch / 3.
+        };
+        let lambda = 0.2;
+        p * lambda + (1. - lambda) * q
     }
     // return P_I(base|self)
     #[inline]
     pub fn insertion(&self, base: u8) -> f64 {
-        if self.last == base {
-            0.5
-        } else {
-            0.5 / 3.
-        }
-        //self.base_count[BASE_TABLE[base as usize]]
+        let p = self.base_count[BASE_TABLE[base as usize]];
+        let q = 0.25;
+        // let q = if base == self.last { 0.5 } else { 0.5 / 3. };
+        let lambda = 0.2;
+        p * lambda + (1. - lambda) * q
     }
     #[inline]
     pub fn last(&self) -> u8 {
         self.last
     }
     #[inline]
-    pub fn has_edge(&self)->bool{
+    pub fn has_edge(&self) -> bool {
         self.has_edge
     }
 }

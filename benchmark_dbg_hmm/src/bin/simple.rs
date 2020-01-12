@@ -51,7 +51,7 @@ fn main() {
         .sum::<u32>();
     eprintln!("Dist:{}", dist);
     let unit = 30;
-    let (cov1, cov2) = (unit, 3 * unit);
+    let (cov1, cov2) = (unit, 10 * unit);
     let data1: Vec<Vec<_>> = (0..cov1)
         .map(|_| {
             template1
@@ -86,8 +86,10 @@ fn main() {
         eprintln!("({}){}\t({}){}", k1, m1, k2, m2);
     }
     fn offset(x: f64) -> f64 {
-        const A_PRIOR: f64 = -0.089;
+        const A_PRIOR: f64 = -0.1;
         const B_PRIOR: f64 = 3.1;
+        // const A_PRIOR: f64 = -0.089;
+        // const B_PRIOR: f64 = 3.1;
         // const A_PRIOR: f64 = -0.0165;
         // const B_PRIOR: f64 = 0.7;
         // const A_PRIOR: f64 = -0.003;

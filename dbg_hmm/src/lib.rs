@@ -17,7 +17,7 @@ const SCALE: f64 = 0.81;
 const PRIOR_FACTOR: f64 = 0.05;
 // const MAX_PRIOR_FACTOR: f64 = 3.0;
 // Whether or not to use 'pseudo count' in the out-dgree.
-const PSEUDO_COUNT: f64 = 1.0;
+const PSEUDO_COUNT: f64 = 0.5;
 const THR_ON: bool = true;
 // This 2.5 is good for prediction for a new query,
 // but very bad for exisiting(i.e., the reads used as model) query.
@@ -40,13 +40,22 @@ mod factory;
 pub use factory::Factory;
 mod base_table;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct DeBruijnGraphHiddenMarkovModel {
     nodes: Vec<Kmer>,
     k: usize,
     // roughtly the same as coverage.
     weight: f64,
     is_broken: bool,
+}
+
+impl std::fmt::Debug for DBGHMM {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        for (idx, node) in self.nodes.iter().enumerate() {
+            writeln!(f, "idx:{}\n{:?}", idx, node)?;
+        }
+        write!(f, "{}", self)
+    }
 }
 
 impl std::fmt::Display for DBGHMM {
@@ -58,7 +67,7 @@ impl std::fmt::Display for DBGHMM {
             .sum::<usize>();
         write!(
             f,
-            "K:{}\tNodes:{}\tEdges:{}\tWeight:{:.3}\tBroke:{}",
+            "K:{}\tNodes:{}\tEdges:{}\tWeight:{:.3}\tBroken:{}",
             self.k,
             self.nodes.len(),
             edges,
@@ -232,7 +241,7 @@ impl DeBruijnGraphHiddenMarkovModel {
         let aln_scores = self.global_alns(tip, config);
         let sum = Self::logsumexp(&aln_scores);
         let mut hat = Vec::with_capacity(aln_scores.len() * 3);
-        for init in aln_scores.into_iter().map(|x| (x - sum).exp()) {
+        for init in aln_scores.into_iter().map(|init| (init - sum).exp()) {
             hat.push(init);
             hat.push(0.);
             hat.push(0.);
@@ -242,6 +251,26 @@ impl DeBruijnGraphHiddenMarkovModel {
         let (minus_ln_c, minus_ln_d) = (0., 0.);
         (minus_ln_c, minus_ln_d, hat)
     }
+    fn initialize_lagged(&self, tip: &[u8], config: &Config) -> (f64, f64, Vec<f64>) {
+        let (last, tip) = tip.split_last().unwrap();
+        let aln_scores = self.global_alns(tip, config);
+        let sum = Self::logsumexp(&aln_scores);
+        let mut hat = Vec::with_capacity(aln_scores.len() * 3);
+        for (node, init) in self.nodes.iter().zip(aln_scores) {
+            let init = (init - sum).exp();
+            let prob = node.prob(*last, config);
+            hat.push(init * prob);
+            hat.push(0.);
+            hat.push(0.);
+        }
+        hat.extend(std::iter::repeat(0.).take(4 - hat.len() % 4));
+        assert!(hat.len() % 4 == 0);
+        let c = hat.iter().sum::<f64>().recip();
+        hat.iter_mut().for_each(|e| *e *= c);
+        let (minus_ln_c, minus_ln_d) = (-(c.ln()), 0.);
+        (minus_ln_c, minus_ln_d, hat)
+    }
+
     /// Return the total weight.
     pub fn weight(&self) -> f64 {
         self.weight
@@ -257,13 +286,14 @@ impl DeBruijnGraphHiddenMarkovModel {
         debug_assert!((1. - prev.iter().sum::<f64>()).abs() < 0.001);
         // Alignemnt:[mat,ins,del, mat,ins,del, mat,....,del]
         for (dist_idx, dist) in self.nodes.iter().enumerate() {
-            let edge_idx = base_table::BASE_TABLE[dist.last() as usize];
+            // let edge_idx = base_table::BASE_TABLE[dist.last() as usize];
             let node = 3 * dist_idx;
             let (match_state, insertion_state) = edges[dist_idx]
                 .iter()
                 .map(|&src| {
                     let src_node = 3 * src;
-                    let to = self.nodes[src].to(edge_idx);
+                    // let to = self.nodes[src].to(edge_idx);
+                    let to = 1.;
                     let trans = prev[src_node] * config.p_match
                         + prev[src_node + 1] * (1. - config.p_extend_ins)
                         + prev[src_node + 2] * (1. - config.p_extend_del - config.p_del_to_ins);
@@ -298,8 +328,62 @@ impl DeBruijnGraphHiddenMarkovModel {
         Self::mul(updates, c);
         (c, d)
     }
+    fn update_lagged(
+        &self,
+        updates: &mut [f64],
+        prev: &[f64],
+        base: u8,
+        config: &Config,
+        edges: &[Vec<usize>],
+    ) -> (f64, f64) {
+        // for (idx, x) in prev.chunks_exact(3).enumerate() {
+        //     eprintln!("{}:{:.3},{:.3},{:.3}", idx, x[0], x[1], x[2]);
+        // }
+        // assert!((1. - prev.iter().sum::<f64>()).abs() < 0.001);
+        // Alignemnt:[mat,ins,del, mat,ins,del, mat,....,del]
+        for (dist_idx, dist) in self.nodes.iter().enumerate() {
+            let node = 3 * dist_idx;
+            let edge_idx = base_table::BASE_TABLE[dist.last() as usize];
+            let (match_state, insertion_state) = edges[dist_idx]
+                .iter()
+                .map(|&src| {
+                    let src_node = 3 * src;
+                    let to = self.nodes[src].to(edge_idx);
+                    let mat_t = prev[src_node] * config.p_match
+                        + prev[src_node + 2] * (1. - config.p_extend_del - config.p_del_to_ins);
+                    let ins_t =
+                        prev[src_node] * config.p_ins + prev[src_node + 2] * config.p_del_to_ins;
+                    (mat_t * to, ins_t * to)
+                })
+                .fold((0., 0.), |(x, y), (a, b)| (x + a, y + b));
+            let match_state = match_state + prev[node + 1] * (1. - config.p_extend_ins);
+            updates[node] = match_state * dist.prob(base, config);
+            updates[node + 1] = insertion_state;
+            updates[node + 1] += prev[node + 1] * config.p_extend_ins;
+            if !dist.has_edge() {
+                updates[node + 1] += prev[node] + prev[node + 2];
+            };
+            updates[node + 1] *= dist.insertion(base);
+        }
+        let d = Self::sum(updates).recip();
+        Self::mul(updates, d);
+        for (dist_idx, src_nodes) in edges.iter().enumerate() {
+            let edge_idx = base_table::BASE_TABLE[self.nodes[dist_idx].last() as usize];
+            updates[3 * dist_idx + 2] = src_nodes
+                .iter()
+                .map(|&src| {
+                    let trans = updates[3 * src] * config.p_del
+                        + updates[3 * src + 2] * config.p_extend_del;
+                    trans * self.nodes[src].to(edge_idx)
+                })
+                .sum::<f64>();
+        }
+        let c = Self::sum(&updates).recip();
+        Self::mul(updates, c);
+        (c, d)
+    }
     #[cfg(target_feature = "sse")]
-    pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
+    pub fn forward_sync(&self, obs: &[u8], config: &Config) -> f64 {
         assert!(obs.len() > self.k);
         if self.weight() < 2. || self.is_broken() {
             return config.null_model(obs);
@@ -316,15 +400,47 @@ impl DeBruijnGraphHiddenMarkovModel {
             }
             edges
         };
-        for &base in &obs[self.k..] {
+        for (_idx, &base) in obs[self.k..].iter().enumerate() {
             updated.iter_mut().for_each(|e| *e = 0.);
             let (c, d) = self.update(&mut updated, &prev, base, config, &edges);
             cs -= c.ln();
             ds -= d.ln();
             std::mem::swap(&mut prev, &mut updated);
+            // assert!(c * d > 1.);
+            // eprintln!("{}\t{}\t{:.3}", idx, base as char, (c * d).recip());
         }
         cs + ds
     }
+    #[cfg(target_feature = "sse")]
+    pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
+        assert!(obs.len() > self.k);
+        if self.weight() < 2. || self.is_broken() {
+            return config.null_model(obs);
+        }
+        // Alignemnts: [mat, ins, del,  mat, ins, del,  ....]
+        let (mut cs, mut ds, mut prev) = self.initialize_lagged(&obs[..self.k + 1], config);
+        let mut updated = vec![0.; prev.len()];
+        let edges = {
+            let mut edges = vec![Vec::with_capacity(4); self.nodes.len()];
+            for (from, n) in self.nodes.iter().enumerate() {
+                for &to in n.edges.iter().filter_map(|e| e.as_ref()) {
+                    edges[to].push(from);
+                }
+            }
+            edges
+        };
+        for (idx, &base) in obs[self.k + 1..].iter().enumerate() {
+            updated.iter_mut().for_each(|e| *e = 0.);
+            let (c, d) = self.update_lagged(&mut updated, &prev, base, config, &edges);
+            cs -= c.ln();
+            ds -= d.ln();
+            std::mem::swap(&mut prev, &mut updated);
+            // assert!(c * d > 1., "{},{},{},{},{}", c, d, c * d, idx, base as char);
+            // eprintln!("{}\t{}\t{:.3}", idx, base as char, (c * d).recip());
+        }
+        cs + ds
+    }
+
     pub fn node_num(&self) -> usize {
         self.nodes.len()
     }
@@ -582,17 +698,18 @@ impl DeBruijnGraphHiddenMarkovModel {
         for (idx, node) in self.nodes.iter().enumerate() {
             if kmers.contains(&node.kmer) {
                 eprintln!("OK:{}\t{:?}", idx, node);
-                eprintln!("TOT\tTRUE\t{}", node.kmer_weight);
+                eprintln!("TOT\tTRUE\t{}\n", node.kmer_weight);
             } else {
                 eprintln!("NG:{}\t{:?}", idx, node);
-                eprintln!("TOT\tFALSE\t{}", node.kmer_weight);
+                eprintln!("TOT\tFALSE\t{}\n", node.kmer_weight);
             }
         }
-        for kmer in kmers {
-            if self.nodes.iter().all(|node| node.kmer != kmer) {
+        for kmer in &kmers {
+            if self.nodes.iter().all(|node| &node.kmer != kmer) {
                 eprintln!("Missing:{}", String::from_utf8_lossy(&kmer));
             }
         }
+        eprintln!("KMERS in the template{}", kmers.len());
     }
 }
 
@@ -875,6 +992,73 @@ mod tests {
             assert!(correct >= num * 4 / 5, "{}", correct);
         }
     }
+    #[test]
+    fn abundance_test_prior() {
+        let bases = b"ACTG";
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12121324289);
+        let p = Profile {
+            sub: 0.03,
+            ins: 0.03,
+            del: 0.03,
+        };
+        let len = 150;
+        let cov = 20;
+        let ratio = 9;
+        let errors = PROFILE;
+        for _ in 0..3 {
+            let template1: Vec<_> = (0..len)
+                .filter_map(|_| bases.choose(&mut rng))
+                .copied()
+                .collect();
+            let template2 = introduce_randomness(&template1, &mut rng, &p);
+            let data1: Vec<Vec<_>> = (0..(ratio + 1) * cov)
+                .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
+                .collect();
+            let mut data2: Vec<Vec<_>> = (0..ratio * cov)
+                .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
+                .collect();
+            data2.extend((0..cov).map(|_| introduce_randomness(&template2, &mut rng, &PROFILE)));
+            let data1: Vec<_> = data1.iter().map(|e| e.as_slice()).collect();
+            let data2: Vec<_> = data2.iter().map(|e| e.as_slice()).collect();
+            let mut f = Factory::new();
+            let mut buf = vec![];
+            let k = 6;
+            let total = (ratio + 1) * cov;
+            let weight = vec![1.; total];
+            use std::collections::HashSet;
+            assert_eq!(data1.len(), total);
+            assert_eq!(data2.len(), total);
+            let k1: HashSet<_> = template1.windows(k).map(|e| e.to_vec()).collect();
+            let k2: HashSet<_> = template2.windows(k).map(|e| e.to_vec()).collect();
+            let model1 = f.generate_with_weight_prior(&data1, &weight, k, &mut buf);
+            let model2 = f.generate_with_weight_prior(&data2, &weight, k, &mut buf);
+            let num = 50;
+            eprintln!("({})\n{}\n({})\n{}", k1.len(), model1, k2.len(), model2);
+            let correct = (0..num)
+                .filter(|_| {
+                    let q = introduce_randomness(&template1, &mut rng, &errors);
+                    let lk1 = model1.forward(&q, &DEFAULT_CONFIG);
+                    let lk2 = model2.forward(&q, &DEFAULT_CONFIG);
+                    eprintln!("1\t{:.3}\t{:.3}", lk1, lk2);
+                    lk1 > lk2
+                })
+                .count();
+            eprintln!("1:{}", correct);
+            assert!(correct >= num * 6 / 10, "1:{}", correct);
+            let correct = (0..num)
+                .filter(|_| {
+                    let q = introduce_randomness(&template2, &mut rng, &errors);
+                    let lk1 = model1.forward(&q, &DEFAULT_CONFIG);
+                    let lk2 = model2.forward(&q, &DEFAULT_CONFIG);
+                    eprintln!("2\t{:.3}\t{:.3}", lk1, lk2);
+                    lk1 < lk2
+                })
+                .count();
+            eprintln!("2:{}", correct);
+            assert!(correct >= num * 6 / 10, "2:{}", correct);
+        }
+    }
+
     // #[test]
     // fn single_error_test_aln() {
     //     let bases = b"ACTG";
@@ -1052,8 +1236,10 @@ mod tests {
         use std::collections::HashSet;
         let k1: HashSet<_> = t1.windows(k).map(|e| e.to_vec()).collect();
         let k2: HashSet<_> = t2.windows(k).map(|e| e.to_vec()).collect();
-        let m1 = f.generate_with_weight_prior(&seqs, &weight1, k, &mut buf);
-        let m2 = f.generate_with_weight_prior(&seqs, &weight2, k, &mut buf);
+        let mut m1 = f.generate_with_weight_prior(&seqs, &weight1, k, &mut buf);
+        let mut m2 = f.generate_with_weight_prior(&seqs, &weight2, k, &mut buf);
+        assert!(!m1.check_vec(&model2, &DEFAULT_CONFIG, -150.));
+        assert!(!m2.check_vec(&model1, &DEFAULT_CONFIG, -150.));
         eprintln!("{}\t({}){}\t({}){}", cov, k1.len(), m1, k2.len(), m2);
         let tests: Vec<_> = (0..100)
             .map(|e| {
@@ -1069,9 +1255,19 @@ mod tests {
             .enumerate()
             .filter(|(e, q)| {
                 if e % 2 == 0 {
-                    m1.forward(&q, &DEFAULT_CONFIG) > m2.forward(&q, &DEFAULT_CONFIG)
+                    let f1 = m1.forward(&q, &DEFAULT_CONFIG);
+                    let f2 = m2.forward(&q, &DEFAULT_CONFIG);
+                    // if cov == 168 && t1.len() + 1 == t2.len() {
+                    //     eprintln!("1\t{:.3}\t{:.3}", f1, f2);
+                    // }
+                    f1 > f2
                 } else {
-                    m1.forward(&q, &DEFAULT_CONFIG) < m2.forward(&q, &DEFAULT_CONFIG)
+                    let f1 = m1.forward(&q, &DEFAULT_CONFIG);
+                    let f2 = m2.forward(&q, &DEFAULT_CONFIG);
+                    // if cov == 168 && t1.len() + 1 == t2.len() {
+                    //     eprintln!("2\t{:.3}\t{:.3}", f1, f2);
+                    // }
+                    f2 > f1
                 }
             })
             .count();
@@ -1332,7 +1528,7 @@ mod tests {
         let m = f.generate_with_weight_prior(&model1, &weight, k, &mut buf);
         let config = &DEFAULT_CONFIG;
         let q = introduce_randomness(&template, &mut rng, &PROFILE);
-        let (_, _, prev) = m.initialize(&q[..m.k], config);
+        let (_, _, prev) = m.initialize(&q[..m.k + 1], config);
         let mut updated = vec![0.; prev.len()];
         let edges = {
             let mut edges = vec![Vec::with_capacity(4); m.nodes.len()];

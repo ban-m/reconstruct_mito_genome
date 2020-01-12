@@ -80,7 +80,7 @@ const ALPHA: f64 = 1.01;
 // const BETA: f64 = 0.5;
 // Loop number for Gibbs sampling.
 // const LOOP_NUM: usize = 20;
-const LOOP_NUM: usize = 10;
+const LOOP_NUM: usize = 20;
 // Loop number for variational Bayes.
 const LOOP_NUM_VB: usize = 20;
 // Initial picking probability.
@@ -960,7 +960,13 @@ pub fn soft_clustering(
     info!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
     let init_beta = search_initial_beta(data, label, forbidden, k, cluster_num, contigs, config);
     let mut beta = init_beta.min(MAX_BETA / beta_step.powi(10i32));
-    let max_beta = MAX_BETA.max(init_beta * FACTOR);
+    let max_beta = if init_beta * FACTOR > MAX_BETA {
+        1.0
+    } else {
+        MAX_BETA
+    };
+    // let max_beta = MAX_BETA.max(init_beta * FACTOR);
+    debug!("MaxBeta:{}", max_beta);
     let pick_up_len = INIT_PICK_PROB.recip().floor() as usize * LOOP_NUM;
     let lr = LEARNING_RATE;
     let mut mf = ModelFactory::new(contigs, data, k);

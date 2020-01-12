@@ -14,9 +14,16 @@ OUTLOG_PREFIX=./logfiles/last_decompose_gibbs
 
 echo "-----start-----" >> ${OUTPUT}
 
-# ./target/release/test_last_decompose_multiple \
-#     100 0 1 0.5 0.5 >> ./result/test.out \
-#     2>> ./logfiles/test.log
+for cov in 500 550 600
+do
+    for seed in 10 20 30
+    do
+        ./target/release/test_last_decompose_multiple \
+            ${cov} 0 ${seed} 0.1 0.9 >> ./result/test.out \
+            2>> ./logfiles/test.log
+    done
+done
+exit 0;
 
 TEST_NUM=200
 COVERAGE=0
