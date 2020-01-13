@@ -1175,7 +1175,8 @@ mod tests {
     #[test]
     fn single_error_prior_test() {
         let bases = b"ACTG";
-        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1234565);
+        //let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1234565);
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12344);
         let coverage = 200;
         let start = 20;
         let step = 4;

@@ -187,7 +187,9 @@ impl Factory {
         }
         let nodes = Self::sort_nodes(nodes);
         self.clear();
-        let mut nodes = self.clean_up_nodes_exp(nodes);
+        let ave_len = dataset.iter().map(|e| e.len()).sum::<usize>() / dataset.len();
+        let node_thr = ave_len * 85 / 100;
+        let mut nodes = self.clean_up_nodes_exp(nodes, node_thr);
         nodes.iter_mut().for_each(Kmer::finalize);
         self.clear();
         DBGHMM::from(nodes, k, weight)
@@ -265,15 +267,16 @@ impl Factory {
             }
         }
         let nodes = Self::sort_nodes(nodes);
-        // Here, we record the base counts.
         self.clear();
-        let mut nodes = self.clean_up_nodes_exp(nodes);
-        nodes.iter_mut().for_each(Kmer::finalize);
+        let ave_len = dataset.iter().map(|e| e.len()).sum::<usize>() / dataset.len();
+        let node_thr = ave_len * 85 / 100;
+        let nodes = self.clean_up_nodes_exp(nodes, node_thr);
+        let nodes = self.finalize(nodes, k);
         self.clear();
         DBGHMM::from(nodes, k, coverage)
     }
     #[allow(dead_code)]
-    fn finalize(&mut self, mut nodes: Vec<Kmer>, k: usize) -> Vec<Kmer> { // 
+    fn finalize(&mut self, mut nodes: Vec<Kmer>, k: usize) -> Vec<Kmer> {
         self.clear();
         // Construct the graph.
         for (from, node) in nodes.iter().enumerate() {
@@ -287,7 +290,7 @@ impl Factory {
                 node.finalize();
             } else {
                 // DFS
-                let which = self.select_margiable_edges(&node, k - 1, len);
+                let which = self.select_margiable_edges(&node, k, len);
                 node.finalize_global(&which);
             }
         });
@@ -389,7 +392,7 @@ impl Factory {
         nodes.iter_mut().for_each(Kmer::finalize);
         nodes
     }
-    fn clean_up_nodes_exp(&mut self, nodes: Vec<Kmer>) -> Vec<Kmer> {
+    fn clean_up_nodes_exp(&mut self, nodes: Vec<Kmer>, thr: usize) -> Vec<Kmer> {
         assert!(self.is_empty());
         let nodes = self.trim_unreachable_nodes(nodes);
         let nodes = self.trim_unreachable_nodes_reverse(nodes);
@@ -398,12 +401,13 @@ impl Factory {
         let nodes = self.bridge_pruning(nodes);
         let nodes = self.trim_unreachable_nodes(nodes);
         let nodes = self.trim_unreachable_nodes_reverse(nodes);
-        let save = if nodes.len() < 130 {
-            // debug!(
-            //     "Model Broken by bridge pruning:{}->{}",
-            //     save.len(),
-            //     nodes.len()
-            // );
+        let save = if nodes.len() <= thr {
+            debug!(
+                "Model Broken by bridge pruning:{}->{}<{}",
+                save.len(),
+                nodes.len(),
+                thr
+            );
             let nodes = self.pick_largest_components(save);
             let nodes = self.renaming_nodes(nodes);
             return nodes;
@@ -414,13 +418,13 @@ impl Factory {
         let nodes = self.filter_lightweight(nodes);
         let nodes = self.trim_unreachable_nodes(nodes);
         let nodes = self.trim_unreachable_nodes_reverse(nodes);
-        if nodes.len() < 130 {
-            // debug!("Model Broken at select h/t:{}->{}", save.len(), nodes.len());
-            // let b_head = save.iter().filter(|e| e.is_head).count();
-            // let b_tail = save.iter().filter(|e| e.is_tail).count();
-            // let head = nodes.iter().filter(|e| e.is_head).count();
-            // let tail = nodes.iter().filter(|e| e.is_tail).count();
-            // debug!("{}:{}->{}:{}", b_head, b_tail, head, tail);
+        if nodes.len() < thr {
+            debug!("Model Broken h/t:{}->{}<{}", save.len(), nodes.len(), thr);
+            let b_head = save.iter().filter(|e| e.is_head).count();
+            let b_tail = save.iter().filter(|e| e.is_tail).count();
+            let head = nodes.iter().filter(|e| e.is_head).count();
+            let tail = nodes.iter().filter(|e| e.is_tail).count();
+            debug!("{}:{}->{}:{}", b_head, b_tail, head, tail);
             let nodes = self.pick_largest_components(save);
             let nodes = self.renaming_nodes(nodes);
             nodes
@@ -602,8 +606,8 @@ impl Factory {
         let len = nodes.len() as f64;
         let ws = nodes.iter().map(|e| e.kmer_weight);
         let mean = ws.clone().sum::<f64>() / len;
-        // let factor = THR - (1. + (mean / 10.).exp()).recip() / 2.;
-        let thr = mean / THR;
+        let factor = 2. * THR;
+        let thr = mean / factor;
         nodes
             .iter()
             .for_each(|e| self.is_safe.push((e.kmer_weight > thr) as u8));

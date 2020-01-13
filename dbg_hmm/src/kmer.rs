@@ -163,9 +163,9 @@ impl Kmer {
     }
     // return P(idx|self)
     #[inline]
-    pub fn to(&self, _idx: usize) -> f64 {
-        1.
-        // self.weight[idx]
+    pub fn to(&self, idx: usize) -> f64 {
+        // 1.
+        self.weight[idx]
     }
     // return P(base|self), observation probability.
     #[inline]
@@ -190,7 +190,8 @@ impl Kmer {
             q
         } else {
             let p = from.base_count[BASE_TABLE[base as usize]];
-            let lambda = 0.02;
+            let lambda = 0.05;
+            // let lambda = 0.0;
             p * lambda + (1. - lambda) * q
         }
     }
@@ -203,6 +204,7 @@ impl Kmer {
         } else {
             let p = self.base_count[BASE_TABLE[base as usize]];
             let lambda = 0.05;
+            // let lambda = 0.0;
             p * lambda + (1. - lambda) * q
         }
     }

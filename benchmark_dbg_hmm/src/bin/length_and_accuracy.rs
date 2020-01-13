@@ -3,11 +3,15 @@ extern crate edlib_sys;
 extern crate rand;
 extern crate rand_xoshiro;
 extern crate rayon;
+#[macro_use]
+extern crate log;
+extern crate env_logger;
 use dbg_hmm::*;
 use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoroshiro128StarStar;
 use rayon::prelude::*;
 fn main() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     rayon::ThreadPoolBuilder::new()
         .num_threads(24)
         .build_global()
@@ -80,7 +84,7 @@ fn simulate<T: Rng>(
         .collect();
     let dist = sub + del + ins;
     let mut f = Factory::new();
-    let dataset:Vec<_> = data1
+    let dataset: Vec<_> = data1
         .iter()
         .chain(data2.iter())
         .map(|e| e.as_slice())
