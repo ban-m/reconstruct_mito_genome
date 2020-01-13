@@ -14,14 +14,19 @@ OUTLOG_PREFIX=./logfiles/last_decompose_gibbs
 
 echo "-----start-----" >> ${OUTPUT}
 
-for cov in 500 550 600
+# for seed in 0 1 2 3
+# do
+#     ./target/release/test_last_decompose_multiple \
+#         100 0 ${seed} 0.8 0.2 >> ./result/test.out \
+#         2>> ./logfiles/test.log
+# done
+#     exit 0;
+
+for seed in 10 20 30
 do
-    for seed in 10 20 30
-    do
-        ./target/release/test_last_decompose_multiple \
-            ${cov} 0 ${seed} 0.1 0.9 >> ./result/test.out \
-            2>> ./logfiles/test.log
-    done
+    ./target/release/test_last_decompose_multiple \
+        500 0 ${seed} 0.1 0.9 >> ./result/test2.out \
+        2>> ./logfiles/test2.log
 done
 exit 0;
 

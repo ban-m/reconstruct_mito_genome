@@ -50,8 +50,6 @@ g <- dataset %>% filter(type == "Proposed") %>%
     mutate(ErrorRate = Dist/Length) %>% 
     ggplot() + geom_point(mapping = aes( x = ErrorRate, y = accuracy, color = Length), alpha = 0.09)
 generalplot(g, paste0("gam_errorrate_",outname))
-
-
 g <- dataset %>% ggplot() +
     geom_point(mapping = aes( x = Length, y = accuracy), size = 1, alpha = 0.3, stroke = 0) +
     facet_grid(type ~ Dist)

@@ -18,7 +18,7 @@ generalplot <- function(g,name){
 dataset <- read_tsv("./result/number_of_edge_and_node.tsv")
 g <- dataset %>% filter(Coverage < 200) %>% 
     gather(key = Type, value = Count, -Coverage, -Weight, -Method) %>%
-    ggplot() + geom_point(aes(x = Coverage, y = Count, color = Type)) +
+    ggplot() + geom_point(aes(x = Coverage, y = Count, shape = Type)) +
     facet_wrap(.~Method)
 generalplot(g,"number_of_edge_and_node")
 

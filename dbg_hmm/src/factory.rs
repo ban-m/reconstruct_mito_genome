@@ -272,6 +272,89 @@ impl Factory {
         self.clear();
         DBGHMM::from(nodes, k, coverage)
     }
+    #[allow(dead_code)]
+    fn finalize(&mut self, mut nodes: Vec<Kmer>, k: usize) -> Vec<Kmer> { // 
+        self.clear();
+        // Construct the graph.
+        for (from, node) in nodes.iter().enumerate() {
+            for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
+                self.edges[from].push(to);
+            }
+        }
+        let len = nodes.len();
+        nodes.iter_mut().enumerate().for_each(|(idx, node)| {
+            if self.edges[idx].len() <= 1 {
+                node.finalize();
+            } else {
+                // DFS
+                let which = self.select_margiable_edges(&node, k - 1, len);
+                node.finalize_global(&which);
+            }
+        });
+        nodes
+    }
+    fn select_margiable_edges(&mut self, node: &Kmer, k: usize, len: usize) -> [bool; 4] {
+        assert!(self.is_safe.is_empty() && self.dfs_flag.is_empty() && self.dfs_stack.is_empty());
+        (0..len).for_each(|_| self.is_safe.push(0));
+        (0..len).for_each(|_| self.dfs_flag.push(0));
+        for (idx, to) in node.edges.iter().enumerate() {
+            let to = match to {
+                Some(to) => to,
+                None => continue,
+            };
+            // Depth-limited dfs from to, checking the nodes arrived.
+            self.depth_limited_dfs(k, *to, idx);
+        }
+        let mut which = [false; 4];
+        for &flag in self.is_safe.iter() {
+            if flag.count_ones() > 1 {
+                if flag & 0b0001 != 0 {
+                    which[0] = true;
+                }
+                if flag & 0b0010 != 0 {
+                    which[1] = true;
+                }
+                if flag & 0b0100 != 0 {
+                    which[2] = true;
+                }
+                if flag & 0b1000 != 0 {
+                    which[3] = true;
+                }
+            }
+        }
+        self.is_safe.clear();
+        self.dfs_flag.clear();
+        self.dfs_stack.clear();
+        which
+    }
+    fn depth_limited_dfs(&mut self, limit: usize, start: usize, idx: usize) {
+        assert!(self.dfs_stack.is_empty());
+        assert!(self.dfs_flag.iter().all(|&e| e == 0));
+        let bit = match idx {
+            0 => 0b0001,
+            1 => 0b0010,
+            2 => 0b0100,
+            3 => 0b1000,
+            _ => unreachable!(),
+        };
+        self.dfs_stack.push(start);
+        let mut current_depth = 1;
+        'dfs: while !self.dfs_stack.is_empty() {
+            let s = *self.dfs_stack.last().unwrap();
+            self.dfs_flag[s] = 1;
+            self.is_safe[s] |= bit;
+            for &to in self.edges[s].iter() {
+                if self.dfs_flag[to] == 0 && current_depth <= limit {
+                    self.dfs_stack.push(to);
+                    current_depth += 1;
+                    continue 'dfs;
+                }
+            }
+            self.dfs_stack.pop().unwrap();
+            current_depth -= 1;
+        }
+        self.dfs_flag.iter_mut().for_each(|e| *e = 0);
+    }
     fn sort_nodes(mut nodes: Vec<Kmer>) -> Vec<Kmer> {
         let mut positions: Vec<(usize, bool)> =
             nodes.iter().map(|e| e.is_head).enumerate().collect();
@@ -1431,5 +1514,27 @@ mod tests {
             let to_int = to_u64(&to_vec);
             assert_eq!(to_int, kmer);
         }
+    }
+    #[test]
+    fn limited_dfs() {
+        let nodes = 11;
+        let mut f = Factory::new();
+        f.edges.push(vec![1]);
+        f.edges.push(vec![2]);
+        f.edges.push(vec![3, 6]);
+        f.edges.push(vec![4]);
+        f.edges.push(vec![5]);
+        f.edges.push(vec![8]);
+        f.edges.push(vec![7]);
+        f.edges.push(vec![8]);
+        f.edges.push(vec![9]);
+        f.edges.push(vec![10]);
+        f.edges.push(vec![]);
+        f.is_safe.extend(std::iter::repeat(0).take(nodes));
+        f.dfs_flag.extend(std::iter::repeat(0).take(nodes));
+        f.depth_limited_dfs(3, 0, 0);
+        assert_eq!(f.is_safe, vec![1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0]);
+        f.depth_limited_dfs(3, 2, 1);
+        assert_eq!(f.is_safe, vec![1, 1, 3, 3, 2, 2, 3, 2, 2, 0, 0]);
     }
 }

@@ -19,7 +19,7 @@ pub struct Kmer {
     // Whether this is the end of unit.
     pub is_tail: bool,
     pub is_head: bool,
-    pub has_edge: bool,
+    pub edge_num: u8,
 }
 
 impl std::fmt::Debug for Kmer {
@@ -32,7 +32,7 @@ impl std::fmt::Debug for Kmer {
         writeln!(f, "tot:{}", self.tot)?;
         writeln!(f, "is_tail:{}", self.is_tail)?;
         writeln!(f, "is_head:{}", self.is_head)?;
-        write!(f, "has_edge:{}", self.has_edge)?;
+        write!(f, "edge_num:{}", self.edge_num)?;
         let mut res = String::new();
         for (i, to) in self
             .edges
@@ -58,7 +58,7 @@ impl Kmer {
         let edges = [None; 4];
         let is_tail = false;
         let is_head = false;
-        let has_edge = false;
+        let edge_num = 0;
         Self {
             kmer,
             kmer_weight,
@@ -69,7 +69,7 @@ impl Kmer {
             edges,
             is_tail,
             is_head,
-            has_edge,
+            edge_num,
         }
     }
     pub fn finalize(&mut self) {
@@ -77,14 +77,35 @@ impl Kmer {
             for i in 0..4 {
                 self.weight[i] /= self.tot;
             }
-            assert!(
-                (1. - self.weight.iter().sum::<f64>()).abs() < 0.001,
-                "{:?}",
-                self
-            );
         }
         let tot = self.base_count.iter().sum::<f64>();
-        self.has_edge = self.edges.iter().any(|e| e.is_some());
+        self.edge_num = self.edges.iter().filter(|e| e.is_some()).count() as u8;
+        if tot > 0.01 {
+            self.base_count.iter_mut().for_each(|e| *e /= tot);
+        } else {
+            self.base_count = [0.25; 4];
+        }
+        assert!((1. - self.base_count.iter().sum::<f64>()).abs() < 0.001);
+    }
+    // If which[i] = true, the weight of these edges would be normalized.
+    pub fn finalize_global(&mut self, which: &[bool; 4]) {
+        assert!(self.tot > 0.0001);
+        let tot = self
+            .weight
+            .iter()
+            .zip(which.iter())
+            .filter(|&(_, &b)| b)
+            .map(|(w, _)| w)
+            .sum::<f64>();
+        for (i, &b) in which.iter().enumerate() {
+            if b {
+                self.weight[i] /= tot;
+            } else {
+                self.weight[i] = if self.weight[i] > 0.0001 { 1. } else { 0. };
+            }
+        }
+        let tot = self.base_count.iter().sum::<f64>();
+        self.edge_num = self.edges.iter().filter(|e| e.is_some()).count() as u8;
         if tot > 0.01 {
             self.base_count.iter_mut().for_each(|e| *e /= tot);
         } else {
@@ -142,9 +163,9 @@ impl Kmer {
     }
     // return P(idx|self)
     #[inline]
-    pub fn to(&self, idx: usize) -> f64 {
+    pub fn to(&self, _idx: usize) -> f64 {
         1.
-        //self.weight[idx]
+        // self.weight[idx]
     }
     // return P(base|self), observation probability.
     #[inline]
@@ -155,17 +176,35 @@ impl Kmer {
         } else {
             config.mismatch / 3.
         };
-        let lambda = 0.2;
+        let lambda = 0.0;
         p * lambda + (1. - lambda) * q
+    }
+    #[inline]
+    pub fn prob_with(&self, base: u8, config: &Config, from: &Kmer) -> f64 {
+        let q = if self.last == base {
+            1. - config.mismatch
+        } else {
+            config.mismatch / 3.
+        };
+        if from.edge_num() > 1 {
+            q
+        } else {
+            let p = from.base_count[BASE_TABLE[base as usize]];
+            let lambda = 0.02;
+            p * lambda + (1. - lambda) * q
+        }
     }
     // return P_I(base|self)
     #[inline]
     pub fn insertion(&self, base: u8) -> f64 {
-        let p = self.base_count[BASE_TABLE[base as usize]];
         let q = 0.25;
-        // let q = if base == self.last { 0.5 } else { 0.5 / 3. };
-        let lambda = 0.2;
-        p * lambda + (1. - lambda) * q
+        if self.edge_num > 1 {
+            q
+        } else {
+            let p = self.base_count[BASE_TABLE[base as usize]];
+            let lambda = 0.05;
+            p * lambda + (1. - lambda) * q
+        }
     }
     #[inline]
     pub fn last(&self) -> u8 {
@@ -173,7 +212,11 @@ impl Kmer {
     }
     #[inline]
     pub fn has_edge(&self) -> bool {
-        self.has_edge
+        self.edge_num != 0
+    }
+    #[inline]
+    pub fn edge_num(&self) -> u8 {
+        self.edge_num
     }
 }
 #[cfg(test)]

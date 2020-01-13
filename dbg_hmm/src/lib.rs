@@ -286,28 +286,27 @@ impl DeBruijnGraphHiddenMarkovModel {
         debug_assert!((1. - prev.iter().sum::<f64>()).abs() < 0.001);
         // Alignemnt:[mat,ins,del, mat,ins,del, mat,....,del]
         for (dist_idx, dist) in self.nodes.iter().enumerate() {
-            // let edge_idx = base_table::BASE_TABLE[dist.last() as usize];
+            let edge_idx = base_table::BASE_TABLE[dist.last() as usize];
             let node = 3 * dist_idx;
             let (match_state, insertion_state) = edges[dist_idx]
                 .iter()
                 .map(|&src| {
                     let src_node = 3 * src;
-                    // let to = self.nodes[src].to(edge_idx);
-                    let to = 1.;
-                    let trans = prev[src_node] * config.p_match
+                    let trans = self.nodes[src].to(edge_idx);
+                    let f_dist = prev[src_node] * config.p_match
                         + prev[src_node + 1] * (1. - config.p_extend_ins)
                         + prev[src_node + 2] * (1. - config.p_extend_del - config.p_del_to_ins);
-                    let m = trans * to;
-                    let i = prev[src_node + 2] * config.p_del_to_ins * to;
+                    let m = f_dist * trans * dist.prob_with(base, config, &self.nodes[src]);
+                    let i = prev[src_node + 2] * config.p_del_to_ins * trans;
                     (m, i)
                 })
                 .fold((0., 0.), |(x, y), (a, b)| (x + a, y + b));
-            updates[node] += match_state * dist.prob(base, config);
+            updates[node] = match_state;
             updates[node + 1] = insertion_state;
             updates[node + 1] += if dist.has_edge() {
                 prev[node] * config.p_ins + prev[node + 1] * config.p_extend_ins
             } else {
-                prev[node..node + 3].iter().sum::<f64>()
+                prev[node..=node + 2].iter().sum::<f64>()
             };
             updates[node + 1] *= dist.insertion(base);
         }
@@ -383,13 +382,13 @@ impl DeBruijnGraphHiddenMarkovModel {
         (c, d)
     }
     #[cfg(target_feature = "sse")]
-    pub fn forward_sync(&self, obs: &[u8], config: &Config) -> f64 {
-        assert!(obs.len() > self.k);
-        if self.weight() < 2. || self.is_broken() {
+    pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
+        if self.weight() < 2. || self.is_broken() || obs.len() < self.k {
             return config.null_model(obs);
         }
         // Alignemnts: [mat, ins, del,  mat, ins, del,  ....]
-        let (mut cs, mut ds, mut prev) = self.initialize(&obs[..self.k], config);
+        let (c, d, mut prev) = self.initialize(&obs[..self.k], config);
+        let mut lk = c + d;
         let mut updated = vec![0.; prev.len()];
         let edges = {
             let mut edges = vec![Vec::with_capacity(4); self.nodes.len()];
@@ -400,19 +399,17 @@ impl DeBruijnGraphHiddenMarkovModel {
             }
             edges
         };
-        for (_idx, &base) in obs[self.k..].iter().enumerate() {
+        for &base in obs[self.k..].iter() {
             updated.iter_mut().for_each(|e| *e = 0.);
             let (c, d) = self.update(&mut updated, &prev, base, config, &edges);
-            cs -= c.ln();
-            ds -= d.ln();
+            lk -= c.ln() + d.ln();
             std::mem::swap(&mut prev, &mut updated);
-            // assert!(c * d > 1.);
             // eprintln!("{}\t{}\t{:.3}", idx, base as char, (c * d).recip());
         }
-        cs + ds
+        lk
     }
     #[cfg(target_feature = "sse")]
-    pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
+    pub fn forward_lagged(&self, obs: &[u8], config: &Config) -> f64 {
         assert!(obs.len() > self.k);
         if self.weight() < 2. || self.is_broken() {
             return config.null_model(obs);
@@ -429,7 +426,7 @@ impl DeBruijnGraphHiddenMarkovModel {
             }
             edges
         };
-        for (idx, &base) in obs[self.k + 1..].iter().enumerate() {
+        for &base in obs[self.k + 1..].iter() {
             updated.iter_mut().for_each(|e| *e = 0.);
             let (c, d) = self.update_lagged(&mut updated, &prev, base, config, &edges);
             cs -= c.ln();

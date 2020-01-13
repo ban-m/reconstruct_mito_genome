@@ -49,8 +49,11 @@ const LK_LIMIT: f64 = -150.;
 // const B: f64 = 3.6;
 // These A and B are to offset the low-coverage region. For THR=2.0,
 // const A_PRIOR: f64 = -0.089;
-const A_PRIOR: f64 = -0.1;
-const B_PRIOR: f64 = 3.1;
+// Before going to adopt mixed dataset.
+// const A_PRIOR: f64 = -0.1;
+// const B_PRIOR: f64 = 3.1;
+const A_PRIOR: f64 = -0.22;
+const B_PRIOR: f64 = 2.53;
 // const A_PRIOR: f64 = -0.0104;
 // const B_PRIOR: f64 = 0.33;
 // These are for THR=3.0;
@@ -959,13 +962,12 @@ pub fn soft_clustering(
     let beta_step = 1. + (BETA_STEP - 1.) / (max_coverage as f64).log10();
     info!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
     let init_beta = search_initial_beta(data, label, forbidden, k, cluster_num, contigs, config);
-    let mut beta = init_beta.min(MAX_BETA / beta_step.powi(10i32));
-    let max_beta = if init_beta * FACTOR > MAX_BETA {
-        1.0
+    let max_beta = if init_beta * FACTOR * beta_step > MAX_BETA {
+        2.0
     } else {
         MAX_BETA
     };
-    // let max_beta = MAX_BETA.max(init_beta * FACTOR);
+    let mut beta = init_beta.min(MAX_BETA / beta_step.powi(10i32));
     debug!("MaxBeta:{}", max_beta);
     let pick_up_len = INIT_PICK_PROB.recip().floor() as usize * LOOP_NUM;
     let lr = LEARNING_RATE;
