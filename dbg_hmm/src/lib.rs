@@ -404,7 +404,6 @@ impl DeBruijnGraphHiddenMarkovModel {
             let (c, d) = self.update(&mut updated, &prev, base, config, &edges);
             lk -= c.ln() + d.ln();
             std::mem::swap(&mut prev, &mut updated);
-            // eprintln!("{}\t{}\t{:.3}", idx, base as char, (c * d).recip());
         }
         lk
     }

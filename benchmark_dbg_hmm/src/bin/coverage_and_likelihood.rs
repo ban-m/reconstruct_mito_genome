@@ -10,7 +10,7 @@ use rayon::prelude::*;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let len = 150;
-    let num_seq = 120;
+    let num_seq = 150;
     let k = 6;
     println!("Seed\tCoverage\tLikelihoodRatio\tOriginalLK\tNumEdges");
     let rep = 20;

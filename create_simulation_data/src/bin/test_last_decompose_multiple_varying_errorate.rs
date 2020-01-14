@@ -32,10 +32,10 @@ fn main() {
     let chain_len = 40;
     let k = 6;
     let len = 150;
-    let prob: Vec<_> = (1..=20).step_by(2).collect();
-    // let prob: Vec<_> = vec![1,2];
-    let test_nums: Vec<_> = (50..201).step_by(30).collect();
-    // let test_nums = vec![70];
+    //let prob: Vec<_> = (1..=10).collect();
+    let prob: Vec<_> = vec![1];
+    // let test_nums: Vec<_> = (50..201).step_by(30).collect();
+    let test_nums = vec![70];
     for p in prob {
         for &test_num in &test_nums {
             let p = p as f64 / 6000.;
@@ -115,7 +115,12 @@ fn benchmark(
                     let dist = templates[i]
                         .iter()
                         .zip(templates[j].iter())
-                        .map(|(t1, t2)| edlib_sys::global_dist(t1, t2))
+                        .enumerate()
+                        .map(|(idx, (t1, t2))| {
+                            let d = edlib_sys::global_dist(t1, t2);
+                            debug!("Dist:{}:{}", idx, d);
+                            d
+                        })
                         .sum::<u32>();
                     debug!("{}\t{}\t{}", i, j, dist);
                     dist

@@ -34,7 +34,7 @@ summaries  <- dataset %>% filter(LikelihoodRatio < 50) %>%
     mutate(data = map(data,function(x) x %>% summarize(mean =mean(LikelihoodRatio)))) %>%
     unnest()
 
-ds <- dataset %>% filter(LikelihoodRatio < 50) 
+ds <- dataset %>% filter(LikelihoodRatio < 50 & Coverage > 25) 
 linear_reg <- lm(log(LikelihoodRatio) ~ Coverage,data=ds)
 
 objective_function <- function(x){
@@ -73,7 +73,7 @@ generalplot(g, "coverage_and_likelihood_ratio_sub_regress_smooth")
 
 
 
-g <- dataset_diff %>%
+g <- dataset_diff %>% filter(Coverage < 25) %>% 
     gather(key = Type, value = Likelihood, -Coverage) %>% 
     filter(Likelihood > -200) %>%
     ggplot() + geom_point(aes(x = Coverage, y = Likelihood, color = Type), alpha = 0.3)

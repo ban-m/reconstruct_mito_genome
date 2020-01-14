@@ -15,12 +15,12 @@ OUTPUT=${ROOT}/result/short_extreme/
 CORES=24
 
 # ----- Alignment -----
-# mkdir -p ${OUTPUT}/last_db
-# cd ${OUTPUT}/last_db
-# lastdb -R00 -Q0 reference ${REFERENCE}
-# last-train -P${CORES} -Q0 reference ${READ} > score.matrix
-# lastal -f tab -P${CORES} -R00 -Q0 -p score.matrix reference ${READ} > alignments.tab
-# cd ${ROOT}
+mkdir -p ${OUTPUT}/last_db
+cd ${OUTPUT}/last_db
+lastdb -R00 -Q0 reference ${REFERENCE}
+last-train -P${CORES} -Q0 reference ${READ} > score.matrix
+lastal -f tab -P${CORES} -R00 -Q0 -p score.matrix reference ${READ} > alignments.tab
+cd ${ROOT}
 
 # ----- Prediction ------
 # RUSTFLAGS="-C target-cpu=native" cargo build --release 

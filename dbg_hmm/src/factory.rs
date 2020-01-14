@@ -238,16 +238,17 @@ impl Factory {
             });
         let thr = {
             let sum = self.inner.iter().map(|e| e.0).sum::<f64>();
-            THR * sum / self.inner.len() as f64
+            let thr = THR * sum / self.inner.len() as f64;
+            let t1 = 0.37 * coverage - 12.0;
+            t1.max(thr)
         };
         let mut nodes = Vec::with_capacity(2_500);
         let mut edge = vec![];
-        let scale = SCALE * coverage.ln();
         for (e, &w) in buf.iter().enumerate().filter(|&(_, &w)| w > ep) {
             let (from, to) = (e >> 2, e & mask);
             decode_to(e as u64, k + 1, &mut edge);
             if let Some((from, to)) =
-                self.get_indices_exp(&edge, &mut nodes, thr, k, &mut rng, from, to, scale)
+                self.get_indices_exp(&edge, &mut nodes, thr, k, &mut rng, from, to, 0.)
             {
                 nodes[from].push_edge_with_weight(edge[k], to, w);
             }
@@ -270,12 +271,21 @@ impl Factory {
         self.clear();
         let ave_len = dataset.iter().map(|e| e.len()).sum::<usize>() / dataset.len();
         let node_thr = ave_len * 85 / 100;
-        let nodes = self.clean_up_nodes_exp(nodes, node_thr);
+        let mut nodes = self.clean_up_nodes_exp(nodes, node_thr);
+        nodes
+            .iter_mut()
+            .for_each(|node| Self::update_basecount(node, &buf));
         let nodes = self.finalize(nodes, k);
         self.clear();
         DBGHMM::from(nodes, k, coverage)
     }
-    #[allow(dead_code)]
+    fn update_basecount(node: &mut Kmer, buf: &[f64]) {
+        let kmer = to_u64(&node.kmer);
+        for i in 0..4 {
+            let edge = kmer << 2 | i;
+            node.base_count[i] = buf[edge];
+        }
+    }
     fn finalize(&mut self, mut nodes: Vec<Kmer>, k: usize) -> Vec<Kmer> {
         self.clear();
         // Construct the graph.
@@ -402,12 +412,12 @@ impl Factory {
         let nodes = self.trim_unreachable_nodes(nodes);
         let nodes = self.trim_unreachable_nodes_reverse(nodes);
         let save = if nodes.len() <= thr {
-            debug!(
-                "Model Broken by bridge pruning:{}->{}<{}",
-                save.len(),
-                nodes.len(),
-                thr
-            );
+            // debug!(
+            //     "Model Broken by bridge pruning:{}->{}<{}",
+            //     save.len(),
+            //     nodes.len(),
+            //     thr
+            // );
             let nodes = self.pick_largest_components(save);
             let nodes = self.renaming_nodes(nodes);
             return nodes;
@@ -419,12 +429,12 @@ impl Factory {
         let nodes = self.trim_unreachable_nodes(nodes);
         let nodes = self.trim_unreachable_nodes_reverse(nodes);
         if nodes.len() < thr {
-            debug!("Model Broken h/t:{}->{}<{}", save.len(), nodes.len(), thr);
-            let b_head = save.iter().filter(|e| e.is_head).count();
-            let b_tail = save.iter().filter(|e| e.is_tail).count();
-            let head = nodes.iter().filter(|e| e.is_head).count();
-            let tail = nodes.iter().filter(|e| e.is_tail).count();
-            debug!("{}:{}->{}:{}", b_head, b_tail, head, tail);
+            // debug!("Model Broken h/t:{}->{}<{}", save.len(), nodes.len(), thr);
+            // let b_head = save.iter().filter(|e| e.is_head).count();
+            // let b_tail = save.iter().filter(|e| e.is_tail).count();
+            // let head = nodes.iter().filter(|e| e.is_head).count();
+            // let tail = nodes.iter().filter(|e| e.is_tail).count();
+            // debug!("{}:{}->{}:{}", b_head, b_tail, head, tail);
             let nodes = self.pick_largest_components(save);
             let nodes = self.renaming_nodes(nodes);
             nodes
@@ -1241,6 +1251,7 @@ impl Factory {
             Some(nodes.len() - 1)
         }
     }
+    #[allow(dead_code)]
     fn prob(x: f64, scale: f64) -> f64 {
         ((scale * x).exp() + 1.).recip()
     }
@@ -1261,12 +1272,12 @@ impl Factory {
         kmer: &[u8],
         nodes: &mut Vec<Kmer>,
         thr: f64,
-        rng: &mut R,
+        _rng: &mut R,
         idx: usize,
-        scale: f64,
+        _scale: f64,
     ) -> Option<usize> {
         match self.inner.get_mut(idx) {
-            Some(x) if x.0 < thr && rng.gen_bool(Self::prob(x.0 - thr, scale)) => None,
+            Some(x) if x.0 < thr => None, // && rng.gen_bool(Self::prob(x.0 - thr, scale)) => None,
             Some(x) if x.1 != std::usize::MAX => Some(x.1),
             Some(x) => {
                 x.1 = nodes.len();

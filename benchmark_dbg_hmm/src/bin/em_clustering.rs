@@ -13,7 +13,7 @@ use rand_xoshiro::Xoroshiro128StarStar;
 use rayon::prelude::*;
 use std::time::Instant;
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     rayon::ThreadPoolBuilder::new()
         .num_threads(24)
         .build_global()
@@ -22,11 +22,11 @@ fn main() {
     let len = 150;
     let k = 6;
     // (num_seq, test_num, sample_num);
-    let params: Vec<_> = (10..11)
+    let params: Vec<_> = (0..1)
         .flat_map(|x| {
-            (20..21)
+            (60..61)
                 .step_by(15)
-                .flat_map(|y| (0..20).map(|z| (x, y, z)).collect::<Vec<_>>())
+                .flat_map(|y| (0..4).map(|z| (x, y, z)).collect::<Vec<_>>())
                 .collect::<Vec<_>>()
         })
         .collect();
@@ -43,7 +43,7 @@ fn main() {
     let s = &gen_sample::PROFILE;
     println!("Training\tTest\tNaive\tEM\tDist");
     let res: Vec<_> = params
-        .into_par_iter()
+        .into_iter()
         .map(|(training, test, seed)| {
             let start = Instant::now();
             info!("Start:{}\t{}\t{}", training, test, seed);
@@ -71,9 +71,10 @@ fn benchmark(
     test_num: usize,
     config: &Config,
 ) -> (f64, f64, u32) {
-    let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(138222324 + seed);
+    //let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(138222324 + seed);
+    let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1382223 + seed);
     let template1 = dbg_hmm::gen_sample::generate_seq(&mut rng, len);
-    let template2 = dbg_hmm::gen_sample::introduce_randomness(&template1, &mut rng, &p);
+    let template2 = dbg_hmm::gen_sample::introduce_errors(&template1, &mut rng, 1, 0, 0);
     let answers: Vec<_> = (0..(training + test_num))
         .map(|_| rng.gen_bool(0.5))
         .collect();
@@ -89,8 +90,7 @@ fn benchmark(
         .collect();
     let d = edlib_sys::global_dist(&template1, &template2);
     let pred = naive_pred(&dataset, &answers, training, k, config);
-    // assert!(dataset.len() == pred.len());
-    let em_pred = em_pred(&dataset, &answers[..training], k, config);
+    let em_pred = em_pred(&dataset, &answers, k, config, training);
     let naive = pred
         .iter()
         .zip(answers.iter())
@@ -106,9 +106,9 @@ fn benchmark(
     (em / test_num as f64, naive / test_num as f64, d)
 }
 
-fn em_pred(dataset: &[Vec<u8>], label: &[bool], k: usize, c: &Config) -> Vec<bool> {
-    let label: Vec<_> = label.iter().map(|&e| if e { 0 } else { 1 }).collect();
-    let data:Vec<_> = dataset
+fn em_pred(dataset: &[Vec<u8>], answer: &[bool], k: usize, c: &Config, t: usize) -> Vec<bool> {
+    let label: Vec<_> = answer[..t].iter().map(|&e| if e { 0 } else { 1 }).collect();
+    let data: Vec<_> = dataset
         .iter()
         .map(|chunk| {
             let read = vec![chunk.to_vec()];
@@ -116,7 +116,7 @@ fn em_pred(dataset: &[Vec<u8>], label: &[bool], k: usize, c: &Config) -> Vec<boo
         })
         .collect();
     let forbidden = vec![vec![]; data.len()];
-    let answer = vec![0; data.len()];
+    let answer: Vec<_> = answer[t..].iter().map(|&e| if e { 0 } else { 1 }).collect();
     last_decompose::clustering(&data, &label, &forbidden, k, 2, &[1], &answer, c)
         .into_iter()
         .map(|e| e == 0)
@@ -175,10 +175,7 @@ fn naive_pred(
                 .zip(answer.iter().take(training).chain(pred.iter()))
                 .filter_map(|(e, &b)| if !b { Some(e.as_slice()) } else { None })
                 .collect();
-            // m0 = f.generate_from_ref(&d0, k);
-            // m1 = f.generate_from_ref(&d1, k);
         }
         answer.iter().take(training).copied().chain(pred).collect()
     }
 }
-

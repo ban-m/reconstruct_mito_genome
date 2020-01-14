@@ -12,8 +12,8 @@ use rand_xoshiro::Xoshiro256PlusPlus;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let len = 150;
-    let num_seq = 200;
-    let mut rng: Xoshiro256PlusPlus = SeedableRng::seed_from_u64(121_899_200);
+    let num_seq = 150;
+    let mut rng: Xoshiro256PlusPlus = SeedableRng::seed_from_u64(121_899);
     let p = &gen_sample::Profile {
         sub: 0.004,
         ins: 0.004,
@@ -21,8 +21,6 @@ fn main() {
     };
     let template: Vec<_> = generate_seq(&mut rng, len);
     let diff = introduce_randomness(&template, &mut rng, p);
-    //let diff = introduce_errors(&template[..4], &mut rng, 0, 1, 0);
-    //let diff: Vec<_> = diff.iter().chain(template[4..].iter()).copied().collect();
     let data: Vec<Vec<_>> = (0..num_seq)
         .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
         .collect();
@@ -52,6 +50,8 @@ fn main() {
                 .count() as f64
                 / 100.;
             debug!("{}\t{}", i, correct);
+            debug!("M:{}", m);
+            debug!("D:{}", d);
             correct
         })
         .sum::<f64>()

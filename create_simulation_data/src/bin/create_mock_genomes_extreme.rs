@@ -19,8 +19,8 @@ fn main() -> std::io::Result<()> {
     let template2 = gen_sample::introduce_randomness(&template1, &mut rng, p);
     let stdout = std::io::stdout();
     let mut wtr = bio_utils::fasta::Writer::new(stdout.lock());
-    let desc1 = Some("depth=1.0 circular=true".to_string());
-    let desc2 = Some("depth=0.25 circular=true".to_string());
+    let desc1 = Some("depth=0.9 circular=true".to_string());
+    let desc2 = Some("depth=0.1 circular=true".to_string());
     let record1 =
         bio_utils::fasta::Record::with_data(&format!("sample1:{}", seed), &desc1, &template1);
     let record2 =

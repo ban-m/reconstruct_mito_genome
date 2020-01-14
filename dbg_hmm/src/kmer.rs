@@ -2,6 +2,7 @@ use super::base_table::BASE_TABLE;
 use super::find_union;
 use super::Config;
 use super::PSEUDO_COUNT;
+const LAMBDA: f64 = 0.10;
 #[derive(Clone, Default)]
 pub struct Kmer {
     pub kmer: Vec<u8>,
@@ -164,7 +165,6 @@ impl Kmer {
     // return P(idx|self)
     #[inline]
     pub fn to(&self, idx: usize) -> f64 {
-        // 1.
         self.weight[idx]
     }
     // return P(base|self), observation probability.
@@ -176,8 +176,7 @@ impl Kmer {
         } else {
             config.mismatch / 3.
         };
-        let lambda = 0.0;
-        p * lambda + (1. - lambda) * q
+        p * LAMBDA + (1. - LAMBDA) * q
     }
     #[inline]
     pub fn prob_with(&self, base: u8, config: &Config, from: &Kmer) -> f64 {
@@ -186,26 +185,22 @@ impl Kmer {
         } else {
             config.mismatch / 3.
         };
-        if from.edge_num() > 1 {
-            q
+        let p = from.base_count[BASE_TABLE[base as usize]];
+        if from.edge_num <= 1 {
+            p * LAMBDA + (1. - LAMBDA) * q
         } else {
-            let p = from.base_count[BASE_TABLE[base as usize]];
-            let lambda = 0.05;
-            // let lambda = 0.0;
-            p * lambda + (1. - lambda) * q
+            q
         }
     }
     // return P_I(base|self)
     #[inline]
     pub fn insertion(&self, base: u8) -> f64 {
         let q = 0.25;
-        if self.edge_num > 1 {
-            q
+        let p = self.base_count[BASE_TABLE[base as usize]];
+        if self.edge_num <= 1 {
+            p * LAMBDA + (1. - LAMBDA) * q
         } else {
-            let p = self.base_count[BASE_TABLE[base as usize]];
-            let lambda = 0.05;
-            // let lambda = 0.0;
-            p * lambda + (1. - lambda) * q
+            q
         }
     }
     #[inline]
