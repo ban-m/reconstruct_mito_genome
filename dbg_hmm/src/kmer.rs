@@ -1,8 +1,7 @@
 use super::base_table::BASE_TABLE;
 use super::find_union;
 use super::Config;
-use super::PSEUDO_COUNT;
-const LAMBDA: f64 = 0.10;
+use super::LAMBDA;
 #[derive(Clone, Default)]
 pub struct Kmer {
     pub kmer: Vec<u8>,
@@ -54,7 +53,7 @@ impl Kmer {
         let last = *kmer.last().unwrap();
         // Prior
         let weight = [0.; 4];
-        let base_count = [PSEUDO_COUNT; 4];
+        let base_count = [0.; 4];
         let tot = 0.;
         let edges = [None; 4];
         let is_tail = false;
@@ -89,7 +88,7 @@ impl Kmer {
         assert!((1. - self.base_count.iter().sum::<f64>()).abs() < 0.001);
     }
     // If which[i] = true, the weight of these edges would be normalized.
-    pub fn finalize_global(&mut self, which: &[bool; 4]) {
+    pub fn finalize_global(&mut self, which: [bool; 4]) {
         assert!(self.tot > 0.0001);
         let tot = self
             .weight

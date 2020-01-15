@@ -13,20 +13,15 @@ extern crate rand;
 extern crate rand_xoshiro;
 extern crate test;
 // Parameters for Factory class.
-const SCALE: f64 = 0.81;
+// const SCALE: f64 = 0.81;
 const PRIOR_FACTOR: f64 = 0.05;
 // const MAX_PRIOR_FACTOR: f64 = 3.0;
 // Whether or not to use 'pseudo count' in the out-dgree.
-const PSEUDO_COUNT: f64 = 0.5;
-const THR_ON: bool = true;
+// const PSEUDO_COUNT: f64 = 0.0;
 // This 2.5 is good for prediction for a new query,
 // but very bad for exisiting(i.e., the reads used as model) query.
-// const THR: f64 = 2.0;
-const THR: f64 = 2.0;
-// This is tuned for clustering.
-// const THR: f64 = 3.;
-// const WEIGHT_THR: f64 = 2.0;
-// const LOW_LIKELIHOOD: f64 = -100_000.;
+const THR: f64 = 2.;
+const LAMBDA: f64 = 0.2;
 mod find_union;
 pub mod gen_sample;
 mod kmer;
@@ -164,32 +159,28 @@ impl DeBruijnGraphHiddenMarkovModel {
         let mat = (1. - config.mismatch).ln();
         let mut prev = vec![0.; self.k + 1];
         let mut next = vec![0.; self.k + 1];
+        let params = (mat, mism, del, ins);
         self.nodes
             .iter()
-            .map(|e| Self::global_aln(&e.kmer, tip, mat, mism, del, ins, &mut prev, &mut next))
+            .map(|e| Self::global_aln(&e.kmer, tip, params, &mut prev, &mut next))
             .collect()
     }
     #[inline]
     fn global_aln(
         xs: &[u8],
         ys: &[u8],
-        mat: f64,
-        mism: f64,
-        del: f64,
-        ins: f64,
+        (mat, mism, del, ins): (f64, f64, f64, f64),
         prev: &mut Vec<f64>,
         next: &mut Vec<f64>,
     ) -> f64 {
         let small = std::f64::MIN;
         let k = xs.len();
-        for i in 0..=k {
-            prev[i] = small;
-        }
+        prev.iter_mut().take(k + 1).for_each(|e| *e = small);
         prev[0] = 0.;
-        for i in 0..k {
+        for &x in xs.iter() {
             next[0] = small;
             for j in 0..k {
-                let match_score = prev[j] + if xs[i] == ys[j] { mat } else { mism };
+                let match_score = prev[j] + if x == ys[j] { mat } else { mism };
                 next[j + 1] = (next[j] + del).max(prev[j + 1] + ins).max(match_score);
             }
             std::mem::swap(prev, next);
@@ -203,10 +194,10 @@ impl DeBruijnGraphHiddenMarkovModel {
         let mut traceback = vec![vec![0; ys.len() + 1]; xs.len() + 1];
         // DP fill.
         dp[0][0] = 0.;
-        for i in 0..xs.len() {
-            for j in 0..ys.len() {
+        for (i, &x) in xs.iter().enumerate() {
+            for (j, &y) in ys.iter().enumerate() {
                 // Fill dp[i+1][j+1]
-                let match_score = dp[i][j] + if xs[i] == ys[j] { mat } else { mism };
+                let match_score = dp[i][j] + if x == y { mat } else { mism };
                 let del_score = dp[i][j + 1] + del;
                 let ins_score = dp[i + 1][j] + ins;
                 if del_score < match_score && ins_score < match_score {
@@ -291,13 +282,14 @@ impl DeBruijnGraphHiddenMarkovModel {
             let (match_state, insertion_state) = edges[dist_idx]
                 .iter()
                 .map(|&src| {
-                    let src_node = 3 * src;
-                    let trans = self.nodes[src].to(edge_idx);
-                    let f_dist = prev[src_node] * config.p_match
-                        + prev[src_node + 1] * (1. - config.p_extend_ins)
-                        + prev[src_node + 2] * (1. - config.p_extend_del - config.p_del_to_ins);
-                    let m = f_dist * trans * dist.prob_with(base, config, &self.nodes[src]);
-                    let i = prev[src_node + 2] * config.p_del_to_ins * trans;
+                    let src_node = &self.nodes[src];
+                    let src = src * 3;
+                    let trans = src_node.to(edge_idx);
+                    let f_dist = prev[src] * config.p_match
+                        + prev[src + 1] * (1. - config.p_extend_ins)
+                        + prev[src + 2] * (1. - config.p_extend_del - config.p_del_to_ins);
+                    let m = f_dist * trans * dist.prob_with(base, config, src_node);
+                    let i = prev[node + 2] * config.p_del_to_ins * trans;
                     (m, i)
                 })
                 .fold((0., 0.), |(x, y), (a, b)| (x + a, y + b));
@@ -414,7 +406,7 @@ impl DeBruijnGraphHiddenMarkovModel {
             return config.null_model(obs);
         }
         // Alignemnts: [mat, ins, del,  mat, ins, del,  ....]
-        let (mut cs, mut ds, mut prev) = self.initialize_lagged(&obs[..self.k + 1], config);
+        let (mut cs, mut ds, mut prev) = self.initialize_lagged(&obs[..=self.k], config);
         let mut updated = vec![0.; prev.len()];
         let edges = {
             let mut edges = vec![Vec::with_capacity(4); self.nodes.len()];
@@ -518,7 +510,7 @@ impl DeBruijnGraphHiddenMarkovModel {
                     }
                 })
                 .max_by(|e, f| (e.1).partial_cmp(&(f.1)).unwrap_or(Equal))
-                .unwrap_or((0, -1000000.));
+                .unwrap_or((0, -1_000_000.));
             updates[node] = max;
             arg_updates[node] = argmax;
             //Ins state
@@ -547,7 +539,7 @@ impl DeBruijnGraphHiddenMarkovModel {
                     (3 * src + 2, trans + self.nodes[src].to(edge_idx).ln())
                 })
                 .max_by(|e, f| (e.1).partial_cmp(&(f.1)).unwrap_or(Equal))
-                .unwrap_or((0, -1000000.));
+                .unwrap_or((0, -1_000_000.));
             if max_del < max {
                 updates[node + 1] = max + dist.insertion(base).ln();
                 arg_updates[node + 1] = argmax;
@@ -571,7 +563,7 @@ impl DeBruijnGraphHiddenMarkovModel {
                     }
                 })
                 .max_by(|e, f| (e.1).partial_cmp(&(f.1)).unwrap_or(Equal))
-                .unwrap_or((0, -1000000.));
+                .unwrap_or((0, -1_000_000.));
             updates[dist_idx * 3 + 2] = max;
             arg_updates[dist_idx * 3 + 2] = argmax;
         }
@@ -587,7 +579,7 @@ impl DeBruijnGraphHiddenMarkovModel {
         let (_, _, prev) = self.initialize(&obs[..self.k], config);
         let mut prev: Vec<_> = prev
             .into_iter()
-            .map(|e| if e == 0. { -10000000. } else { e.ln() })
+            .map(|e| if e == 0. { -10_000_000. } else { e.ln() })
             .collect();
         let len = prev.len();
         let mut traceback = vec![vec![0; len]];
@@ -600,12 +592,12 @@ impl DeBruijnGraphHiddenMarkovModel {
             }
             edges
         };
-        let mut updates = vec![-100000.; len];
+        let mut updates = vec![-100_000.; len];
         for &base in &obs[self.k..] {
             let tb = self.viterbi_row(base, &prev, &mut updates, config, &edges);
             traceback.push(tb);
             std::mem::swap(&mut prev, &mut updates);
-            updates.iter_mut().for_each(|e| *e = -1000000.);
+            updates.iter_mut().for_each(|e| *e = -1_000_000.);
         }
         // Traceback. `prev` is the last row which was filled.
         // Traceback
@@ -1500,8 +1492,8 @@ mod tests {
         let mut buf = vec![];
         let m = f.generate_with_weight_prior(&model1, &weight, k, &mut buf);
         eprintln!("{}", m);
-        let q = introduce_randomness(&template, &mut rng, &PROFILE);
-        b.iter(|| test::black_box(m.forward(&q, &DEFAULT_CONFIG)));
+        let query = introduce_randomness(&template, &mut rng, &PROFILE);
+        b.iter(|| test::black_box(m.forward(&query, &DEFAULT_CONFIG)));
     }
     #[bench]
     fn update_weight_prior(b: &mut Bencher) {
@@ -1524,8 +1516,8 @@ mod tests {
         let mut buf = vec![];
         let m = f.generate_with_weight_prior(&model1, &weight, k, &mut buf);
         let config = &DEFAULT_CONFIG;
-        let q = introduce_randomness(&template, &mut rng, &PROFILE);
-        let (_, _, prev) = m.initialize(&q[..m.k + 1], config);
+        let query = introduce_randomness(&template, &mut rng, &PROFILE);
+        let (_, _, prev) = m.initialize(&query[..m.k + 1], config);
         let mut updated = vec![0.; prev.len()];
         let edges = {
             let mut edges = vec![Vec::with_capacity(4); m.nodes.len()];

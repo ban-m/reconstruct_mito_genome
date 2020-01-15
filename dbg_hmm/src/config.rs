@@ -83,12 +83,8 @@ impl std::fmt::Display for Config {
 impl Config {
     pub fn new(
         mismatch: f64,
-        p_match: f64,
-        p_ins: f64,
-        p_del: f64,
-        p_extend_ins: f64,
-        p_extend_del: f64,
-        p_del_to_ins: f64,
+        (p_match, p_ins, p_del): (f64, f64, f64),
+        (p_extend_ins, p_extend_del, p_del_to_ins): (f64, f64, f64),
         base_freq: [f64; 4],
     ) -> Self {
         Self {

@@ -1,7 +1,4 @@
-use super::{base_table::BASE_TABLE, find_union, Kmer, DBGHMM, SCALE, THR, THR_ON};
-use rand::{Rng, SeedableRng};
-use rand_xoshiro::Xoshiro256StarStar;
-// use std::collections::HashMap;
+use super::{base_table::BASE_TABLE, find_union, Kmer, DBGHMM, THR};
 #[derive(Default)]
 pub struct Factory {
     inner: Vec<(f64, usize)>,
@@ -27,7 +24,7 @@ const TABLE: [u8; 4] = [b'A', b'C', b'G', b'T'];
 fn decode(kmer: u64, k: usize) -> Vec<u8> {
     (0..k)
         .rev()
-        .map(|digit| (kmer >> 2 * digit) & 0b11)
+        .map(|digit| (kmer >> (2 * digit)) & 0b11)
         .map(|base| TABLE[base as usize])
         .collect::<Vec<u8>>()
 }
@@ -37,7 +34,7 @@ fn decode_to(kmer: u64, k: usize, buf: &mut Vec<u8>) {
     buf.extend(
         (0..k)
             .rev()
-            .map(|digit| (kmer >> 2 * digit) & 0b11)
+            .map(|digit| (kmer >> (2 * digit)) & 0b11)
             .map(|base| TABLE[base as usize]),
     );
 }
@@ -137,13 +134,12 @@ impl Factory {
         assert!(k <= 32, "k should be less than 32.");
         assert!(self.is_empty());
         let tk = 4u32.pow(k as u32) as usize;
-        let coverage = ws.iter().sum::<f64>();
         self.inner
             .extend(std::iter::repeat((0., std::usize::MAX)).take(tk));
-        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(dataset.len() as u64);
+        // let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(dataset.len() as u64);
         assert_eq!(dataset.len(), ws.len());
         let ep = 0.0001;
-        let mask = (1 << 2 * k) - 1;
+        let mask = (1 << (2 * k)) - 1;
         dataset
             .iter()
             .zip(ws.iter())
@@ -157,15 +153,12 @@ impl Factory {
             });
         let thr = self.calc_thr_weight();
         let mut nodes = Vec::with_capacity(1_000);
-        let scale = SCALE * coverage.ln();
         for (seq, &w) in dataset.iter().zip(ws.iter()).filter(|&(_, &w)| w > ep) {
             let mut from = to_u64(&seq[..k]);
             for x in seq.windows(k + 1) {
                 let b = x[k];
                 let to = (from << 2 | BASE_TABLE[b as usize]) & mask;
-                if let Some((from, to)) =
-                    self.get_indices_exp(x, &mut nodes, thr, k, &mut rng, from, to, scale)
-                {
+                if let Some((from, to)) = self.get_indices_exp(x, &mut nodes, thr, k, from, to) {
                     nodes[from].push_edge_with_weight(x[k], to, w);
                 }
                 from = to;
@@ -207,18 +200,17 @@ impl Factory {
             return self.generate_with_weight(dataset, ws, k);
         }
         assert!(k <= 32, "k should be less than 32.");
-        use super::PRIOR_FACTOR;
         let tk = (1 << (k * 2)) as usize;
         // let tk = 4u32.pow(k as u32) as usize;
-        let weight = PRIOR_FACTOR * coverage;
+        let weight = super::PRIOR_FACTOR * coverage;
         self.inner
             .extend(std::iter::repeat((weight, std::usize::MAX)).take(tk));
         buf.extend(std::iter::repeat(weight).take(tk * 4));
-        let seed = ws.iter().sum::<f64>().floor().abs() as u64 + dataset.len() as u64;
-        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
-        let ep = 0.000000001;
-        let mask = (1 << 2 * k) - 1;
-        let e_mask = (1 << 2 * (k + 1)) - 1;
+        // let seed = ws.iter().sum::<f64>().floor().abs() as u64 + dataset.len() as u64;
+        // let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
+        let ep = 0.000_000_001;
+        let mask = (1 << (2 * k)) - 1;
+        let e_mask = (1 << (2 * (k + 1))) - 1;
         // Record all the k-mers and k+1-mers.
         dataset
             .iter()
@@ -239,17 +231,17 @@ impl Factory {
         let thr = {
             let sum = self.inner.iter().map(|e| e.0).sum::<f64>();
             let thr = THR * sum / self.inner.len() as f64;
-            let t1 = 0.37 * coverage - 12.0;
-            t1.max(thr)
+            // let t1 = 0.37 * coverage - 12.0;
+            // eprintln!("{:.3}:{:.3}", thr,t1);
+            // t1.max(thr)
+            thr
         };
         let mut nodes = Vec::with_capacity(2_500);
         let mut edge = vec![];
         for (e, &w) in buf.iter().enumerate().filter(|&(_, &w)| w > ep) {
             let (from, to) = (e >> 2, e & mask);
             decode_to(e as u64, k + 1, &mut edge);
-            if let Some((from, to)) =
-                self.get_indices_exp(&edge, &mut nodes, thr, k, &mut rng, from, to, 0.)
-            {
+            if let Some((from, to)) = self.get_indices_exp(&edge, &mut nodes, thr, k, from, to) {
                 nodes[from].push_edge_with_weight(edge[k], to, w);
             }
         }
@@ -301,7 +293,7 @@ impl Factory {
             } else {
                 // DFS
                 let which = self.select_margiable_edges(&node, k, len);
-                node.finalize_global(&which);
+                node.finalize_global(which);
             }
         });
         nodes
@@ -404,6 +396,7 @@ impl Factory {
     }
     fn clean_up_nodes_exp(&mut self, nodes: Vec<Kmer>, thr: usize) -> Vec<Kmer> {
         assert!(self.is_empty());
+        // let before = nodes.len();
         let nodes = self.trim_unreachable_nodes(nodes);
         let nodes = self.trim_unreachable_nodes_reverse(nodes);
         let save = nodes.clone();
@@ -436,13 +429,13 @@ impl Factory {
             // let tail = nodes.iter().filter(|e| e.is_tail).count();
             // debug!("{}:{}->{}:{}", b_head, b_tail, head, tail);
             let nodes = self.pick_largest_components(save);
-            let nodes = self.renaming_nodes(nodes);
-            nodes
+            self.renaming_nodes(nodes)
         } else {
             //debug!("OK!:{}->{}", save.len(), nodes.len());
             let nodes = self.pick_largest_components(nodes);
-            let nodes = self.renaming_nodes(nodes);
-            nodes
+            self.renaming_nodes(nodes)
+            // let after = nodes.len();
+            // eprintln!("{}->{}", before, after);
         }
     }
     // fn trim_ht_edges(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
@@ -545,7 +538,7 @@ impl Factory {
         }
         let nodes = nodes.len();
         self.dfs_flag.extend(std::iter::repeat(0).take(nodes));
-        let mut lowlink: Vec<usize> = vec![1000000000; nodes];
+        let mut lowlink: Vec<usize> = vec![1_000_000_000; nodes];
         let mut orders: Vec<usize> = vec![0; nodes];
         let mut order = 0;
         let mut is_dfs_edge: Vec<_> = self.edges.iter().map(|es| vec![false; es.len()]).collect();
@@ -571,7 +564,7 @@ impl Factory {
                     }
                 }
                 let last = self.dfs_stack.pop().unwrap();
-                let parent = *self.dfs_stack.last().unwrap_or(&10000000);
+                let parent = *self.dfs_stack.last().unwrap_or(&10_000_000);
                 for (&to, &is_dfs) in self.edges[last].iter().zip(is_dfs_edge[node].iter()) {
                     if to == parent {
                         continue;
@@ -1220,11 +1213,7 @@ impl Factory {
     }
     fn calc_thr(&self) -> f64 {
         let ave = self.inner.iter().map(|e| e.0).sum::<f64>() / self.inner.len() as f64;
-        if THR_ON {
-            ave - THR
-        } else {
-            0.
-        }
+        ave - THR
     }
     fn calc_thr_weight(&self) -> f64 {
         let (sum, denom) =
@@ -1233,11 +1222,7 @@ impl Factory {
                 |(x, y), &(w, _)| if w >= 1. { (x + w, y + 1.) } else { (x, y) },
             );
         let ave = sum / denom;
-        if THR_ON {
-            ave - THR
-        } else {
-            0.
-        }
+        ave - THR
     }
     fn get_idx(&mut self, kmer: &[u8], nodes: &mut Vec<Kmer>, thr: f64) -> Option<usize> {
         let x = self.inner.get_mut(to_u64(kmer)).unwrap();
@@ -1267,14 +1252,12 @@ impl Factory {
         let to = self.get_idx(after, nodes, thr)?;
         Some((from, to))
     }
-    fn get_idx_exp<R: Rng>(
+    fn get_idx_exp(
         &mut self,
         kmer: &[u8],
         nodes: &mut Vec<Kmer>,
         thr: f64,
-        _rng: &mut R,
         idx: usize,
-        _scale: f64,
     ) -> Option<usize> {
         match self.inner.get_mut(idx) {
             Some(x) if x.0 < thr => None, // && rng.gen_bool(Self::prob(x.0 - thr, scale)) => None,
@@ -1287,20 +1270,18 @@ impl Factory {
             _ => unreachable!(),
         }
     }
-    fn get_indices_exp<R: Rng>(
+    fn get_indices_exp(
         &mut self,
         x: &[u8],
         nodes: &mut Vec<Kmer>,
         thr: f64,
         k: usize,
-        rng: &mut R,
         from: usize,
         to: usize,
-        scale: f64,
     ) -> Option<(usize, usize)> {
         let (prev, next) = (&x[..k], &x[1..]);
-        let from = self.get_idx_exp(prev, nodes, thr, rng, from, scale)?;
-        let next = self.get_idx_exp(next, nodes, thr, rng, to, scale)?;
+        let from = self.get_idx_exp(prev, nodes, thr, from)?;
+        let next = self.get_idx_exp(next, nodes, thr, to)?;
         Some((from, next))
     }
     pub fn new() -> Self {
