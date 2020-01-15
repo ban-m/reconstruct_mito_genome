@@ -23,11 +23,11 @@ pub fn maximum_weight_matching(
         }
     }
     // Add edges from 0(start)-> nodes in nodes_1
-    for i in 1..nodes_1 + 1 {
+    for i in 1..=nodes_1 {
         graph[0].push((i, 1, 0.));
     }
     // Add edges from nodes in nodes_2 -> nodes_1 + nodes_2 + 1(end)
-    for i in (nodes_1 + 1)..(nodes_1 + nodes_2 + 1) {
+    for i in (nodes_1 + 1)..=(nodes_1 + nodes_2) {
         graph[i].push((nodes_1 + nodes_2 + 1, 1, 0.));
     }
     let mut mcf = MinCostFlow::new(graph);

@@ -14,7 +14,7 @@ pub fn summarize_tab(
     contig: &[bio_utils::fasta::Record],
 ) -> Config {
     let bf = base_freq(&read);
-    let reads: HashMap<_, _> = read.into_iter().map(|e| (e.id().to_string(), e)).collect();
+    let reads: HashMap<_, _> = read.iter().map(|e| (e.id().to_string(), e)).collect();
     let contigs: HashMap<_, _> = contig
         .into_iter()
         .map(|e| (e.id().to_string(), e))

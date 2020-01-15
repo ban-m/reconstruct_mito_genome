@@ -75,11 +75,10 @@ pub struct Position {
 impl Ord for Position {
     fn cmp(&self, other: &Self) -> Ordering {
         use Ordering::*;
-        if self.contig < other.contig {
-            return Less;
-        } else if self.contig > other.contig {
-            return Greater;
-        }
+        match self.contig.cmp(&other.contig) {
+            Equal => {}
+            x => return x,
+        };
         match (
             self.start_unit.cmp(&other.start_unit),
             self.end_unit.cmp(&other.end_unit),
@@ -390,11 +389,9 @@ fn critical_region_within(
             let &(s, t) = &inner_region[i];
             let &(x, y) = &inner_region[j];
             let is_ordered = 0 < t && t <= x && x <= y;
-            if !is_ordered {
+            if !is_ordered || x - t < 100 {
                 // (s,t) contains (x,y) or vise versa.
-                continue;
-            } else if x - t < 100 {
-                // Too near.
+                // Or, Too near.
                 continue;
             }
             // Let's move on to case exhaution.

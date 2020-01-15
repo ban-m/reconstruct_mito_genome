@@ -245,6 +245,9 @@ impl CUnit {
     pub fn len(&self) -> usize {
         self.bases.len()
     }
+    pub fn is_empty(&self)->bool{
+        self.bases.is_empty()
+    }
     pub fn unit(&self) -> usize {
         self.unit as usize
     }

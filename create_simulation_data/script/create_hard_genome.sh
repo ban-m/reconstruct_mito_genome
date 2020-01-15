@@ -18,5 +18,5 @@ function create_mock() {
 }
 
 create_mock ./data/short_hard 20000
-# create_mock ./data/middle_hard 200000
-# create_mock ./data/long_hard 300000
+create_mock ./data/middle_hard 200000
+create_mock ./data/long_hard 300000

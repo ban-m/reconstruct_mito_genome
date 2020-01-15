@@ -213,18 +213,14 @@ pub fn generate_mul_data<T: Rng>(
     probs: &[f64],
 ) -> (Vec<Vec<Vec<u8>>>, Vec<u8>, Vec<u8>, usize) {
     debug!("{}templates", templates.len());
-    let cluster_num = templates.len();
-    use rand::seq::SliceRandom;
-    let choices: Vec<_> = (0..cluster_num).collect();
-    let answer: Vec<_> = (0..test_num + coverage)
-        .filter_map(|i| {
-            if i < cluster_num {
-                Some(&choices[i % cluster_num])
-            } else {
-                choices.choose_weighted(rng, |&idx| probs[idx]).ok()
-            }
+    let total = test_num + coverage;
+    let answer: Vec<_> = probs
+        .iter()
+        .enumerate()
+        .flat_map(|(idx, &prob)| {
+            let num = (total as f64 * prob).ceil() as usize;
+            vec![idx; num]
         })
-        .copied()
         .map(|e| e as u8)
         .collect();
     let mut gen = |t: &[Vec<u8>]| {

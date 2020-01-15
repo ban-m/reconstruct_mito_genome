@@ -29,14 +29,13 @@ g2 <- dataset %>%  ggplot() +
 generalplot(g2,"coverage_and_likelihood_ratio_smooth")
 
 
-summaries  <- dataset %>% filter(LikelihoodRatio < 50) %>%
+summaries  <- dataset %>% filter(LikelihoodRatio) %>% 
     nest(-Seed,-Coverage) %>%
     mutate(data = map(data,function(x) x %>% summarize(mean =mean(LikelihoodRatio)))) %>%
     unnest()
 
-ds <- dataset %>% filter(LikelihoodRatio < 50 & Coverage > 25) 
+ds <- dataset %>% filter(LikelihoodRatio < 50 & Coverage > 20) 
 linear_reg <- lm(log(LikelihoodRatio) ~ Coverage,data=ds)
-
 objective_function <- function(x){
     a <- x[1]
     b <- x[2]
@@ -73,11 +72,19 @@ generalplot(g, "coverage_and_likelihood_ratio_sub_regress_smooth")
 
 
 
-g <- dataset_diff %>% filter(Coverage < 25) %>% 
+g <- dataset_diff %>% 
     gather(key = Type, value = Likelihood, -Coverage) %>% 
     filter(Likelihood > -200) %>%
     ggplot() + geom_point(aes(x = Coverage, y = Likelihood, color = Type), alpha = 0.3)
 generalplot(g,"coverage_and_likelihood_point")
+
+
+g <- dataset_diff %>% 
+    gather(key = Type, value = Likelihood, -Coverage) %>% 
+    filter(Likelihood > -200) %>%
+    ggplot() + geom_hex(aes(x = Coverage, y = Likelihood)) +
+    facet_wrap(~Type)
+
 
 g <- dataset_diff %>%
     gather(key = Type, value = Likelihood, -Coverage) %>% 

@@ -50,10 +50,25 @@ g <- dataset %>% filter(type == "Proposed") %>%
     mutate(ErrorRate = Dist/Length) %>% 
     ggplot() + geom_point(mapping = aes( x = ErrorRate, y = accuracy, color = Length), alpha = 0.09)
 generalplot(g, paste0("gam_errorrate_",outname))
-g <- dataset %>% ggplot() +
+
+
+g <- dataset %>% 
+    ggplot() +
     geom_point(mapping = aes( x = Length, y = accuracy), size = 1, alpha = 0.3, stroke = 0) +
     facet_grid(type ~ Dist)
 generalplot(g, paste0("point_",outname))
+
+
+g <- dataset %>% rename(Accuracy = accuracy) %>%
+    nest(-Length,-Dist) %>% mutate(data = map(data, ~ sample_n(.,200))) %>%
+    filter(Dist <= 4 & Dist > 0)  %>%
+    unnest() %>%
+    rename(UnitLength = Length) %>% 
+    ggplot() +
+    geom_bin2d(mapping = aes(x = UnitLength, y = Accuracy), binwidth = c(3,0.05)) +
+    scale_fill_gradient(low = "white", high = "black") + 
+    facet_grid(type ~ Dist) 
+generalplot(g, paste0("density_", outname))
 
 summary <- dataset %>% nest(accuracy) %>%
     mutate(data = map(data,

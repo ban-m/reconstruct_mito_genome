@@ -25,7 +25,6 @@ fn main() -> std::io::Result<()> {
         bio_utils::fasta::Record::with_data(&format!("sample1:{}", seed), &desc1, &template1);
     let record2 =
         bio_utils::fasta::Record::with_data(&format!("sample2:{}", seed), &desc2, &template2);
-    wtr.write_record(&record1)
-?;
+    wtr.write_record(&record1)?;
     wtr.write_record(&record2)
 }

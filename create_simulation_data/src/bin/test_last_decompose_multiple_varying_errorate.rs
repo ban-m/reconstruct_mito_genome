@@ -32,13 +32,12 @@ fn main() {
     let chain_len = 40;
     let k = 6;
     let len = 150;
-    //let prob: Vec<_> = (1..=10).collect();
-    let prob: Vec<_> = vec![1];
-    // let test_nums: Vec<_> = (50..201).step_by(30).collect();
-    let test_nums = vec![70];
+    let prob: Vec<_> = (1..=10).collect();
+    let test_nums: Vec<_> = (50..150).step_by(10).collect();
     for p in prob {
         for &test_num in &test_nums {
-            let p = p as f64 / 6000.;
+            let seed = seed + (test_num + p) as u64;
+            let p = p as f64 / 6000. / 2.;
             println!("ErrorRate:{:3}", p * 6.);
             let p = &gen_sample::Profile {
                 sub: p,

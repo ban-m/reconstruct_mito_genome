@@ -50,6 +50,14 @@ g <- dataset %>%
     facet_wrap(.~Dist)
 generalplot(g,paste0(outputname,"_smooth"))
 
+g <- dataset %>%
+    filter(Dist > 0 & Dist < 4) %>% 
+    ggplot() +
+    geom_bin2d(mapping = aes(x = Coverage, y = Accuracy)) +
+    scale_fill_gradient(low = "white", high = "black") + 
+    facet_grid(Type~Dist)
+
+
 dataset <- read_tsv(filename)
 g <-  dataset %>%
     mutate(ImpHMM = WHMM-HMM, ImpAln = WHMM-Aln) %>%

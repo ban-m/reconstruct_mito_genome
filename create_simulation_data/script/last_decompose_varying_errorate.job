@@ -9,61 +9,24 @@
 #$ -m e
 # -t 1:5
 set -ue
-# !!!!!!!!!!!!!!!!!
-SGE_TASK_ID=0
 OUTPUT=./result/last_decompose_gibbs_test_${SGE_TASK_ID}.txt
 OUTLOG_PREFIX=./logfiles/last_decompose_gibbs_test_${SGE_TASK_ID}
 # RUSTFLAGS="-C target-cpu=native" cargo build --release
 
 echo "-----start-----" >> ${OUTPUT}
 
-COVERAGE=0
-PROBS="0.5 0.5"
 ./target/release/test_last_decompose_multiple_varying_errorate \
-    $(( 1213 + $SGE_TASK_ID )) ${PROBS} >> ${OUTPUT} 2>> ${OUTLOG_PREFIX}.log
+    1213421 0.5 0.5 >> ./result/ve_test.tsv \
+    2>> ./logfiles/ve_test.log
 exit 0;
 
-# COVERAGE=0
-# PROBS="0.5 0.5"
-# for seed in `seq 1 10 100`
-# do
-#     seed=$(( $seed + $SGE_TASK_ID ))
-#     ./target/release/test_last_decompose_multiple_varying_errorate \
-#         ${seed} ${PROBS} >> ${OUTPUT} \
-#         2>> ${OUTLOG_PREFIX}.log
-# done
-
-# TEST_NUM=200
-# COVERAGE=0
-# PROBS="0.2 0.8"
-# for seed in 10 20 30 40 50
-# do
-#     ./target/release/test_last_decompose_multiple_varying_errorate \
-#         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT} \
-#         2>> ${OUTLOG_PREFIX}.skew.100.log
-# done
-
-
-# for TEST_NUM in `seq 50 10 150`
-# do
-#     COVERAGE=0
-#     PROBS="0.5 0.5"
-#     for seed in 10 20 30 40 50
-#     do
-#         ./target/release/test_last_decompose_multiple_varying_errorate \
-#             ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT} \
-#             2>> ${OUTLOG_PREFIX}.even.100.log
-#     done
-# done
-
-# TEST_NUM=300
-# COVERAGE=0
-# PROBS="0.2 0.8"
-# for seed in 10 20 30 40 50
-# do
-#     ./target/release/test_last_decompose_multiple \
-#         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}\
-#         2>> ${OUTLOG_PREFIX}.skew.300.log
-# done
-
+COVERAGE=0
+PROBS="0.5 0.5"
+for seed in `seq 1 10 100`
+do
+    seed=$(( $seed + $SGE_TASK_ID ))
+    ./target/release/test_last_decompose_multiple_varying_errorate \
+        ${seed} ${PROBS} >> ${OUTPUT} \
+        2>> ${OUTLOG_PREFIX}.log
+done
 

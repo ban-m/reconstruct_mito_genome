@@ -17,9 +17,9 @@ fn main() {
         .build_global()
         .unwrap();
     let args: Vec<_> = std::env::args().collect();
-    let min_len = 50;
+    let min_len = 70;
     let max_len = 200;
-    let by = 5;
+    let by = 3;
     let num_seq = 30;
     let test_num = 100;
     let k = 6;
@@ -51,9 +51,9 @@ fn main() {
         .flat_map(|e| {
             let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12_218_993 + e);
             let mut res = vec![];
-            for len in min_len / by..max_len / by {
+            for len in (min_len..max_len).step_by(by) {
                 for &d in &dists {
-                    res.push(simulate(len * by, num_seq, test_num, k, &mut rng, d, &c));
+                    res.push(simulate(len, num_seq, test_num, k, &mut rng, d, &c));
                 }
             }
             res

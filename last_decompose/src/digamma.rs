@@ -1,3 +1,4 @@
+#![allow(clippy::unreadable_literal)]
 use std::f64;
 // Cite from https://docs.rs/statrs/0.12.0/src/statrs/function/gamma.rs.html#352-391
 // MIT License
