@@ -10,17 +10,17 @@ fn main() -> std::io::Result<()> {
     let seed = 2312789;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let p = &gen_sample::Profile {
-        sub: 0.005 / 3.,
-        ins: 0.005 / 3.,
-        del: 0.005 / 3.,
+        sub: 0.003,
+        ins: 0.003,
+        del: 0.003,
     };
     let reference_len: usize = args[1].parse().unwrap();
     let template1 = gen_sample::generate_seq(&mut rng, reference_len);
     let template2 = gen_sample::introduce_randomness(&template1, &mut rng, p);
     let stdout = std::io::stdout();
     let mut wtr = bio_utils::fasta::Writer::new(stdout.lock());
-    let desc1 = Some("depth=1 circular=true".to_string());
-    let desc2 = Some("depth=0.2 circular=true".to_string());
+    let desc1 = Some("depth=0.9 circular=true".to_string());
+    let desc2 = Some("depth=0.1 circular=true".to_string());
     let record1 =
         bio_utils::fasta::Record::with_data(&format!("sample1:{}", seed), &desc1, &template1);
     let record2 =

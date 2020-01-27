@@ -12,16 +12,11 @@ extern crate packed_simd;
 extern crate rand;
 extern crate rand_xoshiro;
 extern crate test;
-// Parameters for Factory class.
-// const SCALE: f64 = 0.81;
-const PRIOR_FACTOR: f64 = 0.05;
-// const MAX_PRIOR_FACTOR: f64 = 3.0;
-// Whether or not to use 'pseudo count' in the out-dgree.
-// const PSEUDO_COUNT: f64 = 0.0;
-// This 2.5 is good for prediction for a new query,
-// but very bad for exisiting(i.e., the reads used as model) query.
+// const PRIOR_FACTOR: f64 = 0.05;
+const PRIOR_FACTOR: f64 = 0.00;
+const MOCK_WEIGHT: f64 = 1.;
 const THR: f64 = 2.;
-const LAMBDA: f64 = 0.2;
+const LAMBDA: f64 = 0.1;
 mod find_union;
 pub mod gen_sample;
 mod kmer;
@@ -31,9 +26,41 @@ mod config;
 pub use config::*;
 use packed_simd::f64x4 as f64s;
 pub type DBGHMM = DeBruijnGraphHiddenMarkovModel;
+pub type PairDBGHMM = PairDeBruijnGraphHiddenMarkovModel;
 mod factory;
 pub use factory::Factory;
+pub use factory::PairFactory;
 mod base_table;
+
+#[derive(Clone, Default)]
+pub struct PairDeBruijnGraphHiddenMarkovModel {
+    forward: DBGHMM,
+    reverse: DBGHMM,
+}
+
+impl std::fmt::Debug for PairDBGHMM {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "F:{:?}\tR:{:?}", self.forward, self.reverse)
+    }
+}
+
+impl std::fmt::Display for PairDBGHMM {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "F:{}\tR:{}", self.forward, self.reverse,)
+    }
+}
+
+impl PairDBGHMM {
+    pub fn new(forward: DBGHMM, reverse: DBGHMM) -> Self {
+        Self { forward, reverse }
+    }
+    pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
+        let f = self.forward.forward(obs, config);
+        let obs = factory::revcmp(obs);
+        let r = self.reverse.forward(&obs, config);
+        f + r
+    }
+}
 
 #[derive(Clone, Default)]
 pub struct DeBruijnGraphHiddenMarkovModel {
@@ -93,9 +120,6 @@ impl DeBruijnGraphHiddenMarkovModel {
             .filter(|&(idx, _)| idx < 2 || rng.gen_bool(pick_prob))
             .any(|(_, test)| self.forward(test, c) > limit);
         self.is_broken = is_broken;
-        // if self.is_broken {
-        //     debug!("Broken Model:{}", self);
-        // }
         is_broken
     }
     /// is_broken might be changed. The current value would be returned.
@@ -110,6 +134,9 @@ impl DeBruijnGraphHiddenMarkovModel {
             .any(|(_, test)| self.forward(test, c) > limit);
         self.is_broken = is_broken;
         is_broken
+    }
+    fn nodes(&self) -> &[Kmer] {
+        self.nodes.as_slice()
     }
     pub fn is_broken(&self) -> bool {
         self.is_broken
@@ -155,7 +182,7 @@ impl DeBruijnGraphHiddenMarkovModel {
     }
     fn global_alns(&self, tip: &[u8], config: &Config) -> Vec<f64> {
         let (del, ins) = (config.p_del.ln(), config.p_ins.ln());
-        let mism = (config.mismatch / 3.).ln();
+        let mism = config.mismatch.ln();
         let mat = (1. - config.mismatch).ln();
         let mut prev = vec![0.; self.k + 1];
         let mut next = vec![0.; self.k + 1];
@@ -173,6 +200,7 @@ impl DeBruijnGraphHiddenMarkovModel {
         prev: &mut Vec<f64>,
         next: &mut Vec<f64>,
     ) -> f64 {
+        assert_eq!(xs.len(), ys.len());
         let small = std::f64::MIN;
         let k = xs.len();
         prev.iter_mut().take(k + 1).for_each(|e| *e = small);
@@ -185,7 +213,7 @@ impl DeBruijnGraphHiddenMarkovModel {
             }
             std::mem::swap(prev, next);
         }
-        prev[k]
+        *prev.last().unwrap()
     }
     // Return edit operations.
     #[inline]
@@ -276,10 +304,10 @@ impl DeBruijnGraphHiddenMarkovModel {
     ) -> (f64, f64) {
         debug_assert!((1. - prev.iter().sum::<f64>()).abs() < 0.001);
         // Alignemnt:[mat,ins,del, mat,ins,del, mat,....,del]
-        for (dist_idx, dist) in self.nodes.iter().enumerate() {
+        for (dist_idx, (dist, froms)) in self.nodes.iter().zip(edges.iter()).enumerate() {
             let edge_idx = base_table::BASE_TABLE[dist.last() as usize];
             let node = 3 * dist_idx;
-            let (match_state, insertion_state) = edges[dist_idx]
+            let (match_state, insertion_state) = froms
                 .iter()
                 .map(|&src| {
                     let src_node = &self.nodes[src];
@@ -375,7 +403,8 @@ impl DeBruijnGraphHiddenMarkovModel {
     }
     #[cfg(target_feature = "sse")]
     pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
-        if self.weight() < 2. || self.is_broken() || obs.len() < self.k {
+        if self.weight() < 2. || self.is_broken() || obs.len() < self.k || self.nodes.len() < self.k
+        {
             return config.null_model(obs);
         }
         // Alignemnts: [mat, ins, del,  mat, ins, del,  ....]
@@ -391,10 +420,14 @@ impl DeBruijnGraphHiddenMarkovModel {
             }
             edges
         };
-        for &base in obs[self.k..].iter() {
+        for (idx, &base) in obs.iter().enumerate().skip(self.k) {
             updated.iter_mut().for_each(|e| *e = 0.);
             let (c, d) = self.update(&mut updated, &prev, base, config, &edges);
-            lk -= c.ln() + d.ln();
+            lk -= if idx + 1 < obs.len() {
+                c.ln() + d.ln()
+            } else {
+                d.ln()
+            };
             std::mem::swap(&mut prev, &mut updated);
         }
         lk
@@ -682,14 +715,24 @@ impl DeBruijnGraphHiddenMarkovModel {
         let kmers: HashSet<_> = template.windows(self.k).map(|e| e.to_vec()).collect();
         let sum = self.nodes.iter().map(|e| e.kmer_weight).sum::<f64>();
         let mean = sum / self.nodes.len() as f64;
-        eprintln!("({}/{:.3}){}", mean, kmers.len(), self);
+        let mut tots: Vec<_> = self
+            .nodes
+            .iter()
+            .filter(|e| !e.is_tail)
+            .map(|e| e.tot)
+            .collect();
+        tots.sort_by(|a, b| a.partial_cmp(&b).unwrap());
+        let mid = tots[tots.len() / 2];
+        let med = tots.iter().map(|e| (e - mid).abs()).sum::<f64>() / tots.len() as f64;
+        eprintln!("({:.3}/{}){}", mean, kmers.len(), self);
+        eprintln!("MEDMID:{:.3}\t{:.3}", mid, med);
         for (idx, node) in self.nodes.iter().enumerate() {
             if kmers.contains(&node.kmer) {
                 eprintln!("OK:{}\t{:?}", idx, node);
-                eprintln!("TOT\tTRUE\t{}\n", node.kmer_weight);
+                eprintln!("TOT\tTRUE\t{:.3}\t{:.3}\n", node.kmer_weight, node.tot);
             } else {
                 eprintln!("NG:{}\t{:?}", idx, node);
-                eprintln!("TOT\tFALSE\t{}\n", node.kmer_weight);
+                eprintln!("TOT\tFALSE\t{:.3}\t{:.3}\n", node.kmer_weight, node.tot);
             }
         }
         for kmer in &kmers {
@@ -697,7 +740,7 @@ impl DeBruijnGraphHiddenMarkovModel {
                 eprintln!("Missing:{}", String::from_utf8_lossy(&kmer));
             }
         }
-        eprintln!("KMERS in the template{}", kmers.len());
+        eprintln!("KMERS in the template:{}", kmers.len());
     }
 }
 
@@ -846,11 +889,12 @@ mod tests {
     #[test]
     fn has_true_edge_test() {
         let bases = b"ACTG";
-        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12_122_432);
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12_122_300);
         let k = 6;
+        let len = 50;
         for num in 30..100 {
             for _ in 0..30 {
-                let template1: Vec<_> = (0..150)
+                let template1: Vec<_> = (0..len)
                     .filter_map(|_| bases.choose(&mut rng))
                     .copied()
                     .collect();
@@ -858,6 +902,7 @@ mod tests {
                     .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
                     .collect();
                 let weight = vec![1.; num];
+                eprintln!("{}", num);
                 let kmers: std::collections::HashSet<Vec<u8>> = dataset
                     .iter()
                     .flat_map(|e| e.windows(k))
@@ -919,11 +964,81 @@ mod tests {
             assert!(likelihood1 < likelihood2, "{},{}", likelihood1, likelihood2);
         }
     }
+
+    #[test]
+    fn shuffle_test_prior() {
+        let bases = b"ACTG";
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
+        let cov = 30;
+        for _ in 0..5 {
+            let template1: Vec<_> = (0..150)
+                .filter_map(|_| bases.choose(&mut rng))
+                .copied()
+                .collect();
+            let dataset: Vec<Vec<_>> = (0..cov)
+                .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
+                .collect();
+            let mut dataset: Vec<_> = dataset.iter().map(|e| e.as_slice()).collect();
+            let mut f = Factory::new();
+            let mut buf = vec![];
+            let k = 6;
+            let weight = vec![1.; cov];
+            let model = f.generate_with_weight_prior(&dataset, &weight, k, &mut buf);
+            use rand::prelude::SliceRandom;
+            dataset.shuffle(&mut rng);
+            let model_shuf = f.generate_with_weight_prior(&dataset, &weight, k, &mut buf);
+            let num = 50;
+            eprintln!("{}\t{}", model, model_shuf);
+            for _ in 0..num {
+                let q = introduce_randomness(&template1, &mut rng, &PROFILE);
+                let lk = model.forward(&q, &DEFAULT_CONFIG);
+                let lk_shuf = model_shuf.forward(&q, &DEFAULT_CONFIG);
+                eprintln!("1\t{:.3}\t{:.3}", lk, lk_shuf);
+                assert!((lk - lk_shuf).abs() < 0.001);
+            }
+        }
+    }
+
+    #[test]
+    fn weight_test_prior() {
+        let bases = b"ACTG";
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
+        let template1: Vec<_> = (0..150)
+            .filter_map(|_| bases.choose(&mut rng))
+            .copied()
+            .collect();
+        let cov = 30;
+        for _ in 0..5 {
+            let dataset: Vec<Vec<_>> = (0..cov)
+                .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
+                .collect();
+            let dataset: Vec<_> = dataset.iter().map(|e| e.as_slice()).collect();
+            let dataset_dup: Vec<_> = dataset.iter().chain(dataset.iter()).copied().collect();
+            let mut f = Factory::new();
+            let mut buf = vec![];
+            let k = 6;
+            let weight = vec![1.; cov];
+            let weight_dup = vec![0.5; 2 * cov];
+            let model = f.generate_with_weight_prior(&dataset, &weight, k, &mut buf);
+            let model_dup = f.generate_with_weight_prior(&dataset_dup, &weight_dup, k, &mut buf);
+            let num = 50;
+            eprintln!("{}\t{}", model, model_dup);
+            for _ in 0..num {
+                let q = introduce_randomness(&template1, &mut rng, &PROFILE);
+                let lk = model.forward(&q, &DEFAULT_CONFIG);
+                let lk_dup = model_dup.forward(&q, &DEFAULT_CONFIG);
+                eprintln!("1\t{:.3}\t{:.3}", lk, lk_dup);
+                assert!((lk - lk_dup).abs() < 0.001);
+            }
+        }
+    }
     #[test]
     fn mix_test_prior() {
         let bases = b"ACTG";
         let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
-        let template1: Vec<_> = (0..150)
+        let len = 50;
+        let k = 6;
+        let template1: Vec<_> = (0..len)
             .filter_map(|_| bases.choose(&mut rng))
             .copied()
             .collect();
@@ -948,7 +1063,6 @@ mod tests {
                 .collect();
             let mut f = Factory::new();
             let mut buf = vec![];
-            let k = 6;
             let weight1 = vec![vec![0.8; cov], vec![0.2; cov]].concat();
             let weight2 = vec![vec![0.2; cov], vec![0.8; cov]].concat();
             use std::collections::HashSet;
@@ -990,6 +1104,7 @@ mod tests {
             del: 0.03,
         };
         let len = 150;
+        let k = 6;
         let cov = 20;
         let ratio = 9;
         let errors = PROFILE;
@@ -1010,7 +1125,6 @@ mod tests {
             let data2: Vec<_> = data2.iter().map(|e| e.as_slice()).collect();
             let mut f = Factory::new();
             let mut buf = vec![];
-            let k = 6;
             let total = (ratio + 1) * cov;
             let weight = vec![1.; total];
             use std::collections::HashSet;
@@ -1091,10 +1205,11 @@ mod tests {
         let start = 20;
         let step = 4;
         let mut f = Factory::new();
+        let len = 100;
         let results: Vec<_> = (start..coverage)
             .step_by(step)
             .map(|cov| {
-                let template1: Vec<_> = (0..150)
+                let template1: Vec<_> = (0..len)
                     .filter_map(|_| bases.choose(&mut rng))
                     .copied()
                     .collect();
@@ -1172,10 +1287,11 @@ mod tests {
         let start = 20;
         let step = 4;
         let mut f = Factory::new();
+        let len = 150;
         let results: Vec<_> = (start..coverage)
             .step_by(step)
             .map(|cov| {
-                let template1: Vec<_> = (0..150)
+                let template1: Vec<_> = (0..len)
                     .filter_map(|_| bases.choose(&mut rng))
                     .copied()
                     .collect();
@@ -1200,6 +1316,83 @@ mod tests {
         eprintln!("Tot:{}", (start..coverage).step_by(step).count() * 100);
         assert!(false);
     }
+    #[test]
+    fn single_error_prior_test_short() {
+        let bases = b"ACTG";
+        //let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1234565);
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12344);
+        let coverage = 200;
+        let start = 20;
+        let step = 4;
+        let mut f = Factory::new();
+        let len = 50;
+        let results: Vec<_> = (start..coverage)
+            .step_by(step)
+            .map(|cov| {
+                let template1: Vec<_> = (0..len)
+                    .filter_map(|_| bases.choose(&mut rng))
+                    .copied()
+                    .collect();
+                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 1, 0, 0);
+                let sub = check_prior(&template1, &template2, &mut rng, cov, &mut f);
+                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 1, 0);
+                let del = check_prior(&template1, &template2, &mut rng, cov, &mut f);
+                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 0, 1);
+                let ins = check_prior(&template1, &template2, &mut rng, cov, &mut f);
+                (cov, (sub, del, ins))
+            })
+            .collect();
+        let (sub, del, ins) = results
+            .iter()
+            .fold((0, 0, 0), |(x, y, z), &(_, (a, b, c))| {
+                (x + a, y + b, z + c)
+            });
+        for (cov, res) in results {
+            eprintln!("Cov:{},Sub:{},Del:{},Ins:{}", cov, res.0, res.1, res.2);
+        }
+        eprintln!("Sub:{},Del:{},Ins:{}", sub, del, ins);
+        eprintln!("Tot:{}", (start..coverage).step_by(step).count() * 100);
+        assert!(false);
+    }
+    #[test]
+    fn single_error_prior_test_lowcov() {
+        let bases = b"ACTG";
+        //let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1234565);
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12344);
+        let coverage = 50;
+        let start = 15;
+        let step = 4;
+        let mut f = Factory::new();
+        let len = 100;
+        let results: Vec<_> = (start..coverage)
+            .step_by(step)
+            .map(|cov| {
+                let template1: Vec<_> = (0..len)
+                    .filter_map(|_| bases.choose(&mut rng))
+                    .copied()
+                    .collect();
+                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 1, 0, 0);
+                let sub = check_prior(&template1, &template2, &mut rng, cov, &mut f);
+                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 1, 0);
+                let del = check_prior(&template1, &template2, &mut rng, cov, &mut f);
+                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 0, 1);
+                let ins = check_prior(&template1, &template2, &mut rng, cov, &mut f);
+                (cov, (sub, del, ins))
+            })
+            .collect();
+        let (sub, del, ins) = results
+            .iter()
+            .fold((0, 0, 0), |(x, y, z), &(_, (a, b, c))| {
+                (x + a, y + b, z + c)
+            });
+        for (cov, res) in results {
+            eprintln!("Cov:{},Sub:{},Del:{},Ins:{}", cov, res.0, res.1, res.2);
+        }
+        eprintln!("Sub:{},Del:{},Ins:{}", sub, del, ins);
+        eprintln!("Tot:{}", (start..coverage).step_by(step).count() * 100);
+        assert!(false);
+    }
+
     fn check_prior<R: rand::Rng>(
         t1: &[u8],
         t2: &[u8],
@@ -1246,14 +1439,14 @@ mod tests {
                 if e % 2 == 0 {
                     let f1 = m1.forward(&q, &DEFAULT_CONFIG);
                     let f2 = m2.forward(&q, &DEFAULT_CONFIG);
-                    // if cov == 168 && t1.len() + 1 == t2.len() {
+                    // if cov == 132 && t1.len() - 1 == t2.len() {
                     //     eprintln!("1\t{:.3}\t{:.3}", f1, f2);
                     // }
                     f1 > f2
                 } else {
                     let f1 = m1.forward(&q, &DEFAULT_CONFIG);
                     let f2 = m2.forward(&q, &DEFAULT_CONFIG);
-                    // if cov == 168 && t1.len() + 1 == t2.len() {
+                    // if cov == 132 && t1.len() - 1 == t2.len() {
                     //     eprintln!("2\t{:.3}\t{:.3}", f1, f2);
                     // }
                     f2 > f1
@@ -1262,6 +1455,185 @@ mod tests {
             .count();
         correct
     }
+    #[test]
+    fn single_error_double() {
+        let bases = b"ACTG";
+        let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12344);
+        let coverage = 200;
+        let start = 20;
+        let step = 4;
+        let len = 150;
+        let results: Vec<_> = (start..coverage)
+            .step_by(step)
+            .map(|cov| {
+                let template1: Vec<_> = (0..len)
+                    .filter_map(|_| bases.choose(&mut rng))
+                    .copied()
+                    .collect();
+                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 1, 0, 0);
+                let sub = check_double(&template1, &template2, &mut rng, cov);
+                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 1, 0);
+                let del = check_double(&template1, &template2, &mut rng, cov);
+                let template2 = gen_sample::introduce_errors(&template1, &mut rng, 0, 0, 1);
+                let ins = check_double(&template1, &template2, &mut rng, cov);
+                (cov, (sub, del, ins))
+            })
+            .collect();
+        let (sub, del, ins) = results
+            .iter()
+            .fold((0, 0, 0), |(x, y, z), &(_, (a, b, c))| {
+                (x + a, y + b, z + c)
+            });
+        for (cov, res) in results {
+            eprintln!("Cov:{},Sub:{},Del:{},Ins:{}", cov, res.0, res.1, res.2);
+        }
+        eprintln!("Sub:{},Del:{},Ins:{}", sub, del, ins);
+        eprintln!("Tot:{}", (start..coverage).step_by(step).count() * 100);
+        assert!(false);
+    }
+
+    fn check_double<R: rand::Rng>(t1: &[u8], t2: &[u8], rng: &mut R, cov: usize) -> usize {
+        let model1: Vec<_> = (0..cov)
+            .map(|_| introduce_randomness(&t1, rng, &PROFILE))
+            .collect();
+        let mut m1 = PairFactory::new(&model1);
+        let model2: Vec<_> = (0..cov)
+            .map(|_| introduce_randomness(&t2, rng, &PROFILE))
+            .collect();
+        let mut m2 = PairFactory::new(&model2);
+        let ws = vec![1.; cov];
+        let k = 6;
+        use std::collections::HashSet;
+        let k1: HashSet<_> = t1.windows(k).map(|e| e.to_vec()).collect();
+        let k2: HashSet<_> = t2.windows(k).map(|e| e.to_vec()).collect();
+        let m1 = m1.generate(&ws, k);
+        let m2 = m2.generate(&ws, k);
+        eprintln!("{}\t({}){}\t({}){}", cov, k1.len(), m1, k2.len(), m2);
+        let tests: Vec<_> = (0..100)
+            .map(|e| {
+                if e % 2 == 0 {
+                    introduce_randomness(&t1, rng, &PROFILE)
+                } else {
+                    introduce_randomness(&t2, rng, &PROFILE)
+                }
+            })
+            .collect();
+        let correct = tests
+            .into_iter()
+            .enumerate()
+            .filter(|(e, q)| {
+                if e % 2 == 0 {
+                    let f1 = m1.forward(&q, &DEFAULT_CONFIG);
+                    let f2 = m2.forward(&q, &DEFAULT_CONFIG);
+                    f1 > f2
+                } else {
+                    let f1 = m1.forward(&q, &DEFAULT_CONFIG);
+                    let f2 = m2.forward(&q, &DEFAULT_CONFIG);
+                    f2 > f1
+                }
+            })
+            .count();
+        correct
+    }
+
+    // #[test]
+    // fn update_prior_test() {
+    //     let bases = b"ACTG";
+    //     let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(12121324289);
+    //     let len = 150;
+    //     let cov = 20;
+    //     let errors = PROFILE;
+    //     for i in 0..3 {
+    //         let template1: Vec<_> = (0..len)
+    //             .filter_map(|_| bases.choose(&mut rng))
+    //             .copied()
+    //             .collect();
+    //         let data1: Vec<Vec<_>> = (0..cov)
+    //             .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
+    //             .collect();
+    //         let template2 = match i % 3 {
+    //             0 => gen_sample::introduce_errors(&template1, &mut rng, 1, 0, 0),
+    //             1 => gen_sample::introduce_errors(&template1, &mut rng, 0, 1, 0),
+    //             2 => gen_sample::introduce_errors(&template1, &mut rng, 0, 0, 1),
+    //             _ => unreachable!(),
+    //         };
+    //         let data2: Vec<Vec<_>> = (0..cov)
+    //             .map(|_| introduce_randomness(&template2, &mut rng, &PROFILE))
+    //             .collect();
+    //         let data: Vec<_> = data1
+    //             .iter()
+    //             .chain(data2.iter())
+    //             .map(|e| e.as_slice())
+    //             .collect();
+    //         let base = vec![1.; cov * 2];
+    //         let w1 = vec![vec![1.; cov], vec![0.; cov]].concat();
+    //         let w2 = vec![vec![0.; cov], vec![1.; cov]].concat();
+    //         let mut f = Factory::new();
+    //         let mut buf = vec![];
+    //         let k = 6;
+    //         use std::collections::HashSet;
+    //         let k1: HashSet<_> = template1.windows(k).map(|e| e.to_vec()).collect();
+    //         let k2: HashSet<_> = template2.windows(k).map(|e| e.to_vec()).collect();
+    //         let base_model = f.generate_with_weight_prior(&data, &base, k, &mut buf);
+    //         let model1 = f.update_with_prior(&data, &w1, k, &mut buf, &base_model);
+    //         let model2 = f.update_with_prior(&data, &w2, k, &mut buf, &base_model);
+    //         let model1 = f.update_with_prior(&data, &w1, k, &mut buf, &model1);
+    //         let model2 = f.update_with_prior(&data, &w2, k, &mut buf, &model2);
+    //         let model1 = f.update_with_prior(&data, &w1, k, &mut buf, &model1);
+    //         let model2 = f.update_with_prior(&data, &w2, k, &mut buf, &model2);
+    //         let model1_n = f.generate_with_weight_prior(&data, &w1, k, &mut buf);
+    //         let model2_n = f.generate_with_weight_prior(&data, &w2, k, &mut buf);
+    //         let num = 50;
+    //         eprintln!("({}){}\n({}){}", k1.len(), model1, k2.len(), model2);
+    //         eprintln!("({}){}\n({}){}", k1.len(), model1_n, k2.len(), model2_n);
+    //         let test1: Vec<_> = (0..num)
+    //             .map(|_| introduce_randomness(&template1, &mut rng, &errors))
+    //             .collect();
+    //         let correct = test1
+    //             .iter()
+    //             .filter(|q| {
+    //                 let lk1 = model1.forward(q, &DEFAULT_CONFIG);
+    //                 let lk2 = model2.forward(q, &DEFAULT_CONFIG);
+    //                 eprintln!("1\t{:.3}\t{:.3}", lk1, lk2);
+    //                 lk1 > lk2
+    //             })
+    //             .count();
+    //         let correct_n = test1
+    //             .iter()
+    //             .filter(|q| {
+    //                 let lk1 = model1_n.forward(q, &DEFAULT_CONFIG);
+    //                 let lk2 = model2_n.forward(q, &DEFAULT_CONFIG);
+    //                 lk1 > lk2
+    //             })
+    //             .count();
+    //         eprintln!("Correct:1:{}({})", correct, correct_n);
+    //         assert!(correct >= num * 6 / 10, "1:{}", correct);
+    //         let test2: Vec<_> = (0..num)
+    //             .map(|_| introduce_randomness(&template2, &mut rng, &errors))
+    //             .collect();
+    //         let correct = test2
+    //             .iter()
+    //             .filter(|q| {
+    //                 let lk1 = model1.forward(q, &DEFAULT_CONFIG);
+    //                 let lk2 = model2.forward(q, &DEFAULT_CONFIG);
+    //                 eprintln!("2\t{:.3}\t{:.3}", lk1, lk2);
+    //                 lk1 < lk2
+    //             })
+    //             .count();
+    //         let correct_n = test2
+    //             .iter()
+    //             .filter(|q| {
+    //                 let lk1 = model1_n.forward(q, &DEFAULT_CONFIG);
+    //                 let lk2 = model2_n.forward(q, &DEFAULT_CONFIG);
+    //                 eprintln!("2\t{:.3}\t{:.3}", lk1, lk2);
+    //                 lk1 < lk2
+    //             })
+    //             .count();
+    //         eprintln!("Correct:2:{}({})", correct, correct_n);
+    //         assert!(correct >= num * 6 / 10, "2:{}", correct);
+    //     }
+    //     assert!(false);
+    // }
     #[test]
     fn low_coverage_test() {
         let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(121212);
@@ -1326,9 +1698,9 @@ mod tests {
         let weight1 = vec![vec![1.; 10], vec![0.; 10]].concat();
         let weight2 = vec![vec![0.; 10], vec![1.; 10]].concat();
         let mut f = Factory::new();
-        let model1 = f.generate_with_weight(&dataset, &weight1, k);
+        let model1 = f.generate_with_weight_prior(&dataset, &weight1, k, &mut vec![]);
         eprintln!("Model1:{}", model1);
-        let model2 = f.generate_with_weight(&dataset, &weight2, k);
+        let model2 = f.generate_with_weight_prior(&dataset, &weight2, k, &mut vec![]);
         eprintln!("Model2:{}", model2);
         {
             let likelihood1 = model1.forward(&test1, &DEFAULT_CONFIG);
@@ -1378,9 +1750,9 @@ mod tests {
         let weight1 = vec![vec![1.; 200], vec![0.; 200]].concat();
         let weight2 = vec![vec![0.; 200], vec![1.; 200]].concat();
         let mut f = Factory::new();
-        let model1 = f.generate_with_weight(&dataset, &weight1, k);
+        let model1 = f.generate_with_weight_prior(&dataset, &weight1, k, &mut vec![]);
         eprintln!("Model1:{}", model1);
-        let model2 = f.generate_with_weight(&dataset, &weight2, k);
+        let model2 = f.generate_with_weight_prior(&dataset, &weight2, k, &mut vec![]);
         eprintln!("Model2:{}", model2);
         {
             let likelihood1 = model1.forward(&test1, &DEFAULT_CONFIG);
@@ -1446,31 +1818,6 @@ mod tests {
         let model1 = DBGHMM::new(&model1, k);
         b.iter(|| test::black_box(model1.initialize(&template[..k], &DEFAULT_CONFIG)));
     }
-    // #[bench]
-    // fn score(b: &mut Bencher) {
-    //     let bases = b"ACTG";
-    //     let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1212132);
-    //     let len = 150;
-    //     let num = 30;
-    //     let template: Vec<_> = (0..len)
-    //         .filter_map(|_| bases.choose(&mut rng))
-    //         .copied()
-    //         .collect();
-    //     let model1: Vec<Vec<_>> = (0..num)
-    //         .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
-    //         .collect();
-    //     let k = 6;
-    //     let model1 = DBGHMM::new(&model1, k);
-    //     b.iter(|| {
-    //         test::black_box(
-    //             model1
-    //                 .nodes
-    //                 .iter()
-    //                 .map(|e| e.calc_score(&template[..k]))
-    //                 .count(),
-    //         )
-    //     });
-    // }
     #[bench]
     fn determine_weight_prior(b: &mut Bencher) {
         use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
@@ -1517,7 +1864,7 @@ mod tests {
         let m = f.generate_with_weight_prior(&model1, &weight, k, &mut buf);
         let config = &DEFAULT_CONFIG;
         let query = introduce_randomness(&template, &mut rng, &PROFILE);
-        let (_, _, prev) = m.initialize(&query[..m.k + 1], config);
+        let (_, _, prev) = m.initialize(&query[..m.k], config);
         let mut updated = vec![0.; prev.len()];
         let edges = {
             let mut edges = vec![Vec::with_capacity(4); m.nodes.len()];

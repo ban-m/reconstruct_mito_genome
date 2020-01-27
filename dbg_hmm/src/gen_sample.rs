@@ -11,7 +11,7 @@ pub const PROFILE: Profile = Profile {
     del: 0.05,
     ins: 0.06,
 };
-#[derive(Debug,Clone,Copy)]
+#[derive(Debug, Clone, Copy)]
 enum Op {
     Match,
     MisMatch,
@@ -32,13 +32,19 @@ const OPERATIONS: [Op; 4] = [Op::Match, Op::MisMatch, Op::Del, Op::In];
 pub fn introduce_randomness<T: rand::Rng>(seq: &[u8], rng: &mut T, p: &Profile) -> Vec<u8> {
     let mut res = vec![];
     let mut remainings: Vec<_> = seq.iter().copied().rev().collect();
-    while !remainings.is_empty() {
+    loop {
         match OPERATIONS.choose_weighted(rng, |e| e.weight(p)).unwrap() {
-            Op::Match => res.push(remainings.pop().unwrap()),
-            Op::MisMatch => res.push(choose_base(rng, remainings.pop().unwrap())),
+            Op::Match => match remainings.pop() {
+                Some(base) => res.push(base),
+                None => break,
+            },
+            Op::MisMatch => match remainings.pop() {
+                Some(base) => res.push(choose_base(rng, base)),
+                None => break,
+            },
             Op::In => res.push(random_base(rng)),
             Op::Del => {
-                remainings.pop().unwrap();
+                remainings.pop();
             }
         }
     }

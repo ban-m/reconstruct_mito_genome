@@ -9,7 +9,7 @@ use rand::{rngs::StdRng, SeedableRng};
 use rayon::prelude::*;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
-    let len = 150;
+    let len = 50;
     let num_seq = 150;
     let k = 6;
     println!("Seed\tCoverage\tContainedSelf\tNotContained");

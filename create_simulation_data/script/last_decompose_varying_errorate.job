@@ -2,31 +2,33 @@
 #$ -S /bin/bash
 #$ -N DecError
 #$ -cwd
-#$ -pe smp 10
+#$ -pe smp 6
 #$ -e ./logfiles/last_decompose_vb.log
 #$ -o ./logfiles/last_decompose_vb.log
 #$ -V
 #$ -m e
-# -t 1:5
+#$ -t 1:12
 set -ue
-OUTPUT=./result/last_decompose_gibbs_test_${SGE_TASK_ID}.txt
-OUTLOG_PREFIX=./logfiles/last_decompose_gibbs_test_${SGE_TASK_ID}
+OUTPUT=./result/last_decompose_gibbs_150_${SGE_TASK_ID}.txt
+OUTLOG_PREFIX=./logfiles/last_decompose_gibbs_150_${SGE_TASK_ID}
 # RUSTFLAGS="-C target-cpu=native" cargo build --release
 
 echo "-----start-----" >> ${OUTPUT}
 
-./target/release/test_last_decompose_multiple_varying_errorate \
-    1213421 0.5 0.5 >> ./result/ve_test.tsv \
-    2>> ./logfiles/ve_test.log
-exit 0;
+# for seed in `seq 0 10`
+# do
+#seed=12982
+# seed=129823
+# ./target/release/test_last_decompose_multiple_varying_errorate \
+#     ${seed} 0.5 0.5 >> ./result/ve_test.tsv \
+#     2>> ./logfiles/ve_test.log
+# done
 
 COVERAGE=0
 PROBS="0.5 0.5"
-for seed in `seq 1 10 100`
-do
-    seed=$(( $seed + $SGE_TASK_ID ))
-    ./target/release/test_last_decompose_multiple_varying_errorate \
-        ${seed} ${PROBS} >> ${OUTPUT} \
-        2>> ${OUTLOG_PREFIX}.log
-done
+seed=1213
+seed=$(( $seed + $SGE_TASK_ID ))
+./target/release/test_last_decompose_multiple_varying_errorate \
+    ${seed} ${PROBS} >> ${OUTPUT} \
+    2>> ${OUTLOG_PREFIX}.log
 

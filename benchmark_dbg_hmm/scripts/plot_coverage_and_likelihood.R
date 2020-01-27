@@ -34,7 +34,7 @@ summaries  <- dataset %>% filter(LikelihoodRatio) %>%
     mutate(data = map(data,function(x) x %>% summarize(mean =mean(LikelihoodRatio)))) %>%
     unnest()
 
-ds <- dataset %>% filter(LikelihoodRatio < 50 & Coverage > 20) 
+ds <- dataset %>% filter(LikelihoodRatio < 50 & Coverage < 50) 
 linear_reg <- lm(log(LikelihoodRatio) ~ Coverage,data=ds)
 objective_function <- function(x){
     a <- x[1]

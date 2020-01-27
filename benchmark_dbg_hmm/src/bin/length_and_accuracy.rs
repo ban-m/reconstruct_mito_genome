@@ -3,8 +3,6 @@ extern crate edlib_sys;
 extern crate rand;
 extern crate rand_xoshiro;
 extern crate rayon;
-#[macro_use]
-extern crate log;
 extern crate env_logger;
 use dbg_hmm::*;
 use rand::{Rng, SeedableRng};
@@ -17,8 +15,8 @@ fn main() {
         .build_global()
         .unwrap();
     let args: Vec<_> = std::env::args().collect();
-    let min_len = 70;
-    let max_len = 200;
+    let min_len = 30;
+    let max_len = 150;
     let by = 3;
     let num_seq = 30;
     let test_num = 100;

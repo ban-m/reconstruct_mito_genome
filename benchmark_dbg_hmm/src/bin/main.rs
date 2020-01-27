@@ -8,7 +8,7 @@ use rand::{rngs::StdRng, SeedableRng};
 use std::time::Instant;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
-    let len = 150;
+    let len = 50;
     let num_seq = 50;
     let mut rng: StdRng = SeedableRng::seed_from_u64(899_892);
     //let mut rng: StdRng = SeedableRng::seed_from_u64(899_893);

@@ -6,10 +6,10 @@ use rand::{rngs::StdRng, SeedableRng};
 use rayon::prelude::*;
 fn main() {
     let k = 6;
-    // let coverage: Vec<_> = (10..200).collect();
-    // let lens: Vec<_> = (50..200).collect();
-    let coverage: Vec<_> = (5..100).collect();
-    let lens: Vec<_> = (150..151).collect();
+    let coverage: Vec<_> = (10..200).collect();
+    let lens: Vec<_> = (50..200).collect();
+    // let coverage: Vec<_> = (5..100).collect();
+    // let lens: Vec<_> = (150..151).collect();
     let rep = 100;
     let result: Vec<_> = coverage
         .into_par_iter()

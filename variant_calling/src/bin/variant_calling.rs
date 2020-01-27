@@ -3,11 +3,11 @@ extern crate env_logger;
 extern crate rayon;
 #[macro_use]
 extern crate log;
-// use rayon::prelude::*;
+use rayon::prelude::*;
 const SD: f64 = 8.;
-// use std::collections::HashMap;
+use std::collections::HashMap;
 use std::io::{BufWriter, Write};
-// use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex};
 fn main() -> std::io::Result<()> {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let args: Vec<_> = std::env::args().collect();
@@ -44,7 +44,7 @@ fn main() -> std::io::Result<()> {
     }
     debug!("Write information on {}", &args[3]);
     let mut wtr = BufWriter::new(std::fs::File::create(&args[3])?);
-    writeln!(&mut wtr, "Pos\tMAF\tCoverage\tType")?;
+    writeln!(&mut wtr, "Pos\tErrorRate\tCoverage\tType")?;
     for ((s, i), d) in pileups
         .iter()
         .zip(pileups_ins.iter())
@@ -58,63 +58,65 @@ fn main() -> std::io::Result<()> {
         let del = d.coverage() as f64 / (s.coverage() + d.coverage()) as f64;
         writeln!(&mut wtr, "{}\t{}\t{}\tDel", d.pos, del, d.coverage())?;
     }
-    // debug!("Calling Variants");
-    // let variants: Vec<_> = pileups
-    //     .into_iter()
-    //     .filter_map(|e| e.call(mismatch_prob))
-    //     .collect();
-    // debug!("{}", variants.len());
-    // let stdout = std::io::stdout();
-    // let mut wtr = BufWriter::new(stdout.lock());
-    // let unwrap = |xs| match xs {
-    //     Ok(res) => res,
-    //     Err(why) => why,
-    // };
-    // debug!("Collecting spanning reads");
-    // let result: Arc<Mutex<Vec<HashMap<_, (u16, u16, u16, u16, u16)>>>> =
-    //     Arc::new(Mutex::new(vec![HashMap::new(); variants.len()]));
-    // alns.par_iter().for_each(|aln| {
-    //     let start = aln.start;
-    //     let end = start + aln.seq.len();
-    //     let start = unwrap(variants.binary_search_by_key(&start, |&(ref e, _)| e.pos));
-    //     let end = unwrap(variants.binary_search_by_key(&end, |&(ref e, _)| e.pos));
-    //     let mut temp = vec![];
-    //     (start..end).into_iter().for_each(|i1| {
-    //         let &(ref v1, base1) = &variants[i1];
-    //         variants[i1 + 1..end].iter().for_each(|&(ref v2, base2)| {
-    //             if aln.does_share(v1, v2) {
-    //                 let is_minor1 = aln.is_minor(v1, base1);
-    //                 let is_minor2 = aln.is_minor(v2, base2);
-    //                 // I'm sure that v1.pos < v2.pos!
-    //                 temp.push((i1, v2.pos, is_minor1, is_minor2));
-    //             }
-    //         });
-    //     });
-    //     let mut inner = result.lock().unwrap();
-    //     for (i1, p2, is_minor1, is_minor2) in temp {
-    //         let entry = inner.get_mut(i1).unwrap().entry(p2).or_default();
-    //         entry.0 += 1;
-    //         entry.1 += is_minor1 as u16;
-    //         entry.2 += 1;
-    //         entry.3 += is_minor2 as u16;
-    //         entry.4 += (is_minor1 && is_minor2) as u16;
-    //     }
-    // });
-    // debug!("Dump");
-    // writeln!(&mut wtr, "pos1\tpos2\ttot1\tmac1\ttot2\tmac2\tshare")?;
-    // let result: Vec<_> = Arc::try_unwrap(result).unwrap().into_inner().unwrap();
-    // for (i1, rest) in result.into_iter().enumerate() {
-    //     for (p2, (tot1, mac1, tot2, mac2, share)) in rest {
-    //         if share > 3 {
-    //             let p1 = variants[i1].0.pos;
-    //             writeln!(
-    //                 &mut wtr,
-    //                 "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-    //                 p1, p2, tot1, mac1, tot2, mac2, share
-    //             )?;
-    //         }
-    //     }
-    // }
+    debug!("Calling Variants");
+    let variants: Vec<_> = pileups
+        .into_iter()
+        .filter_map(|e| e.call(mismatch_prob))
+        .collect();
+    debug!("{}", variants.len());
+    let stdout = std::io::stdout();
+    let mut wtr = BufWriter::new(stdout.lock());
+    let unwrap = |xs| match xs {
+        Ok(res) => res,
+        Err(why) => why,
+    };
+    debug!("Collecting spanning reads:{}", subst.len());
+    let result: Arc<Mutex<Vec<HashMap<_, (u16, u16, u16, u16, u16)>>>> =
+        Arc::new(Mutex::new(vec![HashMap::new(); variants.len()]));
+    subst.par_iter().for_each(|aln| {
+        let start = aln.start;
+        let end = start + aln.seq.len();
+        let start = unwrap(variants.binary_search_by_key(&start, |&(ref e, _)| e.pos));
+        let end = unwrap(variants.binary_search_by_key(&end, |&(ref e, _)| e.pos));
+        let mut temp = vec![];
+        (start..end).into_iter().for_each(|i1| {
+            let &(ref v1, base1) = &variants[i1];
+            variants[i1 + 1..end].iter().for_each(|&(ref v2, base2)| {
+                if aln.does_share(v1, v2) {
+                    let is_minor1 = aln.is_minor(v1, base1);
+                    let is_minor2 = aln.is_minor(v2, base2);
+                    // I'm sure that v1.pos < v2.pos!
+                    temp.push((i1, v2.pos, is_minor1, is_minor2));
+                }
+            });
+        });
+        debug!("Taking lock...");
+        let mut inner = result.lock().unwrap();
+        for (i1, p2, is_minor1, is_minor2) in temp {
+            let entry = inner.get_mut(i1).unwrap().entry(p2).or_default();
+            entry.0 += 1;
+            entry.1 += is_minor1 as u16;
+            entry.2 += 1;
+            entry.3 += is_minor2 as u16;
+            entry.4 += (is_minor1 && is_minor2) as u16;
+        }
+        debug!("Fin");
+    });
+    debug!("Dump");
+    writeln!(&mut wtr, "pos1\tpos2\ttot1\tmac1\ttot2\tmac2\tshare")?;
+    let result: Vec<_> = Arc::try_unwrap(result).unwrap().into_inner().unwrap();
+    for (i1, rest) in result.into_iter().enumerate() {
+        for (p2, (tot1, mac1, tot2, mac2, share)) in rest {
+            if share > 3 {
+                let p1 = variants[i1].0.pos;
+                writeln!(
+                    &mut wtr,
+                    "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                    p1, p2, tot1, mac1, tot2, mac2, share
+                )?;
+            }
+        }
+    }
     Ok(())
 }
 

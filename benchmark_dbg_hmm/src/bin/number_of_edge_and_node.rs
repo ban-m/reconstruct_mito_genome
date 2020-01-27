@@ -8,9 +8,9 @@ use dbg_hmm::*;
 use rand::{rngs::StdRng, SeedableRng};
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
-    let len = 150;
+    let len = 50;
     let num_seq = 500;
-    let mut rng: StdRng = SeedableRng::seed_from_u64(12_121_899_892);
+    let mut rng: StdRng = SeedableRng::seed_from_u64(12_121_239);
     let template: Vec<_> = generate_seq(&mut rng, len);
     let data: Vec<Vec<_>> = (0..num_seq)
         .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))

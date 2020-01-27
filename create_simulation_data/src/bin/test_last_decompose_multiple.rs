@@ -8,7 +8,7 @@ extern crate rand_xoshiro;
 extern crate log;
 extern crate env_logger;
 use dbg_hmm::gen_sample;
-use last_decompose::{clustering, likelihood_of_assignments, ERead};
+use last_decompose::{clustering, ERead};
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 fn main() {
@@ -35,9 +35,12 @@ fn main() {
     let k = 6;
     let len = 150;
     let p = &gen_sample::Profile {
-        sub: 0.0015,
-        ins: 0.0015,
-        del: 0.0015,
+        sub: 0.002 / 6.,
+        ins: 0.002 / 6.,
+        del: 0.002 / 6.,
+        // sub: 0.001,
+        // ins: 0.001,
+        // del: 0.001,
     };
     use std::time::Instant;
     println!("TestNum:{}\tLabeled:{}", test_num, coverage);
@@ -93,10 +96,16 @@ fn benchmark(
         .map(|i| {
             (i + 1..clusters)
                 .map(|j| {
+                    // REMOVE THE DEBUG
                     let dist = templates[i]
                         .iter()
                         .zip(templates[j].iter())
-                        .map(|(t1, t2)| edlib_sys::global_dist(t1, t2))
+                        .enumerate()
+                        .map(|(idx, (t1, t2))| {
+                            let d = edlib_sys::global_dist(t1, t2);
+                            //debug!("{}\t{}", idx, d);
+                            d
+                        })
                         .sum::<u32>();
                     debug!("{}\t{}\t{}", i, j, dist);
                     dist
@@ -116,32 +125,33 @@ fn benchmark(
             ERead::new_with_lowseq(e, &id)
         })
         .collect();
-    {
-        let answer: Vec<_> = label
-            .iter()
-            .chain(answer.iter())
-            .copied()
-            .map(|e| {
-                let mut ws = vec![0.; clusters];
-                ws[e as usize] = 1.;
-                ws
-            })
-            .collect();
-        let objlk = likelihood_of_assignments(&data, &answer, k, clusters, &contigs, c);
-        debug!("ObjLK:{}", objlk);
-    }
+    // {
+    //     let answer: Vec<_> = label
+    //         .iter()
+    //         .chain(answer.iter())
+    //         .copied()
+    //         .map(|e| {
+    //             let mut ws = vec![0.; clusters];
+    //             ws[e as usize] = 1.;
+    //             ws
+    //         })
+    //         .collect();
+    //     let objlk = likelihood_of_assignments(&data, &answer, k, clusters, &contigs, c);
+    //     debug!("ObjLK:{}", objlk);
+    // }
     {
         let probs: Vec<_> = probs.iter().map(|e| format!("{:3}", e)).collect();
         debug!("Probs:[{}]", probs.join(","));
     };
     let forbidden = vec![vec![]; data.len()];
     let em_pred = clustering(&data, &label, &forbidden, k, clusters, &contigs, &answer, c);
+    assert_eq!(em_pred.len(), label.len() + answer.len());
     let mut result = vec![vec![0; clusters]; clusters];
     for i in 0..clusters {
         let tot = answer.iter().filter(|&&e| e as usize == i).count();
         debug!("Cluster {}:{}", i, tot);
     }
-    for (pred, ans) in em_pred.into_iter().zip(answer) {
+    for (pred, ans) in em_pred.into_iter().zip(label.into_iter().chain(answer)) {
         result[pred as usize][ans as usize] += 1;
     }
     (result, dists)

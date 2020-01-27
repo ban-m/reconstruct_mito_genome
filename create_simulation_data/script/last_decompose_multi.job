@@ -12,15 +12,22 @@ set -ue
 OUTPUT=./result/last_decompose_multi_gibbs.txt
 OUTLOG_PREFIX=./logfiles/last_decompose_multi_gibbs
 
+
+
 TEST_NUM=300
-COVERAGE=0
+COVERAGE=2
 PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
+./target/release/test_last_decompose_multiple \
+    ${TEST_NUM} ${COVERAGE} 100 ${PROBS} >> ./result/multi_test.tsv\
+    2>> ./logfiles/multi_test.log
+exit 0;
 for seed in 10 20 30 40 50
 do
     ./target/release/test_last_decompose_multiple \
         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}\
         2>> ${OUTLOG_PREFIX}.even.300.log
 done
+exit 0;
 
 TEST_NUM=300
 COVERAGE=0

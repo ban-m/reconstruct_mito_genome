@@ -7,7 +7,7 @@ use dbg_hmm::*;
 use rand::{rngs::StdRng, SeedableRng};
 use rayon::prelude::*;
 fn main() {
-    let len = 150;
+    let len = 50;
     let k = 6;
     let chain = 40;
     let seed: u64 = std::env::args()

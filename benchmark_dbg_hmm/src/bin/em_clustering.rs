@@ -10,16 +10,15 @@ extern crate env_logger;
 use dbg_hmm::*;
 use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoroshiro128StarStar;
-use rayon::prelude::*;
 use std::time::Instant;
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     rayon::ThreadPoolBuilder::new()
-        .num_threads(24)
+        .num_threads(5)
         .build_global()
         .unwrap();
     let args: Vec<_> = std::env::args().collect();
-    let len = 150;
+    let len = 50;
     let k = 6;
     // (num_seq, test_num, sample_num);
     let params: Vec<_> = (0..1)
@@ -31,9 +30,9 @@ fn main() {
         })
         .collect();
     let p = &gen_sample::Profile {
-        sub: 0.006,
-        ins: 0.006,
-        del: 0.006,
+        sub: 0.01,
+        ins: 0.01,
+        del: 0.01,
     };
     let c = if args[1] == "default" {
         DEFAULT_CONFIG
@@ -74,7 +73,7 @@ fn benchmark(
     //let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(138222324 + seed);
     let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(1382223 + seed);
     let template1 = dbg_hmm::gen_sample::generate_seq(&mut rng, len);
-    let template2 = dbg_hmm::gen_sample::introduce_errors(&template1, &mut rng, 1, 0, 0);
+    let template2 = dbg_hmm::gen_sample::introduce_randomness(&template1, &mut rng, p);
     let answers: Vec<_> = (0..(training + test_num))
         .map(|_| rng.gen_bool(0.5))
         .collect();
@@ -89,6 +88,7 @@ fn benchmark(
         })
         .collect();
     let d = edlib_sys::global_dist(&template1, &template2);
+    debug!("Dist:{}", d);
     let pred = naive_pred(&dataset, &answers, training, k, config);
     let em_pred = em_pred(&dataset, &answers, k, config, training);
     let naive = pred

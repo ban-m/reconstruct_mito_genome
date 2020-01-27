@@ -19,23 +19,25 @@ generalplot <- function(g,name){
 
 
 
-dataset <- read_tsv("./result/last_decompose_gibbs_ve.tsv", col_names=FALSE)
+dataset <- read_tsv("./result/last_decompose_gibbs_test.txt", col_names=FALSE)
 
 accs <- dataset %>% mutate(acc1 = X4 + X7, acc2 = X5 + X6, acc = pmax(acc1, acc2)) %>%
     mutate(acc = acc / X9) %>% select(X2,X3,acc1,acc2, acc, X8,X9)
 
 
-mean_accs <-  accs %>% nest(-X9,-X8) %>%
-    mutate(data = map(data, function(x)summarize(x,mean = mean(acc)))) %>%
+mean_accs <-  accs %>% nest(-X8,-X9) %>%
+    mutate(data = map(data, function(x)summarize(x,Accuracy = max(acc)))) %>%
     unnest() 
 
 tiled_accs <- accs %>%
-    mutate(Coverage = X9 %/% 10 * 10, NumOfError = (X8 %/% 5 * 5)) %>%
+    mutate(Coverage = X9, NumOfError = (X8 %/% 3 * 3)) %>%
     nest(-NumOfError, -Coverage) %>%
     mutate(data = map(data, function(x)summarize(x,mean = mean(acc)))) %>%
     unnest()
 
-g <- tiled_accs %>% ggplot() + geom_raster(mapping = aes(x = Coverage, y = NumOfError, fill = mean))
+g <- tiled_accs %>%
+    filter(NumOfError <= 35) %>% 
+    ggplot() + geom_raster(mapping = aes(x = Coverage, y = NumOfError, fill = mean)) 
 generalplot(g,"150_40_varying_error_rate")
 
 g <- accs %>% nest(-X9,-X8) %>%

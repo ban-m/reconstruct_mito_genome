@@ -2,11 +2,11 @@ library("tidyverse")
 loadNamespace("cowplot")
 generalplot <- function(g,name){
     cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
-                    plot = g + cowplot::theme_cowplot(font_size=12),
-                    dpi=350,width = 178,height = 86,units="mm")
+                    plot = g + cowplot::theme_cowplot(font_size=12),  
+                    dpi=350,width = 200,height = 86,units="mm")
     cowplot::ggsave(filename = paste0("./png/",name,".png"),
                     plot = g + cowplot::theme_cowplot(font_size=12),
-                    dpi = 350,width = 178,height = 86,units="mm")
+                    dpi = 350,width = 200,height = 86,units="mm")
 }
 
 ## generalplot <- function(g,name){
@@ -67,7 +67,8 @@ g <- dataset %>% rename(Accuracy = accuracy) %>%
     ggplot() +
     geom_bin2d(mapping = aes(x = UnitLength, y = Accuracy), binwidth = c(3,0.05)) +
     scale_fill_gradient(low = "white", high = "black") + 
-    facet_grid(type ~ Dist) 
+    facet_grid(type ~ Dist) +
+    scale_x_continuous(breaks=c(10,30, 50, 70,90,110,130))
 generalplot(g, paste0("density_", outname))
 
 summary <- dataset %>% nest(accuracy) %>%

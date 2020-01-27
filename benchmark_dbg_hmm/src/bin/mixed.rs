@@ -5,7 +5,7 @@ use dbg_hmm::gen_sample::*;
 use dbg_hmm::*;
 use rand::{rngs::StdRng, SeedableRng};
 fn main() {
-    let len = 150;
+    let len = 50;
     let k = 6;
     let mut rng: StdRng = SeedableRng::seed_from_u64(899_902);
     let p = Profile {

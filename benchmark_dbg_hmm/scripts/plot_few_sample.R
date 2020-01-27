@@ -56,6 +56,7 @@ g <- dataset %>%
     geom_bin2d(mapping = aes(x = Coverage, y = Accuracy)) +
     scale_fill_gradient(low = "white", high = "black") + 
     facet_grid(Type~Dist)
+generalplot(g, paste0(outputname,"_density"))
 
 
 dataset <- read_tsv(filename)

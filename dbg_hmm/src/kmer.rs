@@ -2,6 +2,7 @@ use super::base_table::BASE_TABLE;
 use super::find_union;
 use super::Config;
 use super::LAMBDA;
+use super::MOCK_WEIGHT;
 #[derive(Clone, Default)]
 pub struct Kmer {
     pub kmer: Vec<u8>,
@@ -27,9 +28,13 @@ impl std::fmt::Debug for Kmer {
         writeln!(f, "Kmer:{}", String::from_utf8_lossy(&self.kmer))?;
         writeln!(f, "KmerWeight:{:.3}", self.kmer_weight)?;
         writeln!(f, "Last:{}", self.last as char)?;
-        writeln!(f, "Transition:{:?}", &self.weight)?;
-        writeln!(f, "BaseCount{:?}", &self.base_count)?;
-        writeln!(f, "tot:{}", self.tot)?;
+        write!(f, "Transition:")?;
+        let w = &self.weight;
+        writeln!(f, "[{:.2},{:.2},{:.2},{:.2}]", w[0], w[1], w[2], w[3])?;
+        let b = &self.base_count;
+        write!(f, "BaseCount: ")?;
+        writeln!(f, "[{:.2},{:.2},{:.2},{:.2}]", b[0], b[1], b[2], b[3])?;
+        writeln!(f, "tot:{:.3}", self.tot)?;
         writeln!(f, "is_tail:{}", self.is_tail)?;
         writeln!(f, "is_head:{}", self.is_head)?;
         write!(f, "edge_num:{}", self.edge_num)?;
@@ -101,7 +106,11 @@ impl Kmer {
             if b {
                 self.weight[i] /= tot;
             } else {
-                self.weight[i] = if self.weight[i] > 0.0001 { 1. } else { 0. };
+                self.weight[i] = if self.weight[i] > 0.0001 {
+                    MOCK_WEIGHT
+                } else {
+                    0.
+                };
             }
         }
         let tot = self.base_count.iter().sum::<f64>();

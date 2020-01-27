@@ -8,4 +8,4 @@
 #$ -V
 #$ -m e
 cargo run --release --bin neutral_prediction > ./result/neutral_prediction.tsv
-
+cargo run --release --bin multi_neutral_predictions > ./result/multi_neutral_prediction.tsv

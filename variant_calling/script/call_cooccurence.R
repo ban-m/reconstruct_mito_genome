@@ -1,5 +1,6 @@
 library("tidyverse")
-variant_data <- read_tsv("./result/variant_called_sites.tsv")
+filename <- "./result/pacbio/variant_called.tsv"
+variant_data <- read_tsv(filename)
 
 variant_data_filtered <- variant_data %>%
     filter( share > 2)  %>%
@@ -7,7 +8,7 @@ variant_data_filtered <- variant_data %>%
     filter(!is.na(mlpvalue))
 
 
-temp <- variant_data_filtered %>% filter(mlpvalue > 10) %>% select(pos1,pos2)
+temp <- variant_data_filtered %>% filter(mlpvalue > 20) %>% select(pos1,pos2)
 unique_sites <- c(temp$pos1, temp$pos2) %>%
     sort() %>% unique() %>% length()
 rm(temp)
@@ -17,6 +18,7 @@ g <- variant_data_filtered %>% filter(mlpvalue < 30) %>%
     geom_histogram(mapping = aes(x = mlpvalue), bins = 100)
 ggsave(filename="./pics/variant_call_pvalue.png",plot = g)
 
+g <- variant_data_filtered %>% ggplot() + geom_histogram(mapping = aes(x = exp(-mlpvalue)),bins = 100)
 
 g <- variant_data_filtered %>%
     filter(10 < mlpvalue & mlpvalue < 30) %>%

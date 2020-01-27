@@ -191,6 +191,7 @@ const readToPath = (read,handle_points,bp_scale,start_pos,unit_length)=>{
             const control_y = handle_points_radius*Math.sin(control_radius);
             current_contig = unit.E[2];
             path.quadraticCurveTo(control_x,control_y,r*Math.cos(s_radian),r*Math.sin(s_radian));
+            // path.lineTo(r*Math.cos(s_radian),r*Math.sin(s_radian));
             path.arc(0,0,r,s_radian,e_radian);
             current_unit = unit.E[3];
         }
@@ -530,27 +531,27 @@ const plotData = (dataset, repeats, unit_length) =>
                   tooltip.html(contents)
                       .style("left", (d3.event.pageX + 50) + "px")	
                       .style("top", (d3.event.pageY - 50) + "px");
-                  // const coverages = calcCoverageOf(supporting_reads, contigs);
-                  // temp_coverage_layer
-                  //     .selectAll(".tempcoverage")
-                  //     .data(coverages)
-                  //     .enter()
-                  //     .append("path")
-                  //     .attr("class", "tempcoverage")
-                  //     .attr("d", coverage => {
-                  //         console.log("Writing");
-                  //         const start = start_pos[coverage.id];
-                  //         const arc = d3.lineRadial()
-                  //               .angle((_, i) => start + bp_scale(i * unit_length))
-                  //               .radius(d => coverage_scale(d));
-                  //         const e =  arc(coverage.cov);
-                  //         console.log("Wrote");
-                  //         return e;
-                  //     })
-                  //     .attr("fill","none")
-                  //     .attr("opacity", 0.9)
-                  //     .attr("stroke-width", 4)
-                  //     .attr("stroke", d3.schemeCategory10[(idx +1)% 10]);
+                  const coverages = calcCoverageOf(supporting_reads, contigs);
+                  temp_coverage_layer
+                      .selectAll(".tempcoverage")
+                      .data(coverages)
+                      .enter()
+                      .append("path")
+                      .attr("class", "tempcoverage")
+                      .attr("d", coverage => {
+                          console.log("Writing");
+                          const start = start_pos[coverage.id];
+                          const arc = d3.lineRadial()
+                                .angle((_, i) => start + bp_scale(i * unit_length))
+                                .radius(d => coverage_scale(d));
+                          const e =  arc(coverage.cov);
+                          console.log("Wrote");
+                          return e;
+                      })
+                      .attr("fill","none")
+                      .attr("opacity", 0.9)
+                      .attr("stroke-width", 4)
+                      .attr("stroke", d3.schemeCategory10[(idx +1)% 10]);
               })
               .on("mouseout", d => {
                   console.log("Detauch");

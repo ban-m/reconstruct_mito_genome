@@ -12,7 +12,7 @@ use last_decompose::{clustering, ERead};
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 fn main() {
-    env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+    env_logger::from_env(env_logger::Env::default().default_filter_or("info")).init();
     rayon::ThreadPoolBuilder::new()
         .num_threads(24)
         .build_global()
@@ -29,11 +29,13 @@ fn main() {
     };
     debug!("Seed:{}", seed);
     let coverage = 0;
-    let chain_len = 40;
+    let chain_len = 120;
     let k = 6;
     let len = 150;
     let prob: Vec<_> = (1..=10).collect();
     let test_nums: Vec<_> = (50..150).step_by(10).collect();
+    // let prob = vec![3];
+    // let test_nums = vec![50];
     for p in prob {
         for &test_num in &test_nums {
             let seed = seed + (test_num + p) as u64;
@@ -117,7 +119,7 @@ fn benchmark(
                         .enumerate()
                         .map(|(idx, (t1, t2))| {
                             let d = edlib_sys::global_dist(t1, t2);
-                            debug!("Dist:{}:{}", idx, d);
+                            debug!("{}:{}", idx, d);
                             d
                         })
                         .sum::<u32>();
@@ -127,6 +129,19 @@ fn benchmark(
                 .collect::<Vec<_>>()
         })
         .collect();
+    let ok_chunk: Vec<bool> = (0..chain_len)
+        .map(|idx| {
+            (0..clusters).any(|i| {
+                (i + 1..clusters).any(|j| {
+                    let d = edlib_sys::global_dist(&templates[i][idx], &templates[j][idx]);
+                    d != 0
+                })
+            })
+        })
+        .collect();
+    // for (idx, b) in ok_chunk.iter().enumerate() {
+    //     debug!("{}\t{}", idx, b);
+    // }
     let (dataset, label, answer, _border) =
         create_simulation_data::generate_mul_data(&templates, coverage, test_num, &mut rng, probs);
     let contigs = vec![chain_len];
@@ -140,7 +155,16 @@ fn benchmark(
         .enumerate()
         .map(|(idx, e)| {
             let id = format!("{}", idx);
-            ERead::new_with_lowseq(e, &id)
+            let read = ERead::new_with_lowseq(e, &id);
+            // *read.seq_mut() = read
+            //     .seq()
+            //     .iter()
+            //     .zip(ok_chunk.iter())
+            //     .filter(|&(_, &b)| b)
+            //     .map(|(q, _)| q)
+            //     .cloned()
+            //     .collect();
+            read
         })
         .collect();
     let forbidden = vec![vec![]; data.len()];

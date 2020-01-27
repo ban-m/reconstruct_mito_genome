@@ -11,7 +11,7 @@ use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256PlusPlus;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
-    let len = 150;
+    let len = 50;
     let num_seq = 50;
     let mut rng: Xoshiro256PlusPlus = SeedableRng::seed_from_u64(121_899_119);
     let p = &gen_sample::Profile {
