@@ -5,11 +5,11 @@ extern crate dbg_hmm;
 extern crate edlib_sys;
 extern crate env_logger;
 extern crate last_tiling;
+extern crate nalgebra as na;
 extern crate rand;
 extern crate rand_xoshiro;
 extern crate rayon;
 extern crate serde;
-extern crate nalgebra as na;
 pub use find_breakpoint::critical_regions;
 use rayon::prelude::*;
 pub mod bipartite_matching;
@@ -756,6 +756,8 @@ pub fn soft_clustering(
             models.iter_mut().enumerate().for_each(|(cluster, model)| {
                 mf.update_model(&weights_of_reads, &updates, data, cluster, model, config);
             });
+            let wr = &weights_of_reads;
+            report(id, wr, border, answer, &ws, &models, data, beta, config, l);
             let soe = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
             if soe < soe_thr || (before_soe - soe < soe_thr && beta > 1.) {
                 break 'outer;
@@ -763,8 +765,6 @@ pub fn soft_clustering(
                 break;
             }
         }
-        let wr = &weights_of_reads;
-        report(id, wr, border, answer, &ws, &models, data, beta, config, l);
         beta *= (beta_step).max(1.);
     }
     debug!("Finish");
@@ -895,11 +895,11 @@ fn report(
     border: usize,
     answer: &[u8],
     ws: &[f64],
-    models: &[Vec<Vec<DBGHMM>>],
-    data: &[ERead],
+    _models: &[Vec<Vec<DBGHMM>>],
+    _data: &[ERead],
     beta: f64,
-    c: &Config,
-    s: usize,
+    _c: &Config,
+    _s: usize,
 ) -> f64 {
     let correct = weight_of_read
         .iter()
@@ -930,16 +930,16 @@ fn report(
     let pi: Vec<_> = ws.iter().map(|e| format!("{:.2}", *e)).collect();
     let pi = pi.join("\t");
     let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-    let mut buf = vec![(models.len() as f64).recip(); models.len()];
     let tot = ws.iter().sum::<f64>();
-    let ws: Vec<_> = ws.into_iter().map(|e| e / tot).collect();
-    for read in data.iter() {
-        compute_log_probs(&models, &ws, read, &mut buf, c);
-        let out = buf
-            .iter()
-            .fold(String::new(), |s, x| s + &format!("\t{}", x));
-        debug!("LK{}\t{}\t{}", out, read.id(), s);
-    }
+    // let ws: Vec<_> = ws.into_iter().map(|e| e / tot).collect();
+    // let mut buf = vec![(models.len() as f64).recip(); models.len()];
+    // for read in data.iter() {
+    //     compute_log_probs(&models, &ws, read, &mut buf, c);
+    //     let out = buf
+    //         .iter()
+    //         .fold(String::new(), |s, x| s + &format!("\t{}", x));
+    //     debug!("LK{}\t{}\t{}", out, read.id(), s);
+    // }
     // for (cl, mss) in _models.iter().enumerate() {
     //     for ms in mss.iter() {
     //         for (pos, m) in ms.iter().enumerate() {

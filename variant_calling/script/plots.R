@@ -22,24 +22,31 @@ data <- read_tsv(filename)
 
 g <-data %>%  filter(ErrorRate < 0.2) %>%
     ggplot() +
-    geom_histogram(mapping = aes(x = ErrorRate, y = ..density..), bins=100) + facet_grid(Type ~ .)
-    stat_function(fun = function(x){dnorm(x,mean=mean(data$ErrorRate),sd=sd(data$ErrorRate))})
+    geom_histogram(mapping = aes(x = ErrorRate, y = ..density..), bins=100) + facet_grid(Type ~ .) 
+## stat_function(fun = function(x){dnorm(x,mean=mean(data$ErrorRate),sd=sd(data$ErrorRate))})
 ggsave(filename = str_c("./pics/", outputname, "_histogram.png"), g)
 
-g <-data %>%  filter(ErrorRate<0.5) %>% ggplot() +
-    geom_point(mapping = aes(x = Pos, y = ErrorRate, color = Type), size = 0.2) + facet_grid(Type ~ .) + ylim(c(0,0.5)) +
+g <-data %>%  filter(ErrorRate<0.5) %>% 
+    rename(DivergenceRate = ErrorRate) %>% 
+    ggplot() +ylim(c(0,0.5)) +
+    geom_point(mapping = aes(x = Pos, y = DivergenceRate, color = Type), size = 0.2) + facet_grid(Type ~ .) +
     scale_x_continuous(labels = scales::unit_format(unit = "k", scale = 1e-3))
 generalplot(g,str_c(outputname,"_point"))
 
-g <-data %>%  filter(ErrorRate<0.5) %>% ggplot() +
-    geom_bin2d(mapping = aes(x = Pos, y = ErrorRate),binwidth = c(1000,0.007)) + facet_grid(Type ~ .) + ylim(c(0,0.5)) +
-    scale_x_continuous(labels = scales::unit_format(unit = "k", scale = 1e-3))
+g <-data %>%  filter(ErrorRate<0.5) %>%
+    rename(DivergenceRate = ErrorRate) %>% 
+    ggplot() +
+    geom_bin2d(mapping = aes(x = Pos, y = DivergenceRate),binwidth = c(1000,0.007)) + facet_grid(Type ~ .) + ylim(c(0,0.5)) +
+    scale_x_continuous(labels = scales::unit_format(unit = "k", scale = 1e-3)) 
 generalplot(g,str_c(outputname,"_bin2d"))
 
 
-g <-data %>%  filter(ErrorRate<0.5) %>% ggplot() +
-    geom_point(mapping = aes(x = Pos, y = ErrorRate, color = Type), size = 0.2) +
-    scale_x_continuous(labels = scales::unit_format(unit = "k", scale = 1e-3))
+g <-data %>%  filter(ErrorRate<0.5) %>%
+    rename(DivergenceRate = ErrorRate) %>% 
+    ggplot() +
+    geom_point(mapping = aes(x = Pos, y = DivergenceRate, color = Type), size = 0.2) +
+    scale_x_continuous(labels = scales::unit_format(unit = "k", scale = 1e-3)) +
+    labs(x = "Divergence Rate")
 generalplot(g, str_c(outputname,"_point_merged"))
 
 

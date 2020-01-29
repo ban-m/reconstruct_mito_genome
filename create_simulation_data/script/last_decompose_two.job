@@ -14,9 +14,24 @@ OUTLOG_PREFIX=./logfiles/last_decompose_gibbs
 
 echo "-----start-----" >> ${OUTPUT}
 
-./target/release/test_last_decompose_multiple \
-    50 0 132434 0.5 0.5 >> ./result/test_low.tsv \
-    2>> ./logfiles/test_low.log
+
+for rep in 0 1 2 4 5
+do
+    ./target/release/test_last_decompose_multiple \
+        100 0 ${rep} 0.5 0.5 > ./result/test_entropy.tsv \
+        2>> ./logfiles/test_entropy.log
+done
+exit 0;
+
+for read in `seq 50 10 200`
+do
+    for rep in 0 1 2
+    do
+        ./target/release/test_last_decompose_multiple \
+            ${read} 0 132434 0.5 0.5 > ./result/test_ela.tsv \
+            2>> ./logfiles/test_ela.log
+    done
+done
 exit 0;
 
 TEST_NUM=200
