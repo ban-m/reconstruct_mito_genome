@@ -9,6 +9,7 @@ extern crate rand;
 extern crate rand_xoshiro;
 extern crate rayon;
 extern crate serde;
+extern crate nalgebra as na;
 pub use find_breakpoint::critical_regions;
 use rayon::prelude::*;
 pub mod bipartite_matching;
@@ -27,16 +28,15 @@ use rand::{thread_rng, Rng};
 use rand_xoshiro::Xoshiro256StarStar;
 use std::collections::{HashMap, HashSet};
 pub mod error_profile;
-const PRIOR: bool = true;
 const MODEL_CHECK: bool = true;
 const NUM_OF_BALL: usize = 100;
 const WINDOW_SIZE: usize = 300;
 const OVERLAP: usize = 100;
 const LK_LIMIT: f64 = -140.;
 // const LK_LIMIT: f64 = -60.;
-const OFFSET: f64 = 0.;
-const A_PRIOR: f64 = -0.23;
-const B_PRIOR: f64 = 3.17;
+const OFFSET: f64 = 1.;
+const A_PRIOR: f64 = -0.31;
+const B_PRIOR: f64 = 6.52;
 const INIT_BETA: f64 = 0.008;
 // const MAX_BETA: f64 = 1.;
 // This is the search factor for the doubling-step.
@@ -384,17 +384,10 @@ impl<'a> ModelFactory<'a> {
                     .zip(fs.par_iter_mut())
                     .zip(bufs.par_iter_mut())
                     .map(|(((cs, w), f), mut buf)| {
-                        let mut m = if PRIOR {
-                            f.generate_with_weight_prior(&cs, &w, k, &mut buf)
-                        } else {
-                            f.generate_with_weight(&cs, &w, k)
-                        };
+                        let mut m = f.generate_with_weight(&cs, &w, k, &mut buf);
                         if MODEL_CHECK {
                             m.check(cs, config, LK_LIMIT);
                         }
-                        // if MODEL_CHECK && m.weight() > 2. && m.check(cs, config, LK_LIMIT) {
-                        //     // debug!("Model:{} at {} ", m, idx);
-                        // }
                         m
                     })
                     .collect()
@@ -457,16 +450,10 @@ impl<'a> ModelFactory<'a> {
                     .zip(weights.par_iter())
                     .zip(fs.par_iter_mut())
                     .zip(ms.par_iter_mut())
-                    .enumerate()
-                    .for_each(|(idx, ((((cs, mut buf), w), f), m))| {
-                        *m = if PRIOR {
-                            // f.generate_with_weight_prior(cs, &w, k, &mut buf)
-                            f.update_with_prior(cs, &w, k, &mut buf, m)
-                        } else {
-                            f.generate_with_weight(cs, &w, k)
-                        };
-                        if MODEL_CHECK && m.weight() > 2. && m.check(cs, config, LK_LIMIT) {
-                            debug!("Model:{} at {}", m, idx);
+                    .for_each(|((((cs, mut buf), w), f), m)| {
+                        *m = f.generate_with_weight(cs, &w, k, &mut buf);
+                        if MODEL_CHECK {
+                            m.check(cs, config, LK_LIMIT);
                         }
                     });
             });
@@ -758,8 +745,7 @@ pub fn soft_clustering(
         .map(|i| weights_of_reads.iter().map(|g| g[i]).sum::<f64>() / datasize)
         .collect();
     updates_flags(&mut updates, &weights_of_reads, &mut rng, pick_prob, border);
-    // mf.dump_lks(config, &models);
-    'outer: loop {
+    'outer: for l in 0.. {
         for s in 0.. {
             assert!((ws.iter().sum::<f64>() - 1.).abs() < 0.0001);
             assert_eq!(ws.len(), cluster_num);
@@ -778,12 +764,14 @@ pub fn soft_clustering(
             }
         }
         let wr = &weights_of_reads;
-        report(id, wr, border, answer, &ws, &models, data, beta, config);
+        report(id, wr, border, answer, &ws, &models, data, beta, config, l);
         beta *= (beta_step).max(1.);
     }
-    let wr = &weights_of_reads;
     debug!("Finish");
-    report(id, wr, border, answer, &ws, &models, data, beta, config);
+    let wr = &weights_of_reads;
+    report(
+        id, wr, border, answer, &ws, &models, data, beta, config, 100,
+    );
     weights_of_reads
 }
 
@@ -907,10 +895,11 @@ fn report(
     border: usize,
     answer: &[u8],
     ws: &[f64],
-    _models: &[Vec<Vec<DBGHMM>>],
-    _data: &[ERead],
+    models: &[Vec<Vec<DBGHMM>>],
+    data: &[ERead],
     beta: f64,
-    _c: &Config,
+    c: &Config,
+    s: usize,
 ) -> f64 {
     let correct = weight_of_read
         .iter()
@@ -941,6 +930,16 @@ fn report(
     let pi: Vec<_> = ws.iter().map(|e| format!("{:.2}", *e)).collect();
     let pi = pi.join("\t");
     let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
+    let mut buf = vec![(models.len() as f64).recip(); models.len()];
+    let tot = ws.iter().sum::<f64>();
+    let ws: Vec<_> = ws.into_iter().map(|e| e / tot).collect();
+    for read in data.iter() {
+        compute_log_probs(&models, &ws, read, &mut buf, c);
+        let out = buf
+            .iter()
+            .fold(String::new(), |s, x| s + &format!("\t{}", x));
+        debug!("LK{}\t{}\t{}", out, read.id(), s);
+    }
     // for (cl, mss) in _models.iter().enumerate() {
     //     for ms in mss.iter() {
     //         for (pos, m) in ms.iter().enumerate() {
@@ -1050,72 +1049,6 @@ fn compute_log_probs(
                 LK_LIMIT + w.ln()
             };
         });
-    // let weight_thr: Vec<_> = models
-    //     .iter()
-    //     .map(|model| {
-    //         let w = read
-    //             .seq
-    //             .iter()
-    //             .map(|u| model[u.contig()][u.unit()].weight())
-    //             .sum::<f64>();
-    //         w / read.seq.len() as f64 / 3.
-    //     })
-    //     .collect();
-    // let e_thr = (models.len() as f64).ln() * 0.999;
-    // let weights: Vec<Vec<_>> = read
-    //     .seq
-    //     .par_iter()
-    //     .enumerate()
-    //     .filter_map(|(idx, u)| {
-    //         let lks: Vec<_> = models
-    //             .iter()
-    //             .zip(weight_thr.iter())
-    //             .map(|(model, &thr)| {
-    //                 let model = &model[u.contig()][u.unit()];
-    //                 if model.weight() < thr || model.is_broken() {
-    //                     None
-    //                 } else {
-    //                     let lk = model.forward(u.bases(), c);
-    //                     let offset = OFFSET * offset(model.weight(), A_PRIOR, B_PRIOR);
-    //                     Some(lk + offset)
-    //                 }
-    //             })
-    //             .collect();
-    //         if lks.iter().any(|e| e.is_none()) {
-    //             Some(lks)
-    //         } else {
-    //             let entropy = calc_entropy(&lks);
-    //             if entropy < e_thr {
-    //                 Some(lks)
-    //             } else {
-    //                 // debug!("Removing {} unit({}/{})", idx, entropy, e_thr);
-    //                 None
-    //             }
-    //         }
-    //     })
-    //     .collect();
-    // let len = read.seq.len() as f64;
-    // gammas
-    //     .iter_mut()
-    //     .zip(ws.iter())
-    //     .enumerate()
-    //     .for_each(|(idx, (g, w))| {
-    //         let (lk, num) = weights
-    //             .iter()
-    //             .filter_map(|ws| ws[idx].as_ref())
-    //             .fold((0., 0.), |(lk, num), x| (lk + x, num + 1.));
-    //         *g = if num > 0. { lk * len / num } else { LK_LIMIT } + w.ln();
-    //     });
-    // fn calc_entropy(lks: &[Option<f64>]) -> f64 {
-    //     let lks = lks.iter().filter_map(|e| e.as_ref());
-    //     let cmp = |a: &&f64, b: &&f64| a.partial_cmp(&b).unwrap();
-    //     let max = lks.clone().max_by(cmp).unwrap();
-    //     let sum = max + lks.clone().map(|x| (x - max).exp()).sum::<f64>().ln();
-    //     lks.clone()
-    //         .map(|x| (x - sum).exp())
-    //         .map(|x| if x < 0.0001 { 0. } else { -x * x.ln() })
-    //         .sum::<f64>()
-    // }
 }
 
 fn offset(x: f64, a: f64, b: f64) -> f64 {
@@ -1148,13 +1081,7 @@ pub fn construct_with_weights(
             chunks
                 .into_iter()
                 .zip(weights.into_iter())
-                .map(|(cs, ws)| {
-                    if PRIOR {
-                        f.generate_with_weight_prior(&cs, &ws, k, &mut buf)
-                    } else {
-                        f.generate_with_weight(&cs, &ws, k)
-                    }
-                })
+                .map(|(cs, ws)| f.generate_with_weight(&cs, &ws, k, &mut buf))
                 .collect::<Vec<_>>()
         })
         .collect()

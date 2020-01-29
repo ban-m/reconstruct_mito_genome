@@ -129,7 +129,7 @@ fn benchmark(
                 .collect::<Vec<_>>()
         })
         .collect();
-    let ok_chunk: Vec<bool> = (0..chain_len)
+    let _ok_chunk: Vec<bool> = (0..chain_len)
         .map(|idx| {
             (0..clusters).any(|i| {
                 (i + 1..clusters).any(|j| {

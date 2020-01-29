@@ -43,8 +43,8 @@ fn main() {
             .chain(data2.iter())
             .map(|e| e.as_slice())
             .collect();
-        let m1 = DBGHMM::new_with_weight_prior(&dataset, &weight1, k);
-        let m2 = DBGHMM::new_with_weight_prior(&dataset, &weight2, k);
+        let m1 = DBGHMM::new_with_weight(&dataset, &weight1, k);
+        let m2 = DBGHMM::new_with_weight(&dataset, &weight2, k);
         eprintln!("({}){}\t({}){}", kmer1, m1, kmer2, m2);
     }
 }

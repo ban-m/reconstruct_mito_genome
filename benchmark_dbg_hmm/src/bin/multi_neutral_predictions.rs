@@ -37,7 +37,7 @@ fn main() {
             .iter()
             .map(|chunks| {
                 let data: Vec<_> = chunks.iter().map(|e| e.as_slice()).collect();
-                DBGHMM::new_with_weight_prior(&data, &weight, k)
+                DBGHMM::new_with_weight(&data, &weight, k)
             })
             .collect();
         use rand::prelude::SliceRandom;
@@ -65,7 +65,7 @@ fn main() {
             .iter()
             .map(|chunks| {
                 let data: Vec<_> = chunks.iter().map(|e| e.as_slice()).collect();
-                DBGHMM::new_with_weight_prior(&data, &weight, k)
+                DBGHMM::new_with_weight(&data, &weight, k)
             })
             .collect();
         let tests: Vec<_> = (0..test_num)

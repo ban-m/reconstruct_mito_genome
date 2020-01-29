@@ -2,7 +2,7 @@ use super::base_table::BASE_TABLE;
 use super::find_union;
 use super::Config;
 use super::LAMBDA;
-use super::MOCK_WEIGHT;
+use super::SMALL;
 #[derive(Clone, Default)]
 pub struct Kmer {
     pub kmer: Vec<u8>,
@@ -78,23 +78,23 @@ impl Kmer {
         }
     }
     pub fn finalize(&mut self) {
-        if self.tot > 0.0001 {
+        if self.tot > SMALL {
             for i in 0..4 {
                 self.weight[i] /= self.tot;
             }
         }
         let tot = self.base_count.iter().sum::<f64>();
         self.edge_num = self.edges.iter().filter(|e| e.is_some()).count() as u8;
-        if tot > 0.01 {
+        if tot > SMALL {
             self.base_count.iter_mut().for_each(|e| *e /= tot);
         } else {
             self.base_count = [0.25; 4];
         }
-        assert!((1. - self.base_count.iter().sum::<f64>()).abs() < 0.001);
+        assert!((1. - self.base_count.iter().sum::<f64>()).abs() < SMALL);
     }
     // If which[i] = true, the weight of these edges would be normalized.
     pub fn finalize_global(&mut self, which: [bool; 4]) {
-        assert!(self.tot > 0.0001);
+        assert!(self.tot > SMALL, "{:?}\t{:?}", self, which);
         let tot = self
             .weight
             .iter()
@@ -106,21 +106,17 @@ impl Kmer {
             if b {
                 self.weight[i] /= tot;
             } else {
-                self.weight[i] = if self.weight[i] > 0.0001 {
-                    MOCK_WEIGHT
-                } else {
-                    0.
-                };
+                self.weight[i] = if self.weight[i] > SMALL { 1. } else { 0. };
             }
         }
         let tot = self.base_count.iter().sum::<f64>();
         self.edge_num = self.edges.iter().filter(|e| e.is_some()).count() as u8;
-        if tot > 0.01 {
+        if tot > SMALL {
             self.base_count.iter_mut().for_each(|e| *e /= tot);
         } else {
             self.base_count = [0.25; 4];
         }
-        assert!((1. - self.base_count.iter().sum::<f64>()).abs() < 0.001);
+        assert!((1. - self.base_count.iter().sum::<f64>()).abs() < SMALL);
     }
     // renaming all the edges by `map`
     pub fn rename_by(&mut self, map: &[usize]) {

@@ -15,8 +15,8 @@ OUTLOG_PREFIX=./logfiles/last_decompose_gibbs
 echo "-----start-----" >> ${OUTPUT}
 
 ./target/release/test_last_decompose_multiple \
-    100 0 132434 0.5 0.5 >> ./result/test.tsv \
-    2>> ./logfiles/test.log
+    50 0 132434 0.5 0.5 >> ./result/test_low.tsv \
+    2>> ./logfiles/test_low.log
 exit 0;
 
 TEST_NUM=200

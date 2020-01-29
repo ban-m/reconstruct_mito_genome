@@ -101,7 +101,7 @@ fn benchmark(
                         .iter()
                         .zip(templates[j].iter())
                         .enumerate()
-                        .map(|(idx, (t1, t2))| {
+                        .map(|(_idx, (t1, t2))| {
                             let d = edlib_sys::global_dist(t1, t2);
                             //debug!("{}\t{}", idx, d);
                             d

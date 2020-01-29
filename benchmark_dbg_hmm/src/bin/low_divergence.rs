@@ -42,8 +42,8 @@ fn main() {
                 weight1.push(w);
                 weight2.push(1. - w);
             }
-            let m1 = DBGHMM::new_with_weight_prior(&data, &weight1, k);
-            let m2 = DBGHMM::new_with_weight_prior(&data, &weight2, k);
+            let m1 = DBGHMM::new_with_weight(&data, &weight1, k);
+            let m2 = DBGHMM::new_with_weight(&data, &weight2, k);
             let test: Vec<_> = (0..20)
                 .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
                 .collect();

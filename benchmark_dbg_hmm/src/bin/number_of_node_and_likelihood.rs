@@ -30,7 +30,7 @@ fn main() {
             for &cov in &covs {
                 let m: Vec<_> = data[..cov].iter().map(|e| e.as_slice()).collect();
                 let w = vec![1.; cov];
-                let m = f.generate_with_weight_prior(&m, &w, k, &mut vec![]);
+                let m = f.generate_with_weight(&m, &w, k, &mut vec![]);
                 let n = m.node_num();
                 let samples = tests
                     .par_iter()

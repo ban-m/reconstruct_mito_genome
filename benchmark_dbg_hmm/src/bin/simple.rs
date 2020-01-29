@@ -72,14 +72,14 @@ fn main() {
     let m1: Vec<_> = (0..chain)
         .map(|c| {
             let data: Vec<_> = data1.iter().map(|e| e[c].as_slice()).collect();
-            DBGHMM::new_with_weight_prior(&data, &weight1, k)
+            DBGHMM::new_with_weight(&data, &weight1, k)
         })
         .collect();
     let weight2 = vec![1.; cov2];
     let m2: Vec<_> = (0..chain)
         .map(|c| {
             let data: Vec<_> = data2.iter().map(|e| e[c].as_slice()).collect();
-            DBGHMM::new_with_weight_prior(&data, &weight2, k)
+            DBGHMM::new_with_weight(&data, &weight2, k)
         })
         .collect();
     for ((m1, k1), (m2, k2)) in m1.iter().zip(kmer1.iter()).zip(m2.iter().zip(kmer2.iter())) {

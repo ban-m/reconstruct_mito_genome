@@ -11,7 +11,7 @@ use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256PlusPlus;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
-    let len = 50;
+    let len = 150;
     let num_seq = 50;
     let mut rng: Xoshiro256PlusPlus = SeedableRng::seed_from_u64(121_899_119);
     let p = &gen_sample::Profile {
@@ -35,9 +35,9 @@ fn main() {
         .map(|i| {
             let w = vec![1.; i];
             let m: Vec<_> = data[..i].iter().map(|e| e.as_slice()).collect();
-            let m = f.generate_with_weight_prior(&m, &w, k, &mut vec![]);
+            let m = f.generate_with_weight(&m, &w, k, &mut vec![]);
             let d: Vec<_> = data_diff[..i].iter().map(|e| e.as_slice()).collect();
-            let d = f.generate_with_weight_prior(&d, &w, k, &mut vec![]);
+            let d = f.generate_with_weight(&d, &w, k, &mut vec![]);
             let correct = (0..100)
                 .map(|_| {
                     let q = introduce_randomness(&template, &mut rng, &PROFILE);

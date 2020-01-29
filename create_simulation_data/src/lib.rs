@@ -214,7 +214,6 @@ pub fn generate_mul_data<T: Rng>(
 ) -> (Vec<Vec<Vec<u8>>>, Vec<u8>, Vec<u8>, usize) {
     debug!("{} templates", templates.len());
     let total = test_num + coverage;
-    use rand::prelude::SliceRandom;
     let answer = (0..probs.len()).flat_map(|i| vec![i; coverage]);
     let answer: Vec<_> = answer
         .chain(probs.iter().enumerate().flat_map(|(idx, &prob)| {
@@ -648,7 +647,7 @@ pub fn construct_with_weights(ds: &[Vec<Vec<u8>>], ws: &[f64], k: usize) -> Vec<
         .into_par_iter()
         .map(|cs| {
             let mut f = Factory::new();
-            f.generate_with_weight(&cs, &ws, k)
+            f.generate_with_weight(&cs, &ws, k, &mut vec![])
         })
         .collect()
 }

@@ -23,8 +23,8 @@ fn main() {
         let data1: Vec<_> = data1.iter().map(|e| e.as_slice()).collect();
         let data2: Vec<_> = data2.iter().map(|e| e.as_slice()).collect();
         let weight = vec![1.; unit];
-        let model1 = DBGHMM::new_with_weight_prior(&data1, &weight, k);
-        let model2 = DBGHMM::new_with_weight_prior(&data2, &weight, k);
+        let model1 = DBGHMM::new_with_weight(&data1, &weight, k);
+        let model2 = DBGHMM::new_with_weight(&data2, &weight, k);
         // if model1.edge_num() != model2.edge_num() {
         //     let kmers = template
         //         .windows(k)

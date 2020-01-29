@@ -9,7 +9,7 @@ use rand::{rngs::StdRng, SeedableRng};
 use rayon::prelude::*;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
-    let len = 50;
+    let len = 150;
     let num_seq = 150;
     let k = 6;
     println!("Seed\tCoverage\tLikelihoodRatio\tOriginalLK\tNumEdges");
@@ -31,7 +31,7 @@ fn main() {
                     .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
                     .collect();
                 let data: Vec<_> = data.iter().map(|e| e.as_slice()).collect();
-                let m = f.generate_with_weight_prior(&data, &vec![1.; cov], k, &mut vec![]);
+                let m = f.generate_with_weight(&data, &vec![1.; cov], k, &mut vec![]);
                 data.iter()
                     .map(|q| m.forward(&q, &DEFAULT_CONFIG))
                     .sum::<f64>()
@@ -42,7 +42,7 @@ fn main() {
                 let w = vec![1.; cov];
                 for chunk in data.chunks_exact(cov) {
                     let m: Vec<_> = chunk.iter().map(|e| e.as_slice()).collect();
-                    let m = f.generate_with_weight_prior(&m, &w, k, &mut vec![]);
+                    let m = f.generate_with_weight(&m, &w, k, &mut vec![]);
                     let edges = m.edge_num();
                     for q in chunk {
                         let lk = m.forward(&q, &DEFAULT_CONFIG);

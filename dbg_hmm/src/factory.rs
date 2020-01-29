@@ -1,59 +1,4 @@
-use super::{base_table::BASE_TABLE, find_union, Kmer, DBGHMM, THR};
-#[derive(Clone, Default)]
-pub struct PairFactory {
-    f: Factory,
-    forward: Vec<Vec<u8>>,
-    reverse: Vec<Vec<u8>>,
-    buffer: Vec<f64>,
-}
-
-pub fn revcmp(xs: &[u8]) -> Vec<u8> {
-    fn rev(x: &u8) -> u8 {
-        match x {
-            b'A' => b'T',
-            b'C' => b'G',
-            b'G' => b'C',
-            b'T' => b'A',
-            _ => unreachable!(),
-        }
-    }
-    xs.iter().rev().map(rev).collect()
-}
-
-impl PairFactory {
-    pub fn new(chunks: &[Vec<u8>]) -> Self {
-        let forward = chunks.to_vec();
-        let reverse: Vec<_> = chunks.iter().map(|e| revcmp(e.as_slice())).collect();
-        let f = Factory::new();
-        let buffer = vec![];
-        Self {
-            forward,
-            reverse,
-            f,
-            buffer,
-        }
-    }
-    pub fn new_ref(chunks: &[Vec<u8>]) -> Self {
-        let forward = chunks.to_vec();
-        let reverse: Vec<_> = chunks.iter().map(|e| revcmp(e.as_slice())).collect();
-        let f = Factory::new();
-        let buffer = vec![];
-        Self {
-            forward,
-            reverse,
-            f,
-            buffer,
-        }
-    }
-    pub fn generate(&mut self, ws: &[f64], k: usize) -> super::PairDBGHMM {
-        let buf = &mut self.buffer;
-        let forward: Vec<_> = self.forward.iter().map(|e| e.as_slice()).collect();
-        let forward = self.f.generate_with_weight_prior(&forward, &ws, k, buf);
-        let reverse: Vec<_> = self.reverse.iter().map(|e| e.as_slice()).collect();
-        let reverse = self.f.generate_with_weight_prior(&reverse, &ws, k, buf);
-        super::PairDBGHMM::new(forward, reverse)
-    }
-}
+use super::{base_table::BASE_TABLE, find_union, Kmer, DBGHMM, SMALL};
 
 #[derive(Default, Clone)]
 pub struct Factory {
@@ -153,7 +98,7 @@ impl Factory {
                 self.inner[to_u64(kmer)].0 += 1.;
             })
         });
-        let thr = self.calc_thr();
+        let thr = 0.;
         let mut nodes = Vec::with_capacity(self.len());
         for seq in dataset.iter().filter(|seq| seq.len() > k) {
             for x in seq.windows(k + 1) {
@@ -187,7 +132,11 @@ impl Factory {
                 self.inner[to_u64(kmer)].0 += 1.;
             })
         });
-        let thr = 0.;
+        let thr = {
+            let key1 = |&(a, _): &(f64, usize)| -> f64 { a };
+            let select = dataset.iter().map(|e| e.len()).max().unwrap() + k;
+            select_nth_by(&self.inner, self.inner.len() - select, key1).unwrap()
+        };
         let mut nodes = Vec::with_capacity(self.len());
         for seq in dataset {
             for x in seq.windows(k + 1) {
@@ -209,8 +158,102 @@ impl Factory {
         self.clear();
         DBGHMM::from(nodes, k, weight)
     }
-    pub fn generate_with_weight(&mut self, dataset: &[&[u8]], ws: &[f64], k: usize) -> DBGHMM {
-        let mut buf = vec![];
+    pub fn generate_with_weight(
+        &mut self,
+        dataset: &[&[u8]],
+        ws: &[f64],
+        k: usize,
+        buf: &mut Vec<f64>,
+    ) -> DBGHMM {
+        self.clear();
+        buf.clear();
+        let coverage = ws.iter().sum::<f64>();
+        if coverage < 2. {
+            return DBGHMM {
+                nodes: vec![],
+                k: k,
+                weight: coverage,
+                is_broken: true,
+            };
+        }
+        assert!(k <= 32, "k should be less than 32.");
+        let tk = (1 << (k * 2)) as usize;
+        //let weight = super::PRIOR_FACTOR * coverage;
+        self.inner
+            .extend(std::iter::repeat((0., std::usize::MAX)).take(tk));
+        buf.extend(std::iter::repeat(0.).take(tk * 4));
+        let mask = (1 << (2 * k)) - 1;
+        let e_mask = (1 << (2 * (k + 1))) - 1;
+        dataset
+            .iter()
+            .zip(ws.iter())
+            .filter(|&(seq, _)| seq.len() > k)
+            .filter(|&(_, &w)| w > SMALL)
+            .for_each(|(seq, w)| {
+                let mut node = to_u64(&seq[..k]);
+                self.inner[node].0 += w;
+                let mut edge = to_u64(&seq[..k]);
+                for &b in &seq[k..] {
+                    node = (node << 2 | BASE_TABLE[b as usize]) & mask;
+                    self.inner[node].0 += w;
+                    edge = (edge << 2 | BASE_TABLE[b as usize]) & e_mask;
+                    buf[edge] += w;
+                }
+                self.inner[node].0 += w;
+            });
+        let ave_len = dataset.iter().map(|e| e.len()).sum::<usize>() / dataset.len();
+        let thr = {
+            let key1 = |&(a, _): &(f64, usize)| -> f64 { a };
+            let select = dataset.iter().map(|e| e.len()).max().unwrap() + k;
+            select_nth_by(&self.inner, self.inner.len() - select, key1).unwrap()
+        };
+        let mut nodes = Vec::with_capacity(2_500);
+        let mut edge = vec![];
+        for (e, &w) in buf.iter().enumerate().filter(|&(_, &w)| w > SMALL) {
+            let (from, to) = (e >> 2, e & mask);
+            decode_to(e as u64, k + 1, &mut edge);
+            if let Some((from, to)) = self.get_indices_exp(&edge, &mut nodes, thr, k, from, to) {
+                nodes[from].push_edge_with_weight(edge[k], to, w);
+            }
+        }
+        for (seq, _) in dataset
+            .iter()
+            .zip(ws.iter())
+            .filter(|&(seq, &w)| w > SMALL && seq.len() > k)
+        {
+            let x = self.inner[to_u64(&seq[seq.len() - k..])];
+            if x.1 != std::usize::MAX {
+                nodes[x.1].is_tail = true;
+            }
+            let x = self.inner[to_u64(&seq[..k])];
+            if x.1 != std::usize::MAX {
+                nodes[x.1].is_head = true;
+            }
+        }
+        let nodes = Self::sort_nodes(nodes);
+        self.clear();
+        let node_thr = ave_len * 90 / 100;
+        if self.edges.len() < nodes.len() {
+            let len = nodes.len() - self.edges.len();
+            let push = std::iter::repeat(Vec::with_capacity(4)).take(len);
+            self.edges.extend(push);
+        }
+        let mut nodes = self.clean_up_nodes_exp(nodes, node_thr, &buf);
+        nodes
+            .iter_mut()
+            .for_each(|node| Self::update_basecount(node, &buf));
+        let nodes = self.finalize(nodes, k).unwrap();
+        self.clear();
+        DBGHMM::from(nodes, k, coverage)
+    }
+    pub fn update(
+        &mut self,
+        dataset: &[&[u8]],
+        ws: &[f64],
+        k: usize,
+        buf: &mut Vec<f64>,
+        prior: &DBGHMM,
+    ) -> DBGHMM {
         buf.clear();
         let coverage = ws.iter().sum::<f64>();
         if coverage < 2. {
@@ -226,164 +269,6 @@ impl Factory {
         self.inner
             .extend(std::iter::repeat((0., std::usize::MAX)).take(tk));
         buf.extend(std::iter::repeat(0.).take(tk * 4));
-        let ep = 0.000_000_001;
-        let mask = (1 << (2 * k)) - 1;
-        let e_mask = (1 << (2 * (k + 1))) - 1;
-        // Record all the k-mers and k+1-mers.
-        dataset
-            .iter()
-            .zip(ws.iter())
-            .filter(|&(seq, _)| seq.len() > k)
-            .for_each(|(seq, w)| {
-                let mut node = to_u64(&seq[..k]);
-                self.inner[node].0 += w;
-                let mut edge = to_u64(&seq[..k]);
-                for &b in &seq[k..] {
-                    node = (node << 2 | BASE_TABLE[b as usize]) & mask;
-                    self.inner[node].0 += w;
-                    edge = (edge << 2 | BASE_TABLE[b as usize]) & e_mask;
-                    buf[edge] += w;
-                }
-                self.inner[node].0 += w;
-            });
-        let thr = {
-            let key1 = |&(a, _): &(f64, usize)| -> f64 { a };
-            let select = dataset.iter().map(|e| e.len()).max().unwrap() + k;
-            let thr2 = select_nth_by(&self.inner, self.inner.len() - select, key1).unwrap();
-            // eprintln!("{}", thr2);
-            thr2
-        };
-        let mut nodes = Vec::with_capacity(2_500);
-        let mut edge = vec![];
-        for (e, &w) in buf.iter().enumerate().filter(|&(_, &w)| w > ep) {
-            let (from, to) = (e >> 2, e & mask);
-            decode_to(e as u64, k + 1, &mut edge);
-            if let Some((from, to)) = self.get_indices_exp(&edge, &mut nodes, thr, k, from, to) {
-                nodes[from].push_edge_with_weight(edge[k], to, w);
-            }
-        }
-        for (seq, _) in dataset
-            .iter()
-            .zip(ws.iter())
-            .filter(|&(seq, &w)| w > ep && seq.len() > k)
-        {
-            let x = self.inner[to_u64(&seq[seq.len() - k..])];
-            if x.1 != std::usize::MAX {
-                nodes[x.1].is_tail = true;
-            }
-            let x = self.inner[to_u64(&seq[..k])];
-            if x.1 != std::usize::MAX {
-                nodes[x.1].is_head = true;
-            }
-        }
-        let nodes = Self::sort_nodes(nodes);
-        self.clear();
-        let ave_len = dataset.iter().map(|e| e.len()).sum::<usize>() / dataset.len();
-        let node_thr = ave_len * 85 / 100;
-        let mut nodes = self.clean_up_nodes_exp(nodes, node_thr, &buf);
-        nodes.iter_mut().for_each(Kmer::finalize);
-        self.clear();
-        DBGHMM::from(nodes, k, coverage)
-    }
-    pub fn generate_with_weight_prior(
-        &mut self,
-        dataset: &[&[u8]],
-        ws: &[f64],
-        k: usize,
-        buf: &mut Vec<f64>,
-    ) -> DBGHMM {
-        buf.clear();
-        let coverage = ws.iter().sum::<f64>();
-        if coverage < 2. {
-            return self.generate_with_weight(dataset, ws, k);
-        }
-        assert!(k <= 32, "k should be less than 32.");
-        let tk = (1 << (k * 2)) as usize;
-        let weight = super::PRIOR_FACTOR * coverage;
-        self.inner
-            .extend(std::iter::repeat((weight, std::usize::MAX)).take(tk));
-        buf.extend(std::iter::repeat(weight).take(tk * 4));
-        let ep = 0.000_000_001;
-        let mask = (1 << (2 * k)) - 1;
-        let e_mask = (1 << (2 * (k + 1))) - 1;
-        // Record all the k-mers and k+1-mers.
-        dataset
-            .iter()
-            .zip(ws.iter())
-            .filter(|&(seq, _)| seq.len() > k)
-            .for_each(|(seq, w)| {
-                let mut node = to_u64(&seq[..k]);
-                self.inner[node].0 += w;
-                let mut edge = to_u64(&seq[..k]);
-                for &b in &seq[k..] {
-                    node = (node << 2 | BASE_TABLE[b as usize]) & mask;
-                    self.inner[node].0 += w;
-                    edge = (edge << 2 | BASE_TABLE[b as usize]) & e_mask;
-                    buf[edge] += w;
-                }
-                self.inner[node].0 += w;
-            });
-        let ave_len = dataset.iter().map(|e| e.len()).sum::<usize>() / dataset.len();
-        let thr = {
-            let key1 = |&(a, _): &(f64, usize)| -> f64 { a };
-            let select = dataset.iter().map(|e| e.len()).max().unwrap() + k;
-            let thr = select_nth_by(&self.inner, self.inner.len() - select, key1).unwrap();
-            thr
-        };
-        let mut nodes = Vec::with_capacity(2_500);
-        let mut edge = vec![];
-        for (e, &w) in buf.iter().enumerate().filter(|&(_, &w)| w > ep) {
-            let (from, to) = (e >> 2, e & mask);
-            decode_to(e as u64, k + 1, &mut edge);
-            if let Some((from, to)) = self.get_indices_exp(&edge, &mut nodes, thr, k, from, to) {
-                nodes[from].push_edge_with_weight(edge[k], to, w);
-            }
-        }
-        for (seq, _) in dataset
-            .iter()
-            .zip(ws.iter())
-            .filter(|&(seq, &w)| w > ep && seq.len() > k)
-        {
-            let x = self.inner[to_u64(&seq[seq.len() - k..])];
-            if x.1 != std::usize::MAX {
-                nodes[x.1].is_tail = true;
-            }
-            let x = self.inner[to_u64(&seq[..k])];
-            if x.1 != std::usize::MAX {
-                nodes[x.1].is_head = true;
-            }
-        }
-        let nodes = Self::sort_nodes(nodes);
-        self.clear();
-        let node_thr = ave_len * 85 / 100;
-        let mut nodes = self.clean_up_nodes_exp(nodes, node_thr, &buf);
-        nodes
-            .iter_mut()
-            .for_each(|node| Self::update_basecount(node, &buf));
-        let nodes = self.finalize(nodes, k);
-        self.clear();
-        DBGHMM::from(nodes, k, coverage)
-    }
-    pub fn update_with_prior(
-        &mut self,
-        dataset: &[&[u8]],
-        ws: &[f64],
-        k: usize,
-        buf: &mut Vec<f64>,
-        prior: &DBGHMM,
-    ) -> DBGHMM {
-        buf.clear();
-        let coverage = ws.iter().sum::<f64>();
-        if coverage < 2. {
-            return self.generate_with_weight(dataset, ws, k);
-        }
-        assert!(k <= 32, "k should be less than 32.");
-        let tk = (1 << (k * 2)) as usize;
-        let weight = super::PRIOR_FACTOR * coverage;
-        self.inner
-            .extend(std::iter::repeat((weight, std::usize::MAX)).take(tk));
-        buf.extend(std::iter::repeat(weight).take(tk * 4));
-        let ep = 0.000_000_001;
         let mask = (1 << (2 * k)) - 1;
         let e_mask = (1 << (2 * (k + 1))) - 1;
         // Record all the k-mers and k+1-mers.
@@ -421,13 +306,13 @@ impl Factory {
         });
         let ave_len = dataset.iter().map(|e| e.len()).sum::<usize>() / dataset.len();
         let thr = {
-            let sum = self.inner.iter().map(|e| e.0).sum::<f64>();
-            let num = self.inner.iter().filter(|e| e.0 > 0.0001).count() as f64;
-            sum / num
+            let key1 = |&(a, _): &(f64, usize)| -> f64 { a };
+            let select = dataset.iter().map(|e| e.len()).max().unwrap() + k;
+            select_nth_by(&self.inner, self.inner.len() - select, key1).unwrap()
         };
         let mut nodes = Vec::with_capacity(500);
         let mut edge = vec![];
-        for (e, &w) in buf.iter().enumerate().filter(|&(_, &w)| w > ep) {
+        for (e, &w) in buf.iter().enumerate().filter(|&(_, &w)| w > SMALL) {
             let (from, to) = (e >> 2, e & mask);
             decode_to(e as u64, k + 1, &mut edge);
             if let Some((from, to)) = self.get_indices_exp(&edge, &mut nodes, thr, k, from, to) {
@@ -437,7 +322,7 @@ impl Factory {
         for (seq, _) in dataset
             .iter()
             .zip(ws.iter())
-            .filter(|&(seq, &w)| w > ep && seq.len() > k)
+            .filter(|&(seq, &w)| w > SMALL && seq.len() > k)
         {
             let x = self.inner[to_u64(&seq[seq.len() - k..])].1;
             if x != std::usize::MAX {
@@ -458,12 +343,12 @@ impl Factory {
         }
         let nodes = Self::sort_nodes(nodes);
         self.clear();
-        let node_thr = ave_len * 87 / 100;
+        let node_thr = ave_len * 85 / 100;
         let mut nodes = self.clean_up_nodes_exp(nodes, node_thr, &buf);
         nodes
             .iter_mut()
             .for_each(|node| Self::update_basecount(node, &buf));
-        let mut nodes = self.finalize(nodes, k);
+        let mut nodes = self.finalize(nodes, k).unwrap();
         nodes.iter_mut().for_each(|n| Self::merge_prior(n, prior));
         self.clear();
         DBGHMM::from(nodes, k, coverage)
@@ -485,13 +370,17 @@ impl Factory {
     }
     fn update_basecount(node: &mut Kmer, buf: &[f64]) {
         let kmer = to_u64(&node.kmer);
-        // TODO: Tune this prior.
         for i in 0..4 {
             let edge = kmer << 2 | i;
-            node.base_count[i] = buf[edge] + 1.;
+            node.base_count[i] = buf[edge];
         }
     }
-    fn finalize(&mut self, mut nodes: Vec<Kmer>, k: usize) -> Vec<Kmer> {
+    fn finalize(&mut self, mut nodes: Vec<Kmer>, k: usize) -> Option<Vec<Kmer>> {
+        if self.edges.len() < nodes.len() {
+            let len = nodes.len() - self.edges.len();
+            let push = std::iter::repeat(Vec::with_capacity(4)).take(len);
+            self.edges.extend(push);
+        }
         self.clear();
         // Construct the graph.
         for (from, node) in nodes.iter().enumerate() {
@@ -500,7 +389,7 @@ impl Factory {
             }
         }
         let len = nodes.len();
-        nodes.iter_mut().enumerate().for_each(|(idx, node)| {
+        for (idx, node) in nodes.iter_mut().enumerate() {
             if self.edges[idx].len() <= 1 {
                 node.finalize();
             } else {
@@ -508,8 +397,8 @@ impl Factory {
                 let which = self.select_margiable_edges(&node, k, len);
                 node.finalize_global(which);
             }
-        });
-        nodes
+        }
+        Some(nodes)
     }
     fn select_margiable_edges(&mut self, node: &Kmer, k: usize, len: usize) -> [bool; 4] {
         assert!(self.is_safe.is_empty() && self.dfs_flag.is_empty() && self.dfs_stack.is_empty());
@@ -609,11 +498,6 @@ impl Factory {
     }
     fn clean_up_nodes_exp(&mut self, nodes: Vec<Kmer>, thr: usize, edges: &[f64]) -> Vec<Kmer> {
         let save = nodes.clone();
-        if self.edges.len() < nodes.len() {
-            let len = nodes.len() - self.edges.len();
-            let push = std::iter::repeat(Vec::with_capacity(4)).take(len);
-            self.edges.extend(push);
-        }
         let nodes = self.trim_unreachable_nodes(nodes);
         let nodes = self.trim_unreachable_nodes_reverse(nodes);
         if nodes.len() <= thr {
@@ -622,10 +506,8 @@ impl Factory {
             return nodes;
         }
         let save = nodes.clone();
-        let edge_thr = self.calc_edge_thr(&nodes, edges);
-        let nodes = self.bridge_pruning(nodes, edge_thr);
-        let edge_thr = self.calc_edge_thr(&nodes, edges);
-        let nodes = self.bridge_pruning(nodes, edge_thr);
+        let nodes = self.bridge_pruning(nodes, edges);
+        let nodes = self.bridge_pruning(nodes, edges);
         let nodes = self.trim_unreachable_nodes(nodes);
         let nodes = self.trim_unreachable_nodes_reverse(nodes);
         if nodes.len() <= thr {
@@ -637,7 +519,6 @@ impl Factory {
         let nodes = self.remove_head_and_tail_edge(nodes);
         let nodes = self.filter_lightweight(nodes);
         let nodes = self.select_head_and_tail(nodes);
-        let nodes = self.cut_lightweight_loop(nodes);
         let nodes = self.trim_unreachable_nodes(nodes);
         let nodes = self.trim_unreachable_nodes_reverse(nodes);
         if nodes.len() <= thr {
@@ -646,9 +527,8 @@ impl Factory {
             return nodes;
         }
         let save = nodes.clone();
-        let nodes = self.cut_lightweight_loop(nodes);
-        let edge_thr = self.calc_edge_thr(&nodes, edges);
-        let nodes = self.bridge_pruning(nodes, edge_thr);
+        // let nodes = self.cut_lightweight_loop(nodes);
+        let nodes = self.bridge_pruning(nodes, edges);
         let nodes = if nodes.len() <= thr { save } else { nodes };
         let nodes = self.pick_largest_components(nodes);
         self.renaming_nodes(nodes)
@@ -665,9 +545,10 @@ impl Factory {
         let len = filtered_edges.len();
         let median = select_nth_by(&filtered_edges, len / 2, |&x| x).unwrap();
         let mad = select_nth_by(&filtered_edges, len / 2, |&x| (x - median).abs()).unwrap();
-        median - 4.5 * mad
+        median - 5. * mad
     }
-    fn bridge_pruning(&mut self, mut nodes: Vec<Kmer>, thr: f64) -> Vec<Kmer> {
+    fn bridge_pruning(&mut self, mut nodes: Vec<Kmer>, edges: &[f64]) -> Vec<Kmer> {
+        let thr = self.calc_edge_thr(&nodes, edges);
         let mut buffer: Vec<(usize, usize)> = Vec::with_capacity(4);
         let (lowlink, orders) = self.lowlink_and_orders(&nodes);
         for (from, node) in nodes.iter_mut().enumerate() {
@@ -757,30 +638,6 @@ impl Factory {
         }
         self.clear();
         (lowlink, orders)
-    }
-    #[allow(dead_code)]
-    fn relative_weight_pruning(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
-        let ave = nodes.iter().map(|e| e.tot).sum::<f64>() / nodes.len() as f64;
-        let thr = 0.5 * ave;
-        let is_weak: Vec<_> = nodes
-            .iter()
-            .map(|e| e.tot < thr && !e.is_head && !e.is_tail)
-            .collect();
-        // Maybe we should do coverage tuning.
-        let mut buf = vec![];
-        for (from, node) in nodes.iter_mut().enumerate() {
-            node.edges
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, e)| e.map(|to| (idx, to)))
-                .for_each(|(idx, to)| buf.push((idx, to)));
-            while let Some((idx, to)) = buf.pop() {
-                if is_weak[from] && is_weak[to] {
-                    node.remove(idx);
-                }
-            }
-        }
-        nodes
     }
     fn filter_lightweight(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
         let median = select_nth_by(&nodes, nodes.len() / 2, |n| n.tot).unwrap();
@@ -946,47 +803,6 @@ impl Factory {
         nodes
     }
     #[allow(dead_code)]
-    fn indegree_removing(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
-        self.is_safe.clear();
-        self.temp_index.clear();
-        self.is_safe.extend(std::iter::repeat(0).take(nodes.len()));
-        // Record indegree
-        nodes.iter().for_each(|_| self.temp_index.push(0));
-        for node in nodes.iter() {
-            for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
-                self.temp_index[to] += 1;
-            }
-        }
-        let tot = nodes
-            .iter()
-            .map(|e| e.weight.iter().sum::<f64>())
-            .sum::<f64>();
-        let len = nodes
-            .iter()
-            .map(|e| e.edges.iter().filter(|e| e.is_some()).count())
-            .sum::<usize>();
-        let thr = tot / len as f64 / THR;
-        let mut buf = vec![];
-        for node in nodes.iter_mut() {
-            let edges = node
-                .edges
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, e)| e.map(|to| (idx, to)));
-            let num_edges = edges.clone().count();
-            if num_edges <= 1 {
-                continue;
-            }
-            edges
-                .filter(|&(idx, to)| self.temp_index[to] > 1 && node.weight[idx] < thr)
-                .for_each(|e| buf.push(e));
-            while let Some((idx, _)) = buf.pop() {
-                node.remove(idx);
-            }
-        }
-        nodes
-    }
-    #[allow(dead_code)]
     fn cut_lightweight_loop(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
         self.clear();
         self.is_safe.extend(std::iter::repeat(0).take(nodes.len()));
@@ -1060,8 +876,7 @@ impl Factory {
                 .iter()
                 .max_by(|a, b| a.partial_cmp(b).unwrap())
                 .unwrap_or(&0.);
-            let factor = THR;
-            let thr = max / factor;
+            let thr = max / 3.;
             for idx in 0..4 {
                 let to = match node.edges[idx] {
                     Some(res) => res,
@@ -1124,12 +939,10 @@ impl Factory {
         let median = select_nth_by(&nodes, nodes.len() / 2, |n| n.kmer_weight).unwrap();
         let mad =
             select_nth_by(&nodes, nodes.len() / 2, |n| (n.kmer_weight - median).abs()).unwrap();
-        let thr_tail = median - 6. * mad;
-        // eprintln!("TAIL{}/{}/{}", median, mad, thr_tail);
+        let thr_tail = median - 8. * mad;
         let median = select_nth_by(&nodes, nodes.len() / 2, |n| n.tot).unwrap();
         let mad = select_nth_by(&nodes, nodes.len() / 2, |n| (median - n.tot).abs()).unwrap();
-        let thr_head = median - 6. * mad;
-        //eprintln!("HEAD{}/{}/{}", median, mad, thr_head);
+        let thr_head = median - 8. * mad;
         self.is_safe.clear();
         self.is_safe.extend(std::iter::repeat(1).take(nodes.len()));
         self.temp_index.clear();
@@ -1160,226 +973,6 @@ impl Factory {
         self.temp_index.clear();
         std::mem::swap(&mut nodes, &mut self.buffer);
         nodes
-    }
-    #[allow(dead_code)]
-    fn remove_anomalous_ht(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
-        assert!(self.is_empty());
-        // Removing anomalous head nodes.
-        for (from, node) in nodes.iter().enumerate() {
-            for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
-                self.edges[from].push(to);
-            }
-        }
-        // Calculate the length to the tip.
-        self.dist_to_root(nodes.len());
-        assert_eq!(nodes.len(), self.temp_index.len());
-        for (idx, node) in nodes.iter().enumerate() {
-            let dist = self.temp_index[idx];
-            let is_ok = !(node.is_head && dist <= 40);
-            self.is_safe.push(is_ok as u8);
-        }
-        // Removing anomalous tail nodes.
-        self.edges.iter_mut().for_each(|e| e.clear());
-        self.temp_index.clear();
-        for (from, node) in nodes.iter().enumerate() {
-            for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
-                self.edges[to].push(from);
-            }
-        }
-        // Calculate the length to the tip.
-        self.dist_to_root(nodes.len());
-        assert_eq!(nodes.len(), self.temp_index.len());
-        for (idx, node) in nodes.iter().enumerate() {
-            let dist = self.temp_index[idx];
-            let is_ok = !(node.is_tail && dist <= 40);
-            self.is_safe.push(is_ok as u8);
-            if node.kmer == b"ATAAGC" {
-                // eprintln!("{}\t{}", is_ok, dist);
-            }
-        }
-        self.temp_index.clear();
-        let mut index = 0;
-        for &b in &self.is_safe {
-            self.temp_index.push(index);
-            index += b as usize;
-        }
-        assert!(self.buffer.is_empty());
-        let mut idx = nodes.len();
-        while let Some(mut node) = nodes.pop() {
-            idx -= 1;
-            if self.is_safe[idx] == 1 {
-                node.remove_if_not_supported(&self.is_safe);
-                node.rename_by(&self.temp_index);
-                self.buffer.push(node);
-            }
-        }
-        self.buffer.reverse();
-        self.is_safe.clear();
-        self.temp_index.clear();
-        std::mem::swap(&mut nodes, &mut self.buffer);
-        nodes
-    }
-    // // Cut tips. We can assume that the graph is a
-    // // connected graph or a tree.
-    // #[allow(dead_code)]
-    // fn cut_tip(&mut self, mut nodes: Vec<Kmer>, t: usize, thr: f64) -> Vec<Kmer> {
-    //     assert!(self.is_safe.is_empty());
-    //     assert!(self.edges.iter().all(|e| e.is_empty()));
-    //     let pseudo_node = nodes.len();
-    //     if self.edges.len() < nodes.len() + 1 {
-    //         let l = nodes.len() + 1 - self.edges.len();
-    //         (0..=l).for_each(|_| self.edges.push(Vec::with_capacity(4)));
-    //     }
-    //     nodes.iter().for_each(|_| self.is_safe.push(0));
-    //     for (idx, node) in nodes.iter().enumerate() {
-    //         for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
-    //             self.edges[idx].push(to);
-    //         }
-    //         if node.is_tail {
-    //             self.edges[idx].push(pseudo_node);
-    //         }
-    //     }
-    //     // By calling this function, self.is_safe[i] would be changed!
-    //     self.cut_tip_inner(nodes.len() + 1, t, 0b010);
-    //     self.edges.iter_mut().for_each(|eds| eds.clear());
-    //     nodes
-    //         .iter()
-    //         .zip(self.is_safe.iter_mut())
-    //         .for_each(|(n, b)| *b |= n.is_head as u8);
-    //     for (idx, node) in nodes.iter().enumerate() {
-    //         for &to in node.edges.iter().filter_map(|e| e.as_ref()) {
-    //             self.edges[to].push(idx);
-    //         }
-    //         if node.is_head {
-    //             self.edges[idx].push(pseudo_node);
-    //         }
-    //     }
-    //     self.cut_tip_inner(nodes.len() + 1, t, 0b100);
-    //     nodes
-    //         .iter()
-    //         .zip(self.is_safe.iter_mut())
-    //         .for_each(|(n, b)| {
-    //             *b |= (n.kmer_weight > thr) as u8;
-    //         });
-    //     self.is_safe.iter_mut().for_each(|is_safe| {
-    //         let high_coverage = (*is_safe & 0b001) == 0b001;
-    //         let not_cut_by_sweep = (*is_safe & 0b110) == 0b110;
-    //         *is_safe = (high_coverage | not_cut_by_sweep) as u8;
-    //     });
-    //     assert!(self.temp_index.is_empty());
-    //     let mut idx = 0;
-    //     for &b in &self.is_safe {
-    //         self.temp_index.push(idx);
-    //         idx += b as usize;
-    //     }
-    //     assert!(self.buffer.is_empty());
-    //     let mut idx = nodes.len();
-    //     while let Some(mut node) = nodes.pop() {
-    //         idx -= 1;
-    //         if self.is_safe[idx] == 1 {
-    //             node.remove_if_not_supported(&self.is_safe);
-    //             node.rename_by(&self.temp_index);
-    //             self.buffer.push(node)
-    //         }
-    //     }
-    //     self.buffer.reverse();
-    //     std::mem::swap(&mut self.buffer, &mut nodes);
-    //     self.is_safe.clear();
-    //     self.temp_index.clear();
-    //     self.edges.iter_mut().for_each(|e| e.clear());
-    //     self.buffer.clear();
-    //     nodes
-    // }
-    // // Cut tips. We can assume that the graph is a
-    // // connected graph or a tree.
-    // // We use 'flag' instead of 'true'
-    // #[allow(dead_code)]
-    // fn cut_tip_inner(&mut self, nodes: usize, t: usize, flag: u8) {
-    //     // Use self.temp_index as a distance
-    //     // In other words, self.temp_index[i] = "Distance from root to i-th node"
-    //     self.dist_to_root(nodes);
-    //     // Allocate All the bad nodes into dfs stack. Then write them back to edges list.
-    //     // We use the last packed of edge list to keep list of bad nodes.
-    //     let bad_list: Vec<_> = (0..nodes)
-    //         .filter(|&e| self.edges[e].len() > 1)
-    //         .flat_map(|e| self.edges[e].iter().filter(|&&to| self.temp_index[to] <= t))
-    //         .copied()
-    //         .collect();
-    //     self.temp_index.clear();
-    //     assert!(self.dfs_flag.is_empty());
-    //     // 0 <-> Not arrived
-    //     // 1 <-> Have arrived
-    //     self.dfs_flag.extend(std::iter::repeat(0).take(nodes));
-    //     for i in bad_list {
-    //         if self.dfs_flag[i] == 1 {
-    //             continue;
-    //         }
-    //         self.dfs_stack.push(i);
-    //         'dfs: while !self.dfs_stack.is_empty() {
-    //             let node = *self.dfs_stack.last().unwrap();
-    //             self.dfs_flag[node] = 1;
-    //             for &to in &self.edges[node] {
-    //                 if self.dfs_flag[to] == 0 {
-    //                     self.dfs_stack.push(to);
-    //                     continue 'dfs;
-    //                 }
-    //             }
-    //             self.dfs_stack.pop().unwrap();
-    //         }
-    //     }
-    //     // flag * (1-e) = flag if the i-th node was not traversed,
-    //     // otherwise, it is zero. Thus, by BitOR, the flag would be
-    //     // modificated as supposed to be.
-    //     self.dfs_flag
-    //         .iter()
-    //         .zip(self.is_safe.iter_mut())
-    //         .for_each(|(&e, is_safe)| *is_safe |= flag * (1 - e));
-    //     self.dfs_flag.clear();
-    //     assert!(self.dfs_stack.is_empty());
-    // }
-    // Calculate maximum distance from leaves.
-    // The distance would be stored in the self.temp_index.
-    // The edges should be constrcuted before calling this function.
-    fn dist_to_root(&mut self, nodes: usize) {
-        // 0 -> never arrived
-        // 1 -> active(arrived, being traversed currently)
-        // 2 -> inactive(arrived, have been traversed)
-        self.dfs_flag.extend(std::iter::repeat(0).take(nodes));
-        assert!(self.temp_index.is_empty());
-        self.temp_index.extend(std::iter::repeat(0).take(nodes));
-        for i in 0..nodes {
-            if self.dfs_flag[i] != 0 {
-                continue;
-            }
-            self.dfs_stack.push(i);
-            'dfs: while !self.dfs_stack.is_empty() {
-                let node = *self.dfs_stack.last().unwrap();
-                if self.dfs_flag[node] == 0 {
-                    self.dfs_flag[node] = 1;
-                }
-                for &to in &self.edges[node] {
-                    if self.dfs_flag[to] == 0 {
-                        self.dfs_stack.push(to);
-                        continue 'dfs;
-                    } else if self.dfs_flag[to] == 1 {
-                        // Loop detected. Some big number.
-                        self.temp_index[node] = 100_000;
-                    }
-                }
-                let last = self.dfs_stack.pop().unwrap();
-                // The last .max(dist_to_root[last]) is indeed needed,
-                // as there would be a certain amount of cycles.
-                self.temp_index[last] = self.edges[node]
-                    .iter()
-                    .map(|&to| self.temp_index[to] + 1)
-                    .max()
-                    .unwrap_or(0)
-                    .max(self.temp_index[last]);
-                // Deactivate
-                self.dfs_flag[last] = 2;
-            }
-        }
-        self.dfs_flag.clear();
     }
     fn pick_largest_components(&mut self, mut nodes: Vec<Kmer>) -> Vec<Kmer> {
         assert!(self.is_empty());
@@ -1495,10 +1088,6 @@ impl Factory {
         // Clear the temporary buffer.
         self.dfs_stack.clear();
     }
-    fn calc_thr(&self) -> f64 {
-        let ave = self.inner.iter().map(|e| e.0).sum::<f64>() / self.inner.len() as f64;
-        ave - THR
-    }
     fn get_idx(&mut self, kmer: &[u8], nodes: &mut Vec<Kmer>, thr: f64) -> Option<usize> {
         let x = self.inner.get_mut(to_u64(kmer)).unwrap();
         if x.0 <= thr {
@@ -1510,10 +1099,6 @@ impl Factory {
             nodes.push(Kmer::new(kmer, x.0));
             Some(nodes.len() - 1)
         }
-    }
-    #[allow(dead_code)]
-    fn prob(x: f64, scale: f64) -> f64 {
-        ((scale * x).exp() + 1.).recip()
     }
     fn get_indices(
         &mut self,
@@ -1580,142 +1165,11 @@ impl Factory {
             buffer,
         }
     }
-    #[allow(dead_code)]
-    fn select_supported_node(edges: &[Vec<usize>], nodes: usize, is_safe: &[bool]) -> Vec<bool> {
-        let mut is_supported = vec![false; nodes];
-        for (from, edges) in edges.iter().enumerate() {
-            for &to in edges.iter() {
-                is_supported[to] |= is_safe[from];
-                is_supported[from] |= is_safe[to];
-            }
-        }
-        is_supported
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    // #[test]
-    // fn tip_cut() {
-    //     let edges = vec![
-    //         vec![1, 2],
-    //         vec![],
-    //         vec![],
-    //         vec![4],
-    //         vec![0, 5],
-    //         vec![9],
-    //         vec![7],
-    //         vec![8],
-    //         vec![11],
-    //         vec![6, 7, 10],
-    //         vec![],
-    //         vec![],
-    //     ];
-    //     let nodes = 12;
-    //     assert_eq!(edges.len(), 12);
-    //     let dist_to_root = Factory::dist_to_root(&edges, nodes);
-    //     let answer = vec![1, 0, 0, 7, 6, 5, 3, 2, 1, 4, 0, 0];
-    //     assert_eq!(dist_to_root, answer);
-    //     // let is_supported = Factory::cut_tip_inner(&edges, nodes, 1 );
-    //     // let answer = vec![
-    //     //     false, false, false, true, true, true, true, true, true, true, false, true,
-    //     // ];
-    //     // assert_eq!(is_supported, answer);
-    //     let edges = vec![
-    //         vec![1],
-    //         vec![2, 3],
-    //         vec![],
-    //         vec![4],
-    //         vec![],
-    //         vec![6],
-    //         vec![7],
-    //         vec![0, 8],
-    //         vec![5],
-    //     ];
-    //     let nodes = 9;
-    //     assert_eq!(edges.len(), nodes);
-    //     let dist_to_root = Factory::dist_to_root(&edges, nodes);
-    //     let answer = vec![3, 2, 0, 1, 0];
-    //     eprintln!("{:?}", dist_to_root);
-    //     for i in 0..5 {
-    //         assert_eq!(dist_to_root[i], answer[i]);
-    //     }
-    //     for i in 5..nodes {
-    //         assert!(dist_to_root[i] > 100);
-    //     }
-    // let is_supported = Factory::cut_tip_inner(&edges, nodes, 1);
-    // let answer = vec![true, true, false, false, false, true, true, true, true];
-    // assert_eq!(answer, is_supported);
-    // }
-    #[test]
-    fn select_supported_test() {
-        let edges = vec![
-            vec![1],
-            vec![2],
-            vec![3, 7],
-            vec![],
-            vec![5],
-            vec![],
-            vec![7],
-            vec![4],
-            vec![6],
-            vec![8, 0],
-            vec![9],
-        ];
-        let nodes = 11;
-        let is_safe = vec![
-            false, true, true, false, true, true, false, false, false, true, true,
-        ];
-        let supported = Factory::select_supported_node(&edges, nodes, &is_safe);
-        let mut answer = vec![true; nodes];
-        answer[6] = false;
-        assert_eq!(supported, answer);
-    }
-    // #[test]
-    // fn topological_sorting() {
-    //     let edges = vec![
-    //         vec![1],
-    //         vec![2],
-    //         vec![3],
-    //         vec![4],
-    //         vec![],
-    //         vec![6],
-    //         vec![2],
-    //         vec![8],
-    //         vec![9],
-    //         vec![3],
-    //     ];
-    //     let order = Factory::topological_sort_inner(&edges, edges.len()).unwrap();
-    //     assert_eq!(order, vec![7, 8, 9, 5, 6, 0, 1, 2, 3, 4]);
-    //     let edges = vec![
-    //         vec![1],
-    //         vec![2],
-    //         vec![3],
-    //         vec![4, 8],
-    //         vec![],
-    //         vec![6],
-    //         vec![2],
-    //         vec![8],
-    //         vec![9],
-    //         vec![3],
-    //     ];
-    //     let order = Factory::topological_sort_inner(&edges, edges.len()).unwrap_err();
-    //     assert_eq!(order, vec![7, 5, 6, 0, 1, 2, 3, 8, 9, 4]);
-    //     let edges = vec![
-    //         vec![1],
-    //         vec![2, 7],
-    //         vec![3],
-    //         vec![4],
-    //         vec![5],
-    //         vec![6],
-    //         vec![],
-    //         vec![8],
-    //         vec![5],
-    //     ];
-    //     let order = Factory::topological_sort_inner(&edges, edges.len()).unwrap();
-    //     assert_eq!(order, vec![0, 1, 7, 8, 2, 3, 4, 5, 6]);
-    // }
     #[test]
     fn kmertousize() {
         let xs = b"GGTGTT";

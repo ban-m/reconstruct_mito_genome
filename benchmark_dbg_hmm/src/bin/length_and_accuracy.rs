@@ -89,8 +89,8 @@ fn simulate<T: Rng>(
         .collect();
     let w1 = vec![vec![1.; data1.len()], vec![0.; data2.len()]].concat();
     let w2 = vec![vec![0.; data1.len()], vec![1.; data2.len()]].concat();
-    let model1 = f.generate_with_weight_prior(&dataset, &w1, k, &mut vec![]);
-    let model2 = f.generate_with_weight_prior(&dataset, &w2, k, &mut vec![]);
+    let model1 = f.generate_with_weight(&dataset, &w1, k, &mut vec![]);
+    let model2 = f.generate_with_weight(&dataset, &w2, k, &mut vec![]);
     let tests: Vec<_> = (0..test_num)
         .map(|_| {
             if rng.gen_bool(0.5) {

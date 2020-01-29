@@ -27,16 +27,19 @@ g <-data %>%  filter(ErrorRate < 0.2) %>%
 ggsave(filename = str_c("./pics/", outputname, "_histogram.png"), g)
 
 g <-data %>%  filter(ErrorRate<0.5) %>% ggplot() +
-    geom_point(mapping = aes(x = Pos, y = ErrorRate, color = Type), size = 0.2) + facet_grid(Type ~ .) + ylim(c(0,0.5))
+    geom_point(mapping = aes(x = Pos, y = ErrorRate, color = Type), size = 0.2) + facet_grid(Type ~ .) + ylim(c(0,0.5)) +
+    scale_x_continuous(labels = scales::unit_format(unit = "k", scale = 1e-3))
 generalplot(g,str_c(outputname,"_point"))
 
 g <-data %>%  filter(ErrorRate<0.5) %>% ggplot() +
-    geom_bin2d(mapping = aes(x = Pos, y = ErrorRate),binwidth = c(1000,0.007)) + facet_grid(Type ~ .) + ylim(c(0,0.5))
+    geom_bin2d(mapping = aes(x = Pos, y = ErrorRate),binwidth = c(1000,0.007)) + facet_grid(Type ~ .) + ylim(c(0,0.5)) +
+    scale_x_continuous(labels = scales::unit_format(unit = "k", scale = 1e-3))
 generalplot(g,str_c(outputname,"_bin2d"))
 
 
 g <-data %>%  filter(ErrorRate<0.5) %>% ggplot() +
-    geom_point(mapping = aes(x = Pos, y = ErrorRate, color = Type), size = 0.2)
+    geom_point(mapping = aes(x = Pos, y = ErrorRate, color = Type), size = 0.2) +
+    scale_x_continuous(labels = scales::unit_format(unit = "k", scale = 1e-3))
 generalplot(g, str_c(outputname,"_point_merged"))
 
 

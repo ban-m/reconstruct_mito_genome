@@ -8,8 +8,8 @@ const IN: f64 = 0.065;
 use dbg_hmm::DEFAULT_CONFIG;
 use dbg_hmm::*;
 use test::Bencher;
-const LEN:usize = 150;
-const COV:usize = 30;
+const LEN: usize = 150;
+const COV: usize = 50;
 #[bench]
 fn determine(b: &mut Bencher) {
     let bases = b"ACTG";
@@ -72,28 +72,8 @@ fn new_weight(b: &mut Bencher) {
     let k = 6;
     let weight = vec![1.; model1.len()];
     let mut f = Factory::new();
-    f.generate_with_weight(&model1, &weight, k);
-    b.iter(|| test::black_box(f.generate_with_weight(&model1, &weight, k)));
-}
-
-#[bench]
-fn new_prior(b: &mut Bencher) {
-    let bases = b"ACTG";
-    let mut rng: StdRng = SeedableRng::seed_from_u64(1212132);
-    let template: Vec<_> = (0..LEN)
-        .filter_map(|_| bases.choose(&mut rng))
-        .copied()
-        .collect();
-    let model1: Vec<Vec<_>> = (0..COV)
-        .map(|_| introduce_randomness(&template, &mut rng))
-        .collect();
-    let model1: Vec<_> = model1.iter().map(|e| e.as_slice()).collect();
-    let k = 6;
-    let weight = vec![1.; model1.len()];
-    let mut f = Factory::new();
-    let mut buf = vec![];
-    f.generate_with_weight(&model1, &weight, k);
-    b.iter(|| test::black_box(f.generate_with_weight_prior(&model1, &weight, k,&mut buf)));
+    f.generate_with_weight(&model1, &weight, k, &mut vec![]);
+    b.iter(|| test::black_box(f.generate_with_weight(&model1, &weight, k, &mut vec![])));
 }
 
 #[bench]
@@ -111,8 +91,8 @@ fn determine_weight(b: &mut Bencher) {
     let k = 6;
     let weight = vec![1.; model1.len()];
     let mut f = Factory::new();
-    let m = f.generate_with_weight(&model1, &weight, k);
-    eprintln!("{}",m);
+    let m = f.generate_with_weight(&model1, &weight, k,&mut vec![]);
+    eprintln!("{}", m);
     let q = introduce_randomness(&template, &mut rng);
     b.iter(|| test::black_box(m.forward(&q, &DEFAULT_CONFIG)));
 }

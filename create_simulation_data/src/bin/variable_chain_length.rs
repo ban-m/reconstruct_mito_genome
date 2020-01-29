@@ -127,7 +127,7 @@ fn generate_dataset<T: Rng>(
         .map(|e| {
             let ds:Vec<_> = e.iter().map(|e|e.as_slice()).collect();
             let ws = vec![1.; e.len()];
-            f.generate_with_weight(&ds, &ws, k)
+            f.generate_with_weight(&ds, &ws, k,&mut vec![])
         })
         .collect();
     let dataset: Vec<_> = (0..coverage)

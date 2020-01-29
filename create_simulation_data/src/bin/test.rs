@@ -97,7 +97,7 @@ fn benchmark(
     let mut buf = vec![];
     let models: Vec<_> = chunks
         .iter()
-        .map(|chunks| f.generate_with_weight_prior(chunks, &weights, k, &mut buf))
+        .map(|chunks| f.generate_with_weight(chunks, &weights, k, &mut buf))
         .collect();
     for m in &models {
         debug!("Model\t{}", m);
@@ -111,7 +111,7 @@ fn benchmark(
     }
     let i = 3;
     let chunks: Vec<_> = data.iter().map(|read| read.seq[i].bases()).collect();
-    let m = f.generate_with_weight_prior(&chunks, &vec![0.5; chunks.len()], k, &mut buf);
+    let m = f.generate_with_weight(&chunks, &vec![0.5; chunks.len()], k, &mut buf);
     debug!("TT\t{}", m);
     for e in 0..100 {
         let temp = if e % 2 == 0 {
