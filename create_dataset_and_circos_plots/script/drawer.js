@@ -27,6 +27,8 @@ const gap_scale = d3.scaleLog()
       .range([gap_min_radius, gap_max_radius])
       .clamp(true);
 
+
+const selected_region = 17;
 // Circle radius
 const min_radius = 1;
 const max_radius = 8;
@@ -244,6 +246,7 @@ const selectRead = (read,unitlen) => {
     // const max_gap = Math.max(...read.units.filter(u => u.hasOwnProperty("G")).map(u => u.G));
     // return read.cluster.includes(24);
     // return read.cluster.length == 0;
+    // return read['cluster'].includes(selected_region);
     return true;
 };
 
@@ -443,6 +446,7 @@ const plotData = (dataset, repeats, unit_length) =>
           // const reads = values.reads;
           // Or select reads as you like.
           const reads = values.reads.filter(r => selectRead(r,unit_length));
+          // const critical_regions = [values.critical_regions[selected_region]];
           const critical_regions = values.critical_regions;
           // Calculate coordinate.
           const bp_scale = calcScale(contigs);
@@ -552,9 +556,9 @@ const plotData = (dataset, repeats, unit_length) =>
               .attr("fill",  (_,idx) => d3.schemeCategory10[(idx+1)%10])
               .on("mouseover", function(d,idx) {
                   const supporting_reads = reads.filter(r => r['cluster'].includes(idx));
+                  // const supporting_reads = reads.filter(r => r['cluster'].includes(selected_region));
                   tooltip.style("opacity", 0.9);
                   const contents = crToHTML(d,idx,supporting_reads);
-                  console.log(supporting_reads[0].name);
                   tooltip.html(contents)
                       .style("left", (d3.event.pageX + 50) + "px")	
                       .style("top", (d3.event.pageY - 50) + "px");

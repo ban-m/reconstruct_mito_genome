@@ -20,7 +20,7 @@ generalplot <- function(g,name){
 
 
 dataset <- read_tsv("./result/last_decompose_gibbs_test.txt", col_names=FALSE)
-## dataset <- read_tsv("./result/last_decompose_gibbs_150.tsv", col_names=FALSE)
+dataset <- read_tsv("./result/last_decompose_gibbs_150.tsv", col_names=FALSE)
 
 accs <- dataset %>% mutate(acc1 = X4 + X7, acc2 = X5 + X6, acc = pmax(acc1, acc2)) %>%
     mutate(acc = acc / X9) %>% select(X2,X3,acc1,acc2, acc, X8,X9)

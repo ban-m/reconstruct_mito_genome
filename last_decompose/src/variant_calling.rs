@@ -1,25 +1,25 @@
+//! This module is to call variant model(i.e. the positions where some models have variant site).
+//! The method is based on diagonalization of total distance between the center axis and
+//! each datapoint.
+use super::ERead;
 use dbg_hmm::Config;
 use dbg_hmm::DBGHMM;
-use na::{DMatrix, DVector};
-// Retun a vector with the length of 1 s.t. the margin would be maximized.
-fn variant_call(models: &[Vec<Vec<DBGHMM>>], data: &[ERead], ws: &[f64], c: &Config) -> Vec<f64> {
-    let num_cluster = models.len();
-    let num_chain = models[0].iter().map(|e|e.len()).sum:<usize>();
-    let reads: Vec<_> = data.iter()
-        .flat_map(|i| models.iter().flat_map(|ms|
-        ))
-        .map(|data| DMatrix::from_column_slice(num_cluster, num_chain, &data))
-        .collect();
-    let data = reads
-        .into_iter()
-        .fold(DMatrix::zeros(num_chain, num_chain), |x, l| {
-            let trans = l.clone().transpose();
-            let ltl = trans.clone() * l.clone();
-            let ones = DMatrix::repeat(num_cluster, num_cluster, 1.);
-            let lt_one_l = trans * ones * l;
-            x + ltl - lt_one_l / num_cluster as f64
-        });
-    let eigens = data.clone().symmetric_eigen();
+use na::DMatrix;
+use rayon::prelude::*;
+use std::time::Instant;
+/// return the weight of each position.
+pub fn variant_call(
+    models: &[Vec<Vec<DBGHMM>>],
+    data: &[ERead],
+    c: &Config,
+    pos: &[Vec<usize>],
+    num_chain: usize,
+) -> Vec<f64> {
+    let s1 = Instant::now();
+    let matrix = calc_matrix(models, data, c, &pos, num_chain);
+    let s2 = Instant::now();
+    let eigens = matrix.clone().symmetric_eigen();
+    let s3 = Instant::now();
     let max = eigens
         .eigenvalues
         .iter()
@@ -28,9 +28,95 @@ fn variant_call(models: &[Vec<Vec<DBGHMM>>], data: &[ERead], ws: &[f64], c: &Con
         .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
         .unwrap();
     eprintln!("{:?}", max);
-    let eigenvec = eigens.eigenvectors.column(max.0);
-    let answer = DVector::from_column_slice(&pos);
-    eprintln!("{}\n{}", eigenvec, answer);
-    // eprintln!("{}", data * eigenvec);
-    // eprintln!("{}", max.1 * eigenvec);
+    debug!("LK:Eigen={:?}:{:?}", s2 - s1, s3 - s2);
+    eigens
+        .eigenvectors
+        .column(max.0)
+        .iter()
+        .map(|e| e * e)
+        .collect()
+}
+
+pub fn to_pos(reads: &[ERead]) -> (Vec<Vec<usize>>, usize) {
+    let max_contig = reads
+        .iter()
+        .filter_map(|read| read.seq.iter().map(|e| e.contig()).max())
+        .max()
+        .unwrap_or(0);
+    let max_units: Vec<_> = (0..=max_contig)
+        .map(|c| {
+            reads
+                .iter()
+                .map(|read| {
+                    read.seq
+                        .iter()
+                        .filter(|e| e.contig() == c)
+                        .map(|e| e.unit())
+                        .max()
+                        .unwrap_or(0)
+                })
+                .max()
+                .unwrap_or(0)
+                + 1
+        })
+        .collect();
+    max_units.iter().fold((vec![], 0), |(mut xs, len), x| {
+        let contig: Vec<_> = (len..).take(*x).collect();
+        xs.push(contig);
+        (xs, len + x)
+    })
+}
+
+fn calc_matrix(
+    models: &[Vec<Vec<DBGHMM>>],
+    data: &[ERead],
+    c: &Config,
+    pos: &[Vec<usize>],
+    chain_len: usize,
+) -> DMatrix<f64> {
+    let num_cluster = models.len();
+    data.par_iter()
+        .map(|read| lks(models, read, c, pos, chain_len))
+        .map(|data| DMatrix::from_row_slice(num_cluster, chain_len, &data))
+        .fold(
+            || DMatrix::zeros(chain_len, chain_len),
+            |x, l| {
+                let trans = l.clone().transpose();
+                let ltl = trans.clone() * l.clone();
+                let ones = DMatrix::repeat(num_cluster, num_cluster, 1.);
+                let lt_one_l = trans * ones * l;
+                x + ltl - lt_one_l / num_cluster as f64
+            },
+        )
+        .reduce(|| DMatrix::zeros(chain_len, chain_len), |x, y| x + y)
+}
+
+fn lks(
+    models: &[Vec<Vec<DBGHMM>>],
+    read: &ERead,
+    c: &Config,
+    pos: &[Vec<usize>],
+    chain_len: usize,
+) -> Vec<f64> {
+    models
+        .iter()
+        .flat_map(|m| lk(m, read, c, pos, chain_len))
+        .collect()
+}
+
+fn lk(
+    m: &[Vec<DBGHMM>],
+    read: &ERead,
+    c: &Config,
+    pos: &[Vec<usize>],
+    chain_len: usize,
+) -> Vec<f64> {
+    let mut res: Vec<_> = vec![0.; chain_len];
+    for unit in read.seq.iter() {
+        let pos = pos[unit.contig()][unit.unit()];
+        let lk = m[unit.contig()][unit.unit()].forward(unit.bases(), c);
+        assert!(res[pos] == 0.);
+        res[pos] = lk;
+    }
+    res
 }

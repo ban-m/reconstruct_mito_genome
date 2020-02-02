@@ -28,6 +28,7 @@ use rand::{thread_rng, Rng};
 use rand_xoshiro::Xoshiro256StarStar;
 use std::collections::{HashMap, HashSet};
 pub mod error_profile;
+pub mod variant_calling;
 const MODEL_CHECK: bool = true;
 const NUM_OF_BALL: usize = 100;
 const WINDOW_SIZE: usize = 300;
@@ -930,7 +931,7 @@ fn report(
     let pi: Vec<_> = ws.iter().map(|e| format!("{:.2}", *e)).collect();
     let pi = pi.join("\t");
     let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-    let tot = ws.iter().sum::<f64>();
+    // let tot = ws.iter().sum::<f64>();
     // let ws: Vec<_> = ws.into_iter().map(|e| e / tot).collect();
     // let mut buf = vec![(models.len() as f64).recip(); models.len()];
     // for read in data.iter() {
