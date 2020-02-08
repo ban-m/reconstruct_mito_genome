@@ -14,7 +14,7 @@ pub fn variant_call(
     c: &Config,
     pos: &[Vec<usize>],
     num_chain: usize,
-) -> Vec<f64> {
+) -> Vec<Vec<f64>> {
     let s1 = Instant::now();
     let matrix = calc_matrix(models, data, c, &pos, num_chain);
     let s2 = Instant::now();
@@ -29,11 +29,14 @@ pub fn variant_call(
         .unwrap();
     eprintln!("{:?}", max);
     debug!("LK:Eigen={:?}:{:?}", s2 - s1, s3 - s2);
-    eigens
+    let betas: Vec<_> = eigens
         .eigenvectors
         .column(max.0)
         .iter()
         .map(|e| e * e)
+        .collect();
+    pos.iter()
+        .map(|e| e.iter().map(|&idx| betas[idx]).collect())
         .collect()
 }
 

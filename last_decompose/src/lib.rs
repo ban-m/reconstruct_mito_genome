@@ -732,7 +732,8 @@ pub fn soft_clustering(
     let max_coverage = get_max_coverage(data, contigs);
     let beta_step = 1. + (BETA_STEP - 1.) / (max_coverage as f64).log10();
     info!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
-    let mut beta = search_initial_beta(data, label, forbidden, k, cluster_num, contigs, config);
+    //let mut beta = search_initial_beta(data, label, forbidden, k, cluster_num, contigs, config);
+    let beta = search_initial_beta(data, label, forbidden, k, cluster_num, contigs, config);
     let mut mf = ModelFactory::new(contigs, data, k);
     let mut models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
         .map(|cl| mf.generate_model(&weights_of_reads, data, cl, config))
