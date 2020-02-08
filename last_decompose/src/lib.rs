@@ -733,7 +733,13 @@ pub fn soft_clustering(
     let beta_step = 1. + (BETA_STEP - 1.) / (max_coverage as f64).log10();
     info!("MAX Coverage:{}, Beta step:{:.4}", max_coverage, beta_step);
     //let mut beta = search_initial_beta(data, label, forbidden, k, cluster_num, contigs, config);
-    let beta = search_initial_beta(data, label, forbidden, k, cluster_num, contigs, config);
+    let mut beta = search_initial_beta(data, label, forbidden, k, cluster_num, contigs, config);
+    let (matrix_pos, chain_len) = variant_calling::to_pos(data);
+    let mut betas: Vec<Vec<_>> = matrix_pos
+        .iter()
+        .map(|e| e.iter().map(|_| beta).collect())
+        .collect();
+    debug!("Chain length is {}", chain_len);
     let mut mf = ModelFactory::new(contigs, data, k);
     let mut models: Vec<Vec<Vec<DBGHMM>>> = (0..cluster_num)
         .map(|cl| mf.generate_model(&weights_of_reads, data, cl, config))
@@ -753,7 +759,9 @@ pub fn soft_clustering(
             assert_eq!(ws.len(), cluster_num);
             let before_soe = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
             let wor = &mut weights_of_reads;
-            minibatch_sgd_by(wor, &mut ws, border, data, &models, &updates, beta, config);
+            minibatch_sgd_by(
+                wor, &mut ws, border, data, &models, &updates, &betas, config,
+            );
             updates_flags(&mut updates, &weights_of_reads, &mut rng, pick_prob, border);
             models.iter_mut().enumerate().for_each(|(cluster, model)| {
                 mf.update_model(&weights_of_reads, &updates, data, cluster, model, config);
@@ -761,12 +769,17 @@ pub fn soft_clustering(
             let wr = &weights_of_reads;
             report(id, wr, border, answer, &ws, &models, data, beta, config, l);
             let soe = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
-            if soe < soe_thr || (before_soe - soe < soe_thr && beta > 1.) {
+            let all_above_one = betas.iter().all(|e| e.iter().all(|&e| e > 1.0));
+            if soe < soe_thr || (before_soe - soe < soe_thr && all_above_one) {
                 break 'outer;
             } else if pick_up_len < s && before_soe < soe {
                 break;
             }
         }
+        betas = variant_calling::variant_call(&models, data, config, &matrix_pos, chain_len);
+        betas
+            .iter_mut()
+            .for_each(|e| e.iter_mut().for_each(|e| *e *= beta));
         beta *= (beta_step).max(1.);
     }
     debug!("Finish");
@@ -881,12 +894,13 @@ fn soe_after_sampling<R: Rng>(
     // let is_high_quality = find_high_quality(&mut models, data, c);
     let mut wor: Vec<Vec<f64>> = wor.to_vec();
     let pick_prob = INIT_PICK_PROB;
+    let beta: Vec<Vec<_>> = models[0].iter().map(|e| vec![beta; e.len()]).collect();
     for _ in 0..SAMPLING {
         updates_flags(&mut updates, &wor, rng, pick_prob, border);
         models.iter_mut().enumerate().for_each(|(cluster, model)| {
             mf.update_model(&wor, &updates, data, cluster, model, c);
         });
-        minibatch_sgd_by(&mut wor, &mut ws, border, data, &models, &updates, beta, c);
+        minibatch_sgd_by(&mut wor, &mut ws, border, data, &models, &updates, &beta, c);
     }
     wor.iter().map(|e| entropy(e)).sum::<f64>()
 }
@@ -990,7 +1004,8 @@ fn minibatch_sgd_by(
     data: &[ERead],
     models: &[Vec<Vec<DBGHMM>>],
     updates: &[bool],
-    beta: f64,
+    //beta: f64,
+    betas: &[Vec<f64>],
     c: &Config,
 ) {
     let cluster_num = models.len();
@@ -1002,8 +1017,8 @@ fn minibatch_sgd_by(
         .skip(border)
         .filter(|&(_, (_, &b))| b)
         .for_each(|(_idx, ((read, weights), _))| {
-            compute_log_probs(&models, &ws, &read, weights, c);
-            weights.iter_mut().for_each(|w| *w *= beta);
+            compute_log_probs(&models, &ws, &read, weights, c, betas);
+            // weights.iter_mut().for_each(|w| *w *= beta);
             let tot = utils::logsumexp(weights);
             weights.iter_mut().for_each(|w| *w = (*w - tot).exp());
         });
@@ -1020,6 +1035,7 @@ fn compute_log_probs(
     read: &ERead,
     gammas: &mut Vec<f64>,
     c: &Config,
+    betas: &[Vec<f64>],
 ) {
     assert_eq!(models.len(), ws.len());
     assert_eq!(models.len(), gammas.len());
@@ -1034,12 +1050,13 @@ fn compute_log_probs(
                 .par_iter()
                 .filter_map(|u| {
                     let model = &ms[u.contig()][u.unit()];
+                    let beta = betas[u.contig()][u.unit()];
                     if model.weight() < 3. || model.is_broken() {
                         None
                     } else {
                         let lk = model.forward(u.bases(), c);
                         let off = OFFSET * offset(model.weight(), A_PRIOR, B_PRIOR);
-                        Some(lk + off)
+                        Some(beta * (lk + off))
                     }
                 })
                 .fold(|| (0., 0.), |(lk, num), x| (lk + x, num + 1.))
