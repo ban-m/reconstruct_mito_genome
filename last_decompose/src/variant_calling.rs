@@ -43,28 +43,35 @@ pub fn to_pos(reads: &[ERead]) -> (Vec<Vec<usize>>, usize) {
         .filter_map(|read| read.seq.iter().map(|e| e.contig()).max())
         .max()
         .unwrap_or(0);
-    let max_units: Vec<_> = (0..=max_contig)
+    let minmax_units: Vec<_> = (0..=max_contig)
         .map(|c| {
-            reads
+            let iter = reads
                 .iter()
-                .map(|read| {
-                    read.seq
-                        .iter()
-                        .filter(|e| e.contig() == c)
-                        .map(|e| e.unit())
-                        .max()
-                        .unwrap_or(0)
-                })
-                .max()
-                .unwrap_or(0)
-                + 1
+                .flat_map(|read| read.seq.iter())
+                .filter(|e| e.contig() == c)
+                .map(|e| e.unit());
+            let max_unit = iter.clone().max()?;
+            let min_unit = iter.clone().min()?;
+            Some((min_unit, max_unit))
         })
         .collect();
-    max_units.iter().fold((vec![], 0), |(mut xs, len), x| {
-        let contig: Vec<_> = (len..).take(*x).collect();
-        xs.push(contig);
-        (xs, len + x)
-    })
+    let mut res: Vec<_> = minmax_units
+        .iter()
+        .map(|mm| match mm.as_ref() {
+            Some(&(_, max)) => vec![0; max + 1],
+            None => vec![],
+        })
+        .collect();
+    let mut len = 0;
+    for (contig, mm) in minmax_units.into_iter().enumerate() {
+        if let Some((min, max)) = mm {
+            for i in min..=max {
+                res[contig][i] = len + i;
+            }
+            len += max - min + 1;
+        }
+    }
+    (res, len)
 }
 
 fn calc_matrix(
