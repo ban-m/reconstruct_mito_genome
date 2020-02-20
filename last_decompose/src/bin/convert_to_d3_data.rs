@@ -80,15 +80,12 @@ fn summarize_contig(
     for read in reads {
         let mut first = true;
         for unit in &read.seq {
-            match unit {
-                last_tiling::unit::ChunkedUnit::En(encode) => {
-                    if first {
-                        cs[encode.contig as usize].start_stop[encode.unit as usize] += 1;
-                        first = false;
-                    }
-                    cs[encode.contig as usize].coverages[encode.unit as usize] += 1
+            if let last_tiling::unit::ChunkedUnit::En(encode) = unit {
+                if first {
+                    cs[encode.contig as usize].start_stop[encode.unit as usize] += 1;
+                    first = false;
                 }
-                _ => {}
+                cs[encode.contig as usize].coverages[encode.unit as usize] += 1
             }
         }
         if let Some(last_tiling::unit::ChunkedUnit::En(encode)) =
@@ -123,7 +120,7 @@ fn summarize_reads(
             name: read.id().to_string(),
             units: read
                 .seq()
-                .into_iter()
+                .iter()
                 .map(|e| match e {
                     last_tiling::unit::ChunkedUnit::Gap(gp) => Unit::G(gp.len()),
                     last_tiling::unit::ChunkedUnit::En(en) => Unit::E(en.contig, en.unit),

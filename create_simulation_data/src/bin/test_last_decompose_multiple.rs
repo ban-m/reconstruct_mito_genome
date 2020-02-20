@@ -35,12 +35,12 @@ fn main() {
     let k = 6;
     let len = 150;
     let p = &gen_sample::Profile {
-        // sub: 0.002 / 6.,
-        // ins: 0.002 / 6.,
-        // del: 0.002 / 6.,
-        sub: 0.001,
-        ins: 0.001,
-        del: 0.001,
+        sub: 0.002 / 6.,
+        ins: 0.002 / 6.,
+        del: 0.002 / 6.,
+        // sub: 0.001,
+        // ins: 0.001,
+        // del: 0.001,
     };
     use std::time::Instant;
     println!("TestNum:{}\tLabeled:{}", test_num, coverage);
@@ -101,9 +101,11 @@ fn benchmark(
                         .iter()
                         .zip(templates[j].iter())
                         .enumerate()
-                        .map(|(_idx, (t1, t2))| {
+                        .map(|(idx, (t1, t2))| {
                             let d = edlib_sys::global_dist(t1, t2);
-                            //debug!("{}\t{}", idx, d);
+                            if d != 0 {
+                                debug!("{}\t{}", idx, d);
+                            }
                             d
                         })
                         .sum::<u32>();
@@ -125,20 +127,6 @@ fn benchmark(
             ERead::new_with_lowseq(e, &id)
         })
         .collect();
-    // {
-    //     let answer: Vec<_> = label
-    //         .iter()
-    //         .chain(answer.iter())
-    //         .copied()
-    //         .map(|e| {
-    //             let mut ws = vec![0.; clusters];
-    //             ws[e as usize] = 1.;
-    //             ws
-    //         })
-    //         .collect();
-    //     let objlk = likelihood_of_assignments(&data, &answer, k, clusters, &contigs, c);
-    //     debug!("ObjLK:{}", objlk);
-    // }
     {
         let probs: Vec<_> = probs.iter().map(|e| format!("{:3}", e)).collect();
         debug!("Probs:[{}]", probs.join(","));

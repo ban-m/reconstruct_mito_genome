@@ -27,8 +27,8 @@ pub fn maximum_weight_matching(
         graph[0].push((i, 1, 0.));
     }
     // Add edges from nodes in nodes_2 -> nodes_1 + nodes_2 + 1(end)
-    for i in (nodes_1 + 1)..=(nodes_1 + nodes_2) {
-        graph[i].push((nodes_1 + nodes_2 + 1, 1, 0.));
+    for node in graph.iter_mut().take(nodes_1 + nodes_2+1).skip(nodes_1 + 1){
+        node.push((nodes_1 + nodes_2 + 1, 1, 0.));
     }
     let mut mcf = MinCostFlow::new(graph);
     // We have trivial solution res = 0, where there is no flow.

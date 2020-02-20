@@ -16,11 +16,11 @@ pub fn summarize_tab(
     let bf = base_freq(&read);
     let reads: HashMap<_, _> = read.iter().map(|e| (e.id().to_string(), e)).collect();
     let contigs: HashMap<_, _> = contig
-        .into_iter()
+        .iter()
         .map(|e| (e.id().to_string(), e))
         .collect();
     let ops: Vec<Vec<_>> = tab
-        .into_iter()
+        .iter()
         .map(|tab| {
             let rn = tab.seq2_name();
             let cn = tab.seq1_name();

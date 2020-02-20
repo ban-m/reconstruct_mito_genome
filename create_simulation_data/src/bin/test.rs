@@ -57,29 +57,24 @@ fn benchmark(
         .iter()
         .map(|e| gen_sample::introduce_randomness(e, &mut rng, &p))
         .collect();
-    let (dataset, _label, _answer, _border) = generate_mul_data(
+    let (dataset, _, _, _) = generate_mul_data(
         &[template1.clone(), template2.clone()],
         coverage,
         test_num,
         &mut rng,
         &[0.5, 0.5],
     );
-    let data: Vec<_> = dataset
+    let data: Vec<Vec<_>> = dataset
         .into_iter()
-        .enumerate()
-        .map(|(idx, e)| {
-            let id = format!("{}", idx);
-            last_decompose::ERead::new_with_lowseq(e, &id)
-        })
+        .map(|read| read.into_iter().enumerate().collect())
         .collect();
-    let contigs = vec![chain_len];
-    let mut mf = last_decompose::ModelFactory::new(&contigs, &data, k);
+    let mut mf = last_decompose::ModelFactory::new(chain_len, &data, k);
     let weights: Vec<_> = (0..data.len()).map(|_| vec![0.5, 0.5]).collect();
     let models = mf.generate_model(&weights, &data, 0, &dbg_hmm::DEFAULT_CONFIG);
     for read in &data {
-        for u in read.seq.iter() {
-            let model = &models[u.contig()][u.unit()];
-            let lk = model.forward(u.bases(), &dbg_hmm::DEFAULT_CONFIG);
+        for &(pos, ref u) in read.iter() {
+            let model = &models[pos];
+            let lk = model.forward(u, &dbg_hmm::DEFAULT_CONFIG);
             debug!("LK\t{:.3}\t{:.3}", model.weight(), lk);
         }
     }
@@ -88,8 +83,8 @@ fn benchmark(
     let chunks = {
         let mut res = vec![vec![]; chain_len];
         for read in &data {
-            for chunk in read.seq.iter() {
-                res[chunk.unit()].push(chunk.bases());
+            for &(pos, ref u) in read.iter() {
+                res[pos].push(u.as_slice());
             }
         }
         res
@@ -103,14 +98,14 @@ fn benchmark(
         debug!("Model\t{}", m);
     }
     for read in &data {
-        for u in read.seq.iter() {
-            let model = &models[u.unit()];
-            let lk = model.forward(u.bases(), &DEFAULT_CONFIG);
+        for &(pos, ref u) in read.iter() {
+            let model = &models[pos];
+            let lk = model.forward(u, &DEFAULT_CONFIG);
             debug!("NN\t{:.3}\t{:.3}", model.weight(), lk);
         }
     }
     let i = 3;
-    let chunks: Vec<_> = data.iter().map(|read| read.seq[i].bases()).collect();
+    let chunks: Vec<_> = data.iter().map(|read| read[i].1.as_slice()).collect();
     let m = f.generate_with_weight(&chunks, &vec![0.5; chunks.len()], k, &mut buf);
     debug!("TT\t{}", m);
     for e in 0..100 {

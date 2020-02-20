@@ -2,7 +2,7 @@
 //! A tiny implementation for de Bruijn graph with Hidden Markov model.
 //! Currently, this implementation is minimal. In other words, it exposes only one struct with just two methods:
 //! [DeBruijnGraphHiddenMarkovModel] -- Yes, it is too long -- ,[constructor](DeBruijnGraphHiddenMarkovModel::new),
-//! and the [forwardalgorithm](DeBruijnGraphHiddenMarkovModel::forward)
+//! and the [forward algorithm](DeBruijnGraphHiddenMarkovModel::forward)
 //! to calculate the probability this graph would generate the given observation.
 //! As a shorthand for the vary long name, I also supply [DBGHMM] as a alias for [DeBruijnGraphHiddenMarkovModel].
 #[allow(unused_imports)]

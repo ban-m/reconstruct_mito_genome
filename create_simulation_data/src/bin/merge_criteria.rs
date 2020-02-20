@@ -72,11 +72,10 @@ fn main() {
             ws
         })
         .collect();
-    let contigs = vec![chain_len];
     let c = &dbg_hmm::DEFAULT_CONFIG;
     let wor = &weights_of_reads;
     use last_decompose::likelihood_of_assignments;
-    let before_lk = likelihood_of_assignments(&dataset, &wor, K, clusters, &contigs, c);
+    let before_lk = likelihood_of_assignments(&dataset, &wor, K, clusters, c);
     for i in 0..clusters {
         for j in (i + 1)..clusters {
             let diff = templates[i]
@@ -85,9 +84,8 @@ fn main() {
                 .map(|(x, y)| edlib_sys::global_dist(x, y))
                 .sum::<u32>();
             debug!("Dist {} out of {} ({},{})", diff, chain_len, i, j);
-            let after_lk = last_decompose::likelihood_by_merging(
-                &dataset, wor, i, j, clusters, K, &contigs, c,
-            );
+            let after_lk =
+                last_decompose::likelihood_by_merging(&dataset, wor, i, j, clusters, K, c);
             let lkgain = after_lk - before_lk;
             debug!(
                 "{}\t{}\t{:.4}\t{:.4}\t{:.4}",

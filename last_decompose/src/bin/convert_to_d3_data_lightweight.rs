@@ -81,15 +81,12 @@ fn summarize_contig(
     for read in reads {
         let mut first = true;
         for unit in &read.seq {
-            match unit {
-                last_tiling::unit::ChunkedUnit::En(encode) => {
-                    if first {
-                        cs[encode.contig as usize].start_stop[encode.unit as usize] += 1;
-                        first = false;
-                    }
-                    cs[encode.contig as usize].coverages[encode.unit as usize] += 1
+            if let last_tiling::unit::ChunkedUnit::En(encode) = unit {
+                if first {
+                    cs[encode.contig as usize].start_stop[encode.unit as usize] += 1;
+                    first = false;
                 }
-                _ => {}
+                cs[encode.contig as usize].coverages[encode.unit as usize] += 1
             }
         }
         if let Some(last_tiling::unit::ChunkedUnit::En(encode)) =
@@ -115,7 +112,7 @@ impl Read {
         let mut units = vec![];
         let mut start = std::u16::MAX;
         let (mut prev_c, mut prev_u) = (std::u16::MAX, std::u16::MAX);
-        for unit in read.seq().into_iter() {
+        for unit in read.seq().iter() {
             if unit.is_encode() {
                 let u = unit.encode().unwrap();
                 let diff = if u.unit < prev_u {

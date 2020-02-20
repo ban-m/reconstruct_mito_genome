@@ -29,7 +29,7 @@ g2 <- dataset %>%  ggplot() +
 generalplot(g2,"coverage_and_likelihood_ratio_smooth")
 
 
-summaries  <- dataset %>% filter(LikelihoodRatio) %>% 
+summaries  <- dataset %>% filter(LikelihoodRatio < 50) %>% 
     nest(-Seed,-Coverage) %>%
     mutate(data = map(data,function(x) x %>% summarize(mean =mean(LikelihoodRatio)))) %>%
     unnest()
