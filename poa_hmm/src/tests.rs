@@ -1,4 +1,5 @@
 use super::gen_sample::*;
+use super::rayon::prelude::*;
 use super::*;
 #[test]
 fn it_works() {
@@ -158,9 +159,9 @@ where
     for i in 0..xs.len() {
         dp[i + 1][0] = ins * (i + 1) as f64;
     }
-    for j in 0..ys.len() {
-        dp[0][j + 1] = del * (j + 1) as f64;
-    }
+    // for j in 0..ys.len() {
+    //     dp[0][j + 1] = del * (j + 1) as f64;
+    // }
     for i in 0..xs.len() {
         for j in 0..ys.len() {
             dp[i + 1][j + 1] = (dp[i][j] + score(xs[i], ys[j]))
@@ -168,7 +169,14 @@ where
                 .max(dp[i][j + 1] + ins);
         }
     }
-    dp[xs.len()][ys.len()]
+    for line in &dp {
+        let line: Vec<_> = line.iter().map(|x| format!("{:4.0}", x)).collect();
+        eprintln!("{}", line.join(" "));
+    }
+    *dp[xs.len()]
+        .iter()
+        .max_by(|a, b| a.partial_cmp(&b).unwrap())
+        .unwrap()
 }
 
 #[test]
@@ -186,10 +194,10 @@ fn alignment_check() {
             .copied()
             .collect();
         let score = |x, y| if x == y { -1. } else { -2. };
-        let opt = alignment(&x, &y, -2., -2., score.clone());
+        let opt = alignment(&y, &x, -2., -2., score.clone());
         eprintln!("OPT:{}", opt);
         let (dp, _) = POA::new(&x, 1.).align(&y, -2., -2., score);
-        let poa_score = dp.last().unwrap();
+        let poa_score = dp.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
         eprintln!("POA:{}", poa_score);
         assert!((opt - poa_score).abs() < 0.001, "{},{}", opt, poa_score);
     }
@@ -208,7 +216,7 @@ fn forward_check() {
         .collect();
     let m = POA::generate_vec(&model1);
     let lk = m.forward(&template, &DEFAULT_CONFIG);
-    eprintln!("{}", m);
+    eprintln!("{:?}", m);
     assert!(lk < 0., "{}", lk)
 }
 #[test]
@@ -356,9 +364,9 @@ fn abundance_test_prior() {
         let weight = vec![1.; total];
         let model1 = POA::generate(&data1, &weight, &DEFAULT_CONFIG);
         let model2 = POA::generate(&data2, &weight, &DEFAULT_CONFIG);
-        eprintln!("{:?}", model1);
+        eprintln!("{}", model1);
         eprintln!("----------------------");
-        eprintln!("{:?}", model2);
+        eprintln!("{}", model2);
         let num = 50;
         let correct = (0..num)
             .filter(|_| {
@@ -437,13 +445,21 @@ fn check<R: rand::Rng>(t1: &[u8], t2: &[u8], rng: &mut R, cov: usize) -> usize {
     let m1 = POA::generate(&seqs, &weight1, &DEFAULT_CONFIG);
     let m2 = POA::generate(&seqs, &weight2, &DEFAULT_CONFIG);
     eprintln!("{}\t{}\t{}", cov, m1, m2);
-    let correct = (0..100)
-        .filter(|e| {
+    let tests: Vec<_> = (0..100)
+        .map(|e| {
             if e % 2 == 0 {
-                let q = introduce_randomness(&t1, rng, &PROFILE);
+                (e, introduce_randomness(&t1, rng, &PROFILE))
+            } else {
+                (e, introduce_randomness(&t2, rng, &PROFILE))
+            }
+        })
+        .collect();
+    let correct = tests
+        .par_iter()
+        .filter(|(e, q)| {
+            if e % 2 == 0 {
                 m1.forward(&q, &DEFAULT_CONFIG) > m2.forward(&q, &DEFAULT_CONFIG)
             } else {
-                let q = introduce_randomness(&t2, rng, &PROFILE);
                 m1.forward(&q, &DEFAULT_CONFIG) < m2.forward(&q, &DEFAULT_CONFIG)
             }
         })

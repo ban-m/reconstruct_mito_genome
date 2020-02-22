@@ -1,60 +1,62 @@
-use crate::Base;
 impl crate::PartialOrderAlignment {
-    pub fn remove_node(mut self, thr_rank: usize) -> Self {
-        if self.nodes.len() <= thr_rank {
-            return self;
-        }
-        // eprintln!("Before:{},{}", self, thr_rank);
-        let select = |node: &Base| node.weight();
-        let thr = self.nodes.len().max(thr_rank) - thr_rank;
-        let thr = select_nth_by(&self.nodes, thr, select).unwrap();
-        let saved = self.clone();
-        self = self.remove_lightweight(thr);
-        self.trim_unreachable_nodes();
-        if self.nodes.len() < 85 * thr_rank / 100 {
-            // eprintln!("After:{},{}", self, thr_rank);
-            return saved;
-        }
-        let saved = self.clone();
-        let thr = {
-            let median = select_nth_by(&self.nodes, self.nodes.len() / 2, select).unwrap();
-            let deviation = |node: &Base| (median - node.weight()).abs();
-            let mad = select_nth_by(&self.nodes, self.nodes.len() / 2, deviation).unwrap();
-            median - 20. * mad.max(1.)
-        };
-        self = self.remove_lightweight(thr);
-        self.trim_unreachable_nodes();
-        if self.nodes.len() < 85 * thr_rank / 100 {
-            // eprintln!("After:{},{}", self, thr_rank);
-            return saved;
-        }
-        // eprintln!("Here:{},{}", self, thr_rank);
-        self.nodes
-            .iter_mut()
-            .for_each(|node| node.remove_lightweight_edges());
-        self.trim_unreachable_nodes();
-        // eprintln!("After:{}", self);
-        self
-    }
-    fn remove_lightweight(mut self, thr: f64) -> Self {
-        let (_, mapping) = self
+    pub fn remove_node(mut self) -> Self {
+        let mut arrived = vec![false; self.nodes.len()];
+        let (idx, mut node) = self
             .nodes
             .iter()
-            .fold((0, vec![]), |(index, mut map), node| {
-                let is_ok = node.weight() > thr;
-                map.push((index, is_ok));
-                (index + is_ok as usize, map)
-            });
-        let mut buffer = vec![];
-        while let Some(mut node) = self.nodes.pop() {
-            if node.weight() > thr {
-                node.remove_if(&mapping);
-                buffer.push(node);
-            }
+            .enumerate()
+            .filter(|(_, e)| e.is_head)
+            .max_by(|&(_, a), &(_, b)| a.head_weight().partial_cmp(&b.head_weight()).unwrap())
+            .unwrap();
+        arrived[idx] = true;
+        let mut arrived_len = 1;
+        while node.has_edge() {
+            let (&idx, _) = node
+                .edges()
+                .iter()
+                .zip(node.weights().iter())
+                .max_by(|a, b| (a.1).partial_cmp(&(b.1)).unwrap())
+                .unwrap();
+            node = &self.nodes[idx];
+            arrived[idx] = true;
+            arrived_len += 1;
         }
-        buffer.reverse();
-        std::mem::swap(&mut buffer, &mut self.nodes);
-        assert!(buffer.is_empty() && !self.nodes.is_empty());
+        let remainings: Vec<_> = self
+            .nodes
+            .iter()
+            .zip(arrived.iter())
+            .filter_map(|(n, &b)| if b { None } else { Some(n.weight()) })
+            .collect();
+        let thr_rank = remainings.len() - arrived_len / 10;
+        let thr = select_nth_by(&remainings, thr_rank, |&x| x).unwrap_or(1.);
+        let to_remove: Vec<_> = self
+            .nodes
+            .iter()
+            .zip(arrived)
+            .map(|(n, a)| !(a | (n.weight() > thr)))
+            .collect();
+        self = self.remove(&to_remove);
+        self.trim_unreachable_nodes();
+        self
+    }
+    fn remove(mut self, to_remove: &[bool]) -> Self {
+        let (num, mapping) = to_remove
+            .iter()
+            .fold((0, vec![]), |(index, mut map), remove| {
+                map.push((index, !remove));
+                (index + (!remove) as usize, map)
+            });
+        self.nodes = self
+            .nodes
+            .into_iter()
+            .zip(to_remove)
+            .filter(|(_, &b)| !b)
+            .map(|(mut node, _)| {
+                node.remove_if(&mapping);
+                node
+            })
+            .collect();
+        assert_eq!(self.nodes.len(), num);
         self
     }
     fn trim_unreachable_nodes(&mut self) {
@@ -162,6 +164,6 @@ where
         select_nth_by(&xs, n - small - same, f)
     } else {
         assert!(small <= n && n < small + same);
-        return Some(pivot);
+        Some(pivot)
     }
 }

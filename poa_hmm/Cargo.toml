@@ -11,3 +11,6 @@ rand = "*"
 log = "*"
 packed_simd = "*"
 rand_xoshiro = "*"
+
+[dev-dependencies]
+rayon = "*"

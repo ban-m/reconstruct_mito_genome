@@ -8,6 +8,7 @@ pub struct Base {
     pub weights: Vec<f64>,
     pub base_count: [f64; 4],
     pub weight: f64,
+    pub head_weight: f64,
     pub is_tail: bool,
     pub is_head: bool,
 }
@@ -19,6 +20,7 @@ impl Base {
             edges: vec![],
             weights: vec![],
             weight: 0.,
+            head_weight: 0.,
             base_count: [0.; 4],
             is_tail: false,
             is_head: false,
@@ -26,6 +28,9 @@ impl Base {
     }
     pub fn weight(&self) -> f64 {
         self.weight
+    }
+    pub fn head_weight(&self) -> f64 {
+        self.head_weight
     }
     pub fn remove_if(&mut self, mapping: &[(usize, bool)]) {
         self.weights = self
@@ -102,6 +107,9 @@ impl Base {
     pub fn add_weight(&mut self, w: f64) {
         self.weight += w;
     }
+    pub fn add_head_weight(&mut self, w: f64) {
+        self.head_weight += w;
+    }
     pub fn rename_by(&mut self, map: &[usize]) {
         self.edges.iter_mut().for_each(|e| *e = map[*e]);
     }
@@ -127,9 +135,10 @@ impl Base {
     }
     #[inline]
     pub fn insertion(&self, _base: u8) -> f64 {
-        let q = 0.25;
+        0.25
+        //let q = 0.25;
         // let p = self.base_count[BASE_TABLE[base as usize]];
-        q
+        //q
         // if self.edge_num() <= 1 {
         //     p * LAMBDA + (1. - LAMBDA) * q
         // } else {
@@ -169,8 +178,8 @@ impl fmt::Debug for Base {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(
             f,
-            "{}\t{}/{}\t{:.3}",
-            self.base as char, self.is_head, self.is_tail, self.weight,
+            "{}\t{}/{}\t{:.2}\t{:.2}",
+            self.base as char, self.is_head, self.is_tail, self.weight, self.head_weight,
         )?;
         for (w, to) in self.weights.iter().zip(self.edges.iter()) {
             writeln!(f, "E\t{}\t{:.3}", to, w)?;

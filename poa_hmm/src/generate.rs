@@ -5,7 +5,7 @@ impl PartialOrderAlignment {
             .nodes
             .iter()
             .filter(|e| e.is_head)
-            .max_by(|a, b| a.weight().partial_cmp(&b.weight()).unwrap())?;
+            .max_by(|a, b| a.head_weight().partial_cmp(&b.head_weight()).unwrap())?;
         let mut res = vec![node.base()];
         while node.has_edge() {
             let (idx, _) = node
@@ -15,7 +15,6 @@ impl PartialOrderAlignment {
                 .max_by(|a, b| (a.1).partial_cmp(&(b.1)).unwrap())?;
             node = &self.nodes[*idx];
             res.push(node.base());
-            // eprintln!("{:?}", node);
         }
         Some(res)
     }

@@ -19,7 +19,7 @@ enum Op {
     In,
 }
 impl Op {
-    fn weight(&self, p: &Profile) -> f64 {
+    fn weight(self, p: &Profile) -> f64 {
         match self {
             Op::Match => 1. - p.sub - p.del - p.ins,
             Op::MisMatch => p.sub,
@@ -33,11 +33,11 @@ pub fn introduce_randomness<T: rand::Rng>(seq: &[u8], rng: &mut T, p: &Profile) 
     let mut res = vec![];
     let mut remainings: Vec<_> = seq.iter().copied().rev().collect();
     while !remainings.is_empty() {
-        match OPERATIONS.choose_weighted(rng, |e| e.weight(p)).unwrap() {
-            &Op::Match => res.push(remainings.pop().unwrap()),
-            &Op::MisMatch => res.push(choose_base(rng, remainings.pop().unwrap())),
-            &Op::In => res.push(random_base(rng)),
-            &Op::Del => {
+        match *OPERATIONS.choose_weighted(rng, |e| e.weight(p)).unwrap() {
+            Op::Match => res.push(remainings.pop().unwrap()),
+            Op::MisMatch => res.push(choose_base(rng, remainings.pop().unwrap())),
+            Op::In => res.push(random_base(rng)),
+            Op::Del => {
                 remainings.pop().unwrap();
             }
         }
