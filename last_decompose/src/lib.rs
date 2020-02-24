@@ -17,7 +17,7 @@ mod eread;
 pub mod find_breakpoint;
 mod find_union;
 pub mod utils;
-use dbg_hmm::*;
+use dbg_hmm::{Factory, DBGHMM};
 pub use eread::*;
 pub use find_breakpoint::CriticalRegion;
 use find_breakpoint::ReadClassify;
@@ -28,6 +28,9 @@ use rand::{thread_rng, Rng};
 use rand_xoshiro::Xoshiro256StarStar;
 use std::collections::{HashMap, HashSet};
 pub mod error_profile;
+mod poa_clustering;
+use dbg_hmm::Config;
+pub use poa_clustering::soft_clustering_poa;
 pub mod variant_calling;
 const MODEL_CHECK: bool = true;
 const NUM_OF_BALL: usize = 100;
@@ -591,7 +594,8 @@ pub fn clustering(
 ) -> Vec<u8> {
     assert_eq!(forbidden.len(), data.len());
     assert_eq!(label.len() + answer.len(), data.len());
-    let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
+    let weights = soft_clustering_poa(data, label, forbidden, cluster_num, answer, c);
+    // let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
     debug!("WEIGHTS\tPrediction. Dump weights");
     assert_eq!(weights.len(), label.len() + answer.len());
     for (weight, ans) in weights.iter().zip(label.iter().chain(answer.iter())) {

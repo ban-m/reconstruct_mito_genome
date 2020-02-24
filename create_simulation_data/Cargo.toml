@@ -15,6 +15,7 @@ rayon = "*"
 log = "*"
 env_logger = "*"
 dbg_hmm = {path = "../dbg_hmm"}
+poa_hmm = {path = "../poa_hmm"}
 edlib_sys = {path = "../../edlib-sys"}
 rand_xoshiro = "*"
 bio = "*"

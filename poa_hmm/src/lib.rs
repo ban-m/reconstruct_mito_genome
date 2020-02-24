@@ -22,6 +22,7 @@ pub mod forward;
 pub mod gen_sample;
 mod remove_nodes;
 const SMALL: f64 = 0.000_000_001;
+const DEFAULT_WEIGHT: f64 = 3.;
 pub mod generate;
 #[cfg(test)]
 mod tests;
@@ -70,13 +71,19 @@ impl PartialOrderAlignment {
             .map(|(xs, &w)| if w > 0.001 { xs.len() } else { 0 })
             .max()
             .unwrap_or(0);
+        // seqs.iter()
+        //     .zip(ws.iter())
+        //     .filter(|&(_, &w)| w > 0.001)
+        //     .fold(POA::default(), |x, (y, &w)| x.add_with(y, w, config))
+        //     .finalize()
+        //     .clean_up()
         seqs.iter()
             .zip(ws.iter())
             .enumerate()
-            .filter(|&(idx, (_, &w))| w > 0.001 && idx != picked)
+            .filter(|&(_idx, (_, &w))| w > 0.001) // && idx != picked)
             .map(|(_, x)| x)
             .fold(POA::default(), |x, (y, &w)| {
-                if x.nodes.len() > 2 * max_len {
+                if x.nodes.len() > 3 * max_len / 2 {
                     x.add_with(y, w, config).remove_node()
                 } else {
                     x.add_with(y, w, config)
@@ -131,7 +138,6 @@ impl PartialOrderAlignment {
     {
         let mut traceback = Vec::with_capacity(seq.len() + 2);
         let edges = self.reverse_edges();
-        assert!(self.nodes.iter().any(|e| e.is_head));
         let mut prev = vec![0.; self.nodes.len() + 1];
         let tb = vec![EditOp::Stop; self.nodes.len() + 1];
         traceback.push(tb);
@@ -177,11 +183,10 @@ impl PartialOrderAlignment {
         (prev, traceback)
     }
     pub fn add_with(self, seq: &[u8], w: f64, c: &Config) -> Self {
-        let ins = (c.p_ins + c.p_del).ln();
-        let del = ins;
-        let mism = (c.mismatch + c.mismatch).ln();
-        let mat = (c.p_match - c.p_ins - c.p_del - c.mismatch).ln();
-        // eprintln!("{}/{}/{}/{}", ins, del, mism, mat);
+        let ins = c.p_ins.ln();
+        let del = c.p_del.ln();
+        let mat = -10. * c.p_match.ln();
+        let mism = c.mismatch.ln();
         self.add_w_param(seq, w, ins, del, |x, y| if x == y { mat } else { mism })
     }
     pub fn add(self, seq: &[u8], w: f64) -> Self {
@@ -194,7 +199,6 @@ impl PartialOrderAlignment {
         if self.weight < SMALL || self.nodes.is_empty() {
             return Self::new(seq, w);
         }
-        //eprintln!("{}", String::from_utf8_lossy(seq));
         // Alignment
         let (dp, traceback) = self.align(seq, ins, del, score);
         // Traceback
@@ -214,10 +218,9 @@ impl PartialOrderAlignment {
                 }
             })
             .max_by(|a, b| (a.1).partial_cmp(&b.1).unwrap())
-            .unwrap();
+            .expect(&format!("{}", line!()));
         let mut previous = None;
         while traceback[q_pos][g_pos] != EditOp::Stop {
-            // q_pos > 0 || g_pos > 0 {
             // eprintln!("{:?}", traceback[q_pos][g_pos]);
             match traceback[q_pos][g_pos] {
                 EditOp::Match(from) => {
@@ -230,12 +233,13 @@ impl PartialOrderAlignment {
                     self.nodes[current_pos].add_weight(w);
                     if q_pos == seq.len() {
                         self.nodes[current_pos].is_tail = true;
+                        self.nodes[current_pos].tail_weight += w;
                     } else if q_pos == 1 {
                         self.nodes[current_pos].is_head = true;
                         self.nodes[current_pos].head_weight += w;
                     }
                     if let Some(p) = previous {
-                        let base = self.nodes[p as usize].base();
+                        let base = self.nodes[p].base();
                         self.nodes[current_pos].add(base, w, p);
                     };
                     previous = Some(current_pos);
@@ -252,6 +256,7 @@ impl PartialOrderAlignment {
                     new_node.add_weight(w);
                     if q_pos == seq.len() {
                         new_node.is_tail = true;
+                        new_node.tail_weight += w;
                     } else if q_pos == 1 {
                         new_node.is_head = true;
                         new_node.head_weight += w;
@@ -333,26 +338,4 @@ impl PartialOrderAlignment {
         self.nodes.iter_mut().for_each(|e| e.finalize());
         self
     }
-    // fn select_head_tail(mut self) -> Self {
-    //     let mut is_head = vec![true; self.nodes.len()];
-    //     for n in self.nodes.iter() {
-    //         for &to in n.edges.iter() {
-    //             is_head[to] = false;
-    //         }
-    //     }
-    //     assert!(is_head.iter().any(|&e| e), "{:?}", self);
-    //     if self.nodes.iter().all(|e| !e.is_head) {
-    //         self.nodes.iter_mut().zip(is_head).for_each(|(n, is_head)| {
-    //             n.is_head = is_head;
-    //         });
-    //     }
-    //     if self.nodes.iter().all(|e| !e.is_tail) {
-    //         self.nodes.iter_mut().for_each(|n| {
-    //             n.is_tail = n.edges.is_empty();
-    //         });
-    //     }
-    //     assert!(self.nodes.iter().any(|n| n.is_head));
-    //     assert!(self.nodes.iter().any(|n| n.is_tail));
-    //     self
-    // }
 }

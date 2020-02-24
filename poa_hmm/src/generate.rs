@@ -1,6 +1,6 @@
 use crate::PartialOrderAlignment;
 impl PartialOrderAlignment {
-    pub fn gen(&self) -> Option<Vec<u8>> {
+    pub fn consensus(&self) -> Option<Vec<u8>> {
         let mut node = self
             .nodes
             .iter()

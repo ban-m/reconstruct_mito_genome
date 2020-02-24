@@ -230,6 +230,7 @@ fn random_check() {
     let model1: Vec<Vec<_>> = (0..50)
         .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
         .collect();
+    eprintln!("OK");
     let model2: Vec<Vec<_>> = (0..50)
         .map(|_| {
             (0..150)
@@ -240,6 +241,7 @@ fn random_check() {
         .collect();
     let model1 = POA::generate_vec(&model1);
     let model2 = POA::generate_vec(&model2);
+    eprintln!("{}/{}", model1, model2);
     let likelihood1 = model1.forward(&template, &DEFAULT_CONFIG);
     let likelihood2 = model2.forward(&template, &DEFAULT_CONFIG);
     assert!(likelihood1 > likelihood2, "{},{}", likelihood1, likelihood2);
@@ -309,6 +311,7 @@ fn mix_test_prior() {
         let weight2 = vec![vec![0.2; cov], vec![0.8; cov]].concat();
         let model1 = POA::generate(&dataset, &weight1, &DEFAULT_CONFIG);
         let model2 = POA::generate(&dataset, &weight2, &DEFAULT_CONFIG);
+        eprintln!("{}\n{}", model1, model2);
         let num = 50;
         let correct = (0..num)
             .filter(|_| {
@@ -357,6 +360,9 @@ fn abundance_test_prior() {
         let mut data2: Vec<Vec<_>> = (0..ratio * cov)
             .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
             .collect();
+        eprintln!("{}/{}", template1.len(), template2.len());
+        eprintln!("{}", String::from_utf8_lossy(&template1));
+        eprintln!("{}", String::from_utf8_lossy(&template2));
         data2.extend((0..cov).map(|_| introduce_randomness(&template2, &mut rng, &PROFILE)));
         let data1: Vec<_> = data1.iter().map(|e| e.as_slice()).collect();
         let data2: Vec<_> = data2.iter().map(|e| e.as_slice()).collect();
@@ -488,9 +494,9 @@ fn low_coverage_test() {
     eprintln!("1:{}", String::from_utf8_lossy(&test1));
     eprintln!("2:{}", String::from_utf8_lossy(&test2));
     let model1 = POA::generate_vec(&model1);
-    eprintln!("Model1:{}", model1);
+    eprintln!("Model1:\n{:?}", model1);
     let model2 = POA::generate_vec(&model2);
-    eprintln!("Model2:{}", model2);
+    eprintln!("Model2:\n{:?}", model2);
     {
         let likelihood1 = model1.forward(&test1, &DEFAULT_CONFIG);
         let likelihood2 = model2.forward(&test1, &DEFAULT_CONFIG);
@@ -544,11 +550,11 @@ fn low_coverage_weighted_test() {
 
 #[test]
 fn high_coverage_test() {
-    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(121212332);
-    let template1: Vec<_> = b"CAGTGTCAGTGCTAGCT".to_vec();
-    let template2: Vec<_> = b"CAGTGTCTGTGCTAGCT".to_vec();
-    eprintln!("1:{}", String::from_utf8_lossy(&template1),);
-    eprintln!("2:{}", String::from_utf8_lossy(&template2));
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(1212123324);
+    let template1 = generate_seq(&mut rng, 100);
+    let template2 = introduce_errors(&template1, &mut rng, 1, 1, 1);
+    // let template1: Vec<_> = b"CAGTGTCAGTGCTAGCT".to_vec();
+    // let template2: Vec<_> = b"CAGTGTCTGTGCTAGCT".to_vec();
     let model1: Vec<Vec<_>> = (0..200)
         .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
         .collect();
@@ -557,9 +563,23 @@ fn high_coverage_test() {
         .collect();
     let test1 = introduce_randomness(&template1, &mut rng, &PROFILE);
     let test2 = introduce_randomness(&template2, &mut rng, &PROFILE);
+    eprintln!("1:{}", String::from_utf8_lossy(&template1));
+    eprintln!("2:{}", String::from_utf8_lossy(&template2));
     {
         let model1 = POA::generate_vec(&model1);
         let model2 = POA::generate_vec(&model2);
+        eprintln!("1:{}", String::from_utf8_lossy(&template1));
+        eprintln!(
+            " :{}",
+            String::from_utf8_lossy(&model1.consensus().unwrap())
+        );
+        eprintln!(" :{}", String::from_utf8_lossy(&test1));
+        eprintln!("2:{}", String::from_utf8_lossy(&template2));
+        eprintln!(
+            " :{}",
+            String::from_utf8_lossy(&model2.consensus().unwrap())
+        );
+        eprintln!(" :{}", String::from_utf8_lossy(&test2));
         eprintln!("{:?}\n======\n{:?}", model1, model2);
         let likelihood1 = model1.forward(&test1, &DEFAULT_CONFIG);
         let likelihood2 = model2.forward(&test1, &DEFAULT_CONFIG);

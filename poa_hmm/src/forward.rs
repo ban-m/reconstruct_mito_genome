@@ -33,7 +33,6 @@ impl PartialOrderAlignment {
             let (match_state, insertion_state) = froms
                 .iter()
                 .map(|&(src, weight)| {
-                    // let trans = transition[row_len * src + dist_idx];
                     let src = src * 3;
                     let f_dist = prev[src] * config.p_match
                         + prev[src + 1] * (1. - config.p_extend_ins)
@@ -60,7 +59,7 @@ impl PartialOrderAlignment {
                 .map(|&(src, weight)| {
                     let trans = updates[3 * src] * config.p_del
                         + updates[3 * src + 2] * config.p_extend_del;
-                    trans * weight // transition[row_len * src + dist_idx]
+                    trans * weight
                 })
                 .sum::<f64>();
         }
@@ -87,8 +86,8 @@ impl PartialOrderAlignment {
         if prev.len() % 4 != 0 {
             prev.extend(std::iter::repeat(0.).take(4 - prev.len() % 4));
         }
-        let c = prev.iter().sum::<f64>().recip();
-        prev.iter_mut().for_each(|e| *e *= c);
+        let c = prev.iter().sum::<f64>();
+        prev.iter_mut().for_each(|e| *e /= c);
         let mut updated = vec![0.; prev.len()];
         let edges = {
             let mut edges: Vec<Vec<_>> = vec![vec![]; self.nodes.len()];
@@ -99,28 +98,16 @@ impl PartialOrderAlignment {
             }
             edges
         };
-        c + obs[1..]
+        let lk = obs
             .iter()
-            .enumerate()
-            .map(|(_idx, &base)| {
+            .skip(1)
+            .map(|&base| {
                 updated.iter_mut().for_each(|e| *e = 0.);
                 let (c, d) = self.update(&mut updated, &prev, base, config, &edges);
                 std::mem::swap(&mut prev, &mut updated);
-                -(c.ln() + d.ln())
+                -(c * d).ln()
             })
-            .sum::<f64>()
+            .sum::<f64>();
+        c.ln() + lk
     }
-    //     fn transition_matrix(&self) -> Vec<f64> {
-    //         let transitions = |n: &super::Base| {
-    //             let mut res = vec![0.; self.nodes.len()];
-    //             for &i in n.edges() {
-    //                 res[i] = n.to(i);
-    //             }
-    //             res
-    //         };
-    //         self.nodes
-    //             .iter()
-    //             .flat_map(|node| transitions(node))
-    //             .collect()
-    //     }
 }

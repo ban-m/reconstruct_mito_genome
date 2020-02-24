@@ -1,13 +1,12 @@
-extern crate dbg_hmm;
 extern crate edlib_sys;
+extern crate poa_hmm;
 extern crate rand;
 extern crate rand_xoshiro;
 extern crate rayon;
-use dbg_hmm::*;
+use poa_hmm::*;
 use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoroshiro128StarStar;
 use rayon::prelude::*;
-use std::time;
 fn main() {
     rayon::ThreadPoolBuilder::new()
         .num_threads(24)
@@ -17,7 +16,6 @@ fn main() {
     let len = 150;
     let num_seq = (5..100).collect::<Vec<usize>>();
     let test_num = 1000;
-    let k = 6;
     let sample_num: Vec<u64> = (0..100).collect();
     let p = &gen_sample::Profile {
         sub: 0.003,
@@ -34,16 +32,15 @@ fn main() {
     let s = &gen_sample::PROFILE;
     eprintln!("Sequencing errors");
     eprintln!("Sub:{}\tIns:{}\tDel:{}", s.sub, s.ins, s.del);
-    eprintln!("K={}", k);
     let params: Vec<_> = sample_num
         .iter()
         .flat_map(|&e| num_seq.iter().map(|&n| (e, n)).collect::<Vec<_>>())
         .collect();
     let result: Vec<_> = params
         .par_iter()
-        .map(|&(seed, num_seq)| benchmark(p, s, seed, k, len, num_seq, test_num, &c))
+        .map(|&(seed, num_seq)| benchmark(p, s, seed, len, num_seq, test_num, &c))
         .collect();
-    println!("HMM\tAln\tDist\tCoverage");
+    println!("HMM\tWHMM\tAln\tDist\tCoverage");
     for (hmm, aln, dist, num_seq) in result {
         println!("{}\t{}\t{}\t{}", hmm, aln, dist, num_seq);
     }
@@ -53,15 +50,14 @@ fn benchmark(
     p: &gen_sample::Profile,
     s: &gen_sample::Profile,
     seed: u64,
-    k: usize,
     len: usize,
     num_seq: usize,
     test_num: usize,
     config: &Config,
 ) -> (f64, f64, u32, usize) {
     let mut rng: Xoroshiro128StarStar = SeedableRng::seed_from_u64(122_492 + seed);
-    let template1 = dbg_hmm::gen_sample::generate_seq(&mut rng, len);
-    let template2 = dbg_hmm::gen_sample::introduce_randomness(&template1, &mut rng, &p);
+    let template1 = gen_sample::generate_seq(&mut rng, len);
+    let template2 = gen_sample::introduce_randomness(&template1, &mut rng, &p);
     let dist = edlib_sys::global_dist(&template1, &template2);
     let data1: Vec<Vec<_>> = (0..num_seq)
         .map(|_| gen_sample::introduce_randomness(&template1, &mut rng, s))
@@ -69,13 +65,8 @@ fn benchmark(
     let data2: Vec<Vec<_>> = (0..num_seq)
         .map(|_| gen_sample::introduce_randomness(&template2, &mut rng, s))
         .collect();
-    let start = time::Instant::now();
-    let mut f = Factory::new();
-    let data: Vec<_> = data1
-        .iter()
-        .chain(data2.iter())
-        .map(|e| e.as_slice())
-        .collect();
+    let model1 = POA::generate_vec(&data1);
+    let model2 = POA::generate_vec(&data2);
     let tests: Vec<_> = (0..test_num)
         .map(|_| {
             if rng.gen_bool(0.5) {
@@ -85,22 +76,22 @@ fn benchmark(
             }
         })
         .collect();
-    let weight1 = vec![vec![1.; num_seq], vec![0.; num_seq]].concat();
-    let weight2 = vec![vec![0.; num_seq], vec![1.; num_seq]].concat();
-    let model1 = f.generate_with_weight(&data, &weight1, k, &mut vec![]);
-    let model2 = f.generate_with_weight(&data, &weight2, k, &mut vec![]);
+    let mut as_one = 0;
     let correct = tests
         .iter()
         .filter(|&(ans, ref test)| {
             let l1 = model1.forward(&test, config);
             let l2 = model2.forward(&test, config);
+            if l2 < l1 {
+                as_one += 1;
+            }
             (l2 < l1 && *ans == 1) || (l1 < l2 && *ans == 2)
         })
         .count();
-    let time = time::Instant::now() - start;
-    let time_par_case = time.as_millis() as f64 / test_num as f64;
-    eprintln!("{:?}({:.3}millis/sample)", time, time_par_case);
-    let whmm = correct as f64 / test_num as f64;
+    let hmm = correct as f64 / test_num as f64;
+    if hmm < 0.6 && dist > 0 {
+        eprintln!("Acc:{}\t{}\n{}\n{}", as_one, hmm, model1, model2);
+    }
     let correct = tests
         .iter()
         .filter(|&(ans, ref test)| {
@@ -123,5 +114,5 @@ fn benchmark(
         })
         .count();
     let aln = correct as f64 / test_num as f64;
-    (whmm, aln, dist, num_seq)
+    (hmm, aln, dist, num_seq)
 }

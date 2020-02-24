@@ -9,6 +9,7 @@ pub struct Base {
     pub base_count: [f64; 4],
     pub weight: f64,
     pub head_weight: f64,
+    pub tail_weight: f64,
     pub is_tail: bool,
     pub is_head: bool,
 }
@@ -21,6 +22,7 @@ impl Base {
             weights: vec![],
             weight: 0.,
             head_weight: 0.,
+            tail_weight: 0.,
             base_count: [0.; 4],
             is_tail: false,
             is_head: false,
@@ -31,6 +33,13 @@ impl Base {
     }
     pub fn head_weight(&self) -> f64 {
         self.head_weight
+    }
+    // Remove edges to `node`
+    pub fn remove(&mut self, node: usize) {
+        if let Some(idx) = self.edges.iter().position(|&to| to == node) {
+            self.edges.remove(idx);
+            self.weights.remove(idx);
+        }
     }
     pub fn remove_if(&mut self, mapping: &[(usize, bool)]) {
         self.weights = self
@@ -53,36 +62,30 @@ impl Base {
             .collect();
         assert_eq!(self.edges.len(), self.weights.len());
     }
-    pub fn remove_lightweight_edges(&mut self) {
-        if self.edges.len() > 1 {
-            let tot = self.weights.iter().sum::<f64>();
-            self.edges = self
-                .edges
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, &to)| {
-                    if self.weights[idx] / tot > 0.2 {
-                        Some(to)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            self.weights = self
-                .weights
-                .iter()
-                .filter(|&&w| w / tot > 0.2)
-                .copied()
-                .collect();
+    // Remove all edges with weight less than thr and
+    // not the edges used in traverse(`e` in argument);
+    pub fn remove_edges(&mut self, thr: f64, e: usize, f: f64) {
+        if self.edges.len() <= 1 {
+            return;
         }
+        let thr = (self.weights().iter().sum::<f64>() * f).max(thr);
+        let removed = self
+            .edges()
+            .iter()
+            .zip(self.weights.iter())
+            .filter(|(&to, &w)| w > thr || to == e);
+        let weights: Vec<_> = removed.clone().map(|(_, &w)| w).collect();
+        let edges: Vec<_> = removed.clone().map(|(&to, _)| to).collect();
+        self.weights = weights;
+        self.edges = edges;
     }
     pub fn finalize(&mut self) {
-        // let tot = self.base_count.iter().sum::<f64>();
-        // if tot > 0.001 {
-        //     self.base_count.iter_mut().for_each(|e| *e /= tot);
-        // } else {
-        //     self.base_count.iter_mut().for_each(|e| *e = 0.25);
-        // }
+        let tot = self.base_count.iter().sum::<f64>();
+        if tot > 0.001 {
+            self.base_count.iter_mut().for_each(|e| *e /= tot);
+        } else {
+            self.base_count.iter_mut().for_each(|e| *e = 0.25);
+        }
         let tot = self.weights.iter().sum::<f64>();
         self.weights.iter_mut().for_each(|e| *e /= tot);
     }
@@ -126,6 +129,15 @@ impl Base {
             .unwrap()
             .1
     }
+    pub fn prob_with(&self, base: u8, config: &super::Config, src: &Self) -> f64 {
+        let p = src.base_count[BASE_TABLE[base as usize]];
+        let q = if self.base == base {
+            1. - config.mismatch
+        } else {
+            config.mismatch / 3.
+        };
+        p * 0.05 + 0.95 * q
+    }
     pub fn prob(&self, base: u8, config: &super::Config) -> f64 {
         if self.base == base {
             1. - config.mismatch
@@ -134,27 +146,23 @@ impl Base {
         }
     }
     #[inline]
-    pub fn insertion(&self, _base: u8) -> f64 {
-        0.25
-        //let q = 0.25;
-        // let p = self.base_count[BASE_TABLE[base as usize]];
-        //q
-        // if self.edge_num() <= 1 {
-        //     p * LAMBDA + (1. - LAMBDA) * q
-        // } else {
-        //     q
-        // }
+    pub fn insertion(&self, base: u8) -> f64 {
+        let p = self.base_count[BASE_TABLE[base as usize]];
+        let q = 0.25;
+        p * 0.1 + 0.9 * q
     }
     #[inline]
     pub fn has_edge(&self) -> bool {
         !self.edges.is_empty()
     }
-    // #[inline]
-    // pub fn edge_num(&self) -> u8 {
-    //     self.edges.len() as u8
-    // }
     pub fn edges(&self) -> &[usize] {
         &self.edges
+    }
+    pub fn weights_except<'a>(&'a self, e: usize) -> impl Iterator<Item = &'a f64> {
+        self.edges
+            .iter()
+            .zip(self.weights.iter())
+            .filter_map(move |(&x, w)| if x != e { Some(w) } else { None })
     }
     pub fn weights(&self) -> &[f64] {
         &self.weights
@@ -187,7 +195,7 @@ impl fmt::Debug for Base {
         for &b in b"ATGC" {
             let count = self.base_count[BASE_TABLE[b as usize]];
             if count > 0.001 {
-                write!(f, "{}:{} ", b as char, count)?;
+                write!(f, "{}:{:.3} ", b as char, count)?;
             }
         }
         Ok(())
