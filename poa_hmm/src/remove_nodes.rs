@@ -3,148 +3,126 @@ impl crate::PartialOrderAlignment {
         let saved = self.clone();
         self = self.nodewise_remove();
         self = self.edgewise_remove();
-        // self = self.remove_triangles();
-        self = self.merge_nodes();
+        // self = self.merge_nodes();
         self.trim_unreachable_nodes();
         if self.nodes.len() < 10 {
             return saved;
         } else {
-            //self.adjust_weight(super::DEFAULT_WEIGHT);
             assert!(self.nodes.len() > 10);
             self
         }
     }
-    // fn adjust_weight(&mut self, weight: f64) {
-    //     // The unwrap is safe.
-    //     let max = self
-    //         .nodes
-    //         .iter()
-    //         .map(|n| n.weight())
-    //         .max_by(|a, b| a.partial_cmp(b).unwrap())
-    //         .unwrap();
-    //     let factor = weight / max;
-    //     self.nodes
-    //         .iter_mut()
-    //         .for_each(|n| n.weight = n.weight.mul_add(factor, 1.));
-    //     self.weight = self.weight.mul_add(factor, 1.);
-    // }
-    fn merge_nodes(mut self) -> Self {
-        let margeable_nodes = self.get_margeable_nodes();
-        for (i, (_, b)) in margeable_nodes.into_iter().enumerate().filter(|x| (x.1).0) {
-            let merge_idx: Vec<_> = self
-                .nodes
-                .iter()
-                .enumerate()
-                .filter(|&(_, n)| n.base() == b && n.edges.contains(&i))
-                .map(|(idx, _)| idx)
-                .collect();
-            let (u, v) = match merge_idx.as_slice() {
-                &[u, v] if u < v => (u, v),
-                &[_, _] => panic!("u >= v, violating topological order"),
-                _ => panic!("merge index's length is not 2."),
-            };
-            if self.not_reachable(u, v) {
-                // Merge u and v.
-                self.merge(u, v);
-            }
-        }
-        self
-    }
-    // Return true if v is reachable from u.
-    fn not_reachable(&self, u: usize, v: usize) -> bool {
-        let mut stack = vec![u];
-        while let Some(node) = stack.pop() {
-            for &to in self.nodes[node].edges().iter() {
-                if to == v {
-                    return true;
-                } else if to > v {
-                    continue;
-                } else {
-                    stack.push(to);
-                }
-            }
-        }
-        false
-    }
-    // merge the v-th node into the u-th node.
-    fn merge(&mut self, u: usize, v: usize) {
-        let weight_and_edges: Vec<_> = self.nodes[v]
-            .weights()
-            .iter()
-            .zip(self.nodes[v].edges().iter())
-            .map(|(&w, &e)| (w, e))
-            .collect();
-        for (w, to) in weight_and_edges {
-            match self.nodes[u].edges.iter().position(|&e| e == to) {
-                Some(x) => self.nodes[u].weights[x] += w,
-                None => {
-                    self.nodes[u].edges.push(to);
-                    self.nodes[u].weights.push(w);
-                }
-            }
-        }
-        self.nodes[v].weights.clear();
-        self.nodes[v].edges.clear();
-        self.nodes.iter_mut().for_each(|n| n.remove(v));
-    }
-    fn get_margeable_nodes(&self) -> Vec<(bool, u8)> {
-        let mut base_counts = vec![(0, 0, 0, 0); self.nodes.len()];
-        for n in self.nodes.iter() {
-            for &to in n.edges().iter() {
-                match n.base() {
-                    b'A' => base_counts[to].0 += 1,
-                    b'C' => base_counts[to].1 += 1,
-                    b'G' => base_counts[to].2 += 1,
-                    b'T' => base_counts[to].3 += 1,
-                    _ => {}
-                }
-            }
-        }
-        fn is_margeable((a, c, g, t): (u8, u8, u8, u8)) -> (bool, u8) {
-            if a == 2 {
-                (true, b'A')
-            } else if c == 2 {
-                (true, b'C')
-            } else if g == 2 {
-                (true, b'G')
-            } else if t == 2 {
-                (true, b'T')
-            } else {
-                (false, 0)
-            }
-        }
-        base_counts.into_iter().map(is_margeable).collect()
-    }
-    // fn remove_triangles(mut self) -> Self {
-    //     let (used_nodes, used_edges) = self.traverse();
-    //     for i in 0..self.nodes.len() {
-    //         let target = {
-    //             let node = &self.nodes[i];
-    //             if !used_nodes[i]
-    //                 || node.edges().len() != 2
-    //                 || !node.edges.iter().all(|&to| used_nodes[to])
-    //             {
-    //                 continue;
-    //             }
-    //             let base = self.nodes[node.edges[0]].base();
-    //             let is_all = node
-    //                 .edges()
-    //                 .iter()
-    //                 .map(|&j| self.nodes[j].base())
-    //                 .all(|e| e == base);
-    //             let passed = used_edges[used_edges[i]];
-    //             if is_all && node.edges.contains(&passed) {
-    //                 self.nodes[i].edges().iter().position(|&e| e == passed)
-    //             } else {
-    //                 None
+    // Merge two nodes which have the same label, go to the same edges, and
+    // order can not be defined between them.
+    // fn merge_nodes(mut self) -> Self {
+    //     let margeable_nodes = self.get_margeable_nodes();
+    //     for (i, (_, b)) in margeable_nodes.into_iter().enumerate().filter(|x| (x.1).0) {
+    //         let merge_idx: Vec<_> = self
+    //             .nodes
+    //             .iter()
+    //             .enumerate()
+    //             .filter(|&(_, n)| n.base() == b && n.edges.contains(&i))
+    //             .map(|(idx, _)| idx)
+    //             .collect();
+    //         let (u, v) = match merge_idx.as_slice() {
+    //             &[u, v] if u < v => (u, v),
+    //             &[_, _] => panic!("u >= v, violating topological order"),
+    //             _ => {
+    //                 for n in self.nodes.iter() {
+    //                     if n.edges.contains(&i) {
+    //                         eprintln!("{:?}", n);
+    //                     }
+    //                 }
+    //                 eprintln!("{}\t{}", i, b as char);
+    //                 panic!(
+    //                     "merge index's length is not 2.{:?}\n{:?}",
+    //                     merge_idx, self.nodes[merge_idx[0]]
+    //                 );
     //             }
     //         };
-    //         if let Some(target) = target {
-    //             self.nodes[i].edges.remove(target);
-    //             self.nodes[i].weights.remove(target);
+    //         if self.not_reachable(u, v) {
+    //             // Merge u and v.
+    //             self.merge(u, v);
     //         }
     //     }
     //     self
+    // }
+    // Return true if v is reachable from u.
+    // fn not_reachable(&self, u: usize, v: usize) -> bool {
+    //     let mut stack = vec![u];
+    //     while let Some(node) = stack.pop() {
+    //         for &to in self.nodes[node].edges().iter() {
+    //             if to == v {
+    //                 return true;
+    //             } else if to > v {
+    //                 continue;
+    //             } else {
+    //                 stack.push(to);
+    //             }
+    //         }
+    //     }
+    //     false
+    // }
+    // // merge the v-th node into the u-th node.
+    // fn merge(&mut self, u: usize, v: usize) {
+    //     let weight_and_edges: Vec<_> = self.nodes[v]
+    //         .weights
+    //         .iter()
+    //         .zip(self.nodes[v].edges().iter())
+    //         .map(|(&w, &e)| (w, e))
+    //         .collect();
+    //     for (w, to) in weight_and_edges {
+    //         match self.nodes[u].edges.iter().position(|&e| e == to) {
+    //             Some(x) => self.nodes[u].weights[x] += w,
+    //             None => {
+    //                 self.nodes[u].edges.push(to);
+    //                 self.nodes[u].weights.push(w);
+    //             }
+    //         }
+    //     }
+    //     let ties = self.nodes[v].ties.clone();
+    //     for to in ties {
+    //         if !self.nodes[u].ties.contains(&to) {
+    //             self.nodes[u].ties.push(to);
+    //         }
+    //     }
+    //     self.nodes[v].weights.clear();
+    //     self.nodes[v].edges.clear();
+    //     self.nodes[v].ties.clear();
+    //     self.nodes.iter_mut().for_each(|n| {
+    //         n.remove(v);
+    //         if n.ties.contains(&v) {
+    //             n.ties = n.ties.iter().filter(|&&n| n != v).copied().collect();
+    //         }
+    //     });
+    // }
+    // fn get_margeable_nodes(&self) -> Vec<(bool, u8)> {
+    //     let mut base_counts = vec![(0, 0, 0, 0); self.nodes.len()];
+    //     for n in self.nodes.iter() {
+    //         for &to in n.edges().iter() {
+    //             match n.base() {
+    //                 b'A' => base_counts[to].0 += 1,
+    //                 b'C' => base_counts[to].1 += 1,
+    //                 b'G' => base_counts[to].2 += 1,
+    //                 b'T' => base_counts[to].3 += 1,
+    //                 _ => {}
+    //             }
+    //         }
+    //     }
+    //     fn is_margeable((a, c, g, t): (u8, u8, u8, u8)) -> (bool, u8) {
+    //         if a == 2 {
+    //             (true, b'A')
+    //         } else if c == 2 {
+    //             (true, b'C')
+    //         } else if g == 2 {
+    //             (true, b'G')
+    //         } else if t == 2 {
+    //             (true, b'T')
+    //         } else {
+    //             (false, 0)
+    //         }
+    //     }
+    //     base_counts.into_iter().map(is_margeable).collect()
     // }
     fn nodewise_remove(mut self) -> Self {
         // Removing with node
@@ -158,6 +136,10 @@ impl crate::PartialOrderAlignment {
             .collect();
         let thr_rank = remaining_nodes.len().max(arrived_len / 10) - arrived_len / 10;
         let thr = select_nth_by(&remaining_nodes, thr_rank, |&x| x).unwrap_or(1.);
+        let median = select_nth_by(&self.nodes, self.nodes.len() / 2, |n| n.weight()).unwrap();
+        let deviation = |n: &super::Base| (n.weight() - median).abs();
+        let mad = select_nth_by(&self.nodes, self.nodes.len() / 2, deviation).unwrap();
+        let thr = thr.max(median - mad * 10.);
         let to_remove: Vec<_> = self
             .nodes
             .iter()
@@ -165,9 +147,9 @@ impl crate::PartialOrderAlignment {
             .enumerate()
             .map(|(idx, (n, a))| {
                 if n.is_head || n.is_tail {
-                    n.weight() < thr && idx != start
+                    n.weight() <= thr && idx != start
                 } else {
-                    n.weight() < thr && !a
+                    n.weight() <= thr && !a
                 }
             })
             .collect();
@@ -212,7 +194,7 @@ impl crate::PartialOrderAlignment {
             let (&next, _) = node
                 .edges()
                 .iter()
-                .zip(node.weights().iter())
+                .zip(node.weights.iter())
                 .max_by(|a, b| (a.1).partial_cmp(&(b.1)).unwrap())
                 .expect(&format!("{}", line!()));
             arrived[next] = true;

@@ -1,9 +1,9 @@
 use super::construct_initial_weights;
 //use super::INIT_PICK_PROB;
+use super::entropy;
 use super::get_max_coverage;
-use super::{entropy, ENTROPY_THR};
 use super::{serialize, to_pos};
-use super::{utils, ERead, Read, LOOP_NUM};
+use super::{utils, ERead, Read};
 use super::{FACTOR, INIT_BETA};
 use poa_hmm::*;
 use rand::{thread_rng, Rng, SeedableRng};
@@ -51,30 +51,27 @@ impl<'a> ModelFactory<'a> {
     }
     fn update_model(
         &mut self,
+        models: Vec<POA>,
         ws: &[Vec<f64>],
-        mask: &[bool],
         reads: &[Read],
         cl: usize,
-        models: &mut Vec<POA>,
         config: &Config,
-    ) {
-        for ((read, w), _) in reads.iter().zip(ws).zip(mask) {
-            //let w = if b { 0. } else { w[cl] };
-            let w = w[cl];
+    ) -> Vec<POA> {
+        assert!(self.weights.iter().all(|ws| ws.is_empty()));
+        for (read, w) in reads.iter().zip(ws) {
             for &(pos, _) in read.iter() {
-                self.weights[pos].push(w);
+                self.weights[pos].push(w[cl] + 0.2);
             }
         }
         assert_eq!(self.weights.len(), self.chunks.len());
-        assert_eq!(self.weights.len(), models.len());
-        self.chunks
-            .par_iter()
+        let res: Vec<_> = models
+            .into_par_iter()
+            .zip(self.chunks.par_iter())
             .zip(self.weights.par_iter())
-            .zip(models.par_iter_mut())
-            .for_each(|((chunks, ws), m)| {
-                *m = poa_hmm::PartialOrderAlignment::generate(chunks, ws, &config);
-            });
+            .map(|((m, chunks), ws)| m.update_by(chunks, ws, &config))
+            .collect();
         self.weights.iter_mut().for_each(|ws| ws.clear());
+        res
     }
 }
 
@@ -107,49 +104,61 @@ pub fn soft_clustering_poa(
     let seed = data.len() as u64;
     let mut weights_of_reads =
         crate::construct_initial_weights(label, forbidden, cluster_num, data.len(), seed);
-    // let pick_prob = INIT_PICK_PROB;
-    // let pick_up_len = INIT_PICK_PROB.recip().floor() as usize * LOOP_NUM;
-    let pick_up_len = LOOP_NUM;
+    let entropy_thr = 0.25;
+    let pick_prob: f64 = 0.1;
+    let pick_up_len = 3 * pick_prob.recip().floor() as usize / 2;
     let max_coverage = get_max_coverage(&data, chain_len);
     let beta_step = 1. + (BETA_STEP - 1.) / (max_coverage as f64).log10();
     let mut beta = search_initial_beta(&data, label, forbidden, cluster_num, config, chain_len);
+    let mut betas: Vec<_> = vec![beta; chain_len];
     debug!("Chain length is {}", chain_len);
     let mut mf = ModelFactory::new(chain_len, &data);
     let mut models: Vec<Vec<POA>> = (0..cluster_num)
         .map(|cl| mf.generate_model(&weights_of_reads, &data, cl, config))
         .collect();
-    let updates = vec![false; data.len()];
-    // let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(data.len() as u64 * 23);
+    let mut updates = vec![false; data.len()];
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(data.len() as u64 * 23);
     let (border, datasize) = (label.len(), data.len() as f64);
     let max_entropy = (cluster_num as f64).ln() * datasize;
     let mut ws: Vec<f64> = (0..cluster_num)
         .map(|i| weights_of_reads.iter().map(|g| g[i]).sum::<f64>() / datasize)
         .collect();
-    // updates_flags(&mut updates, &weights_of_reads, &mut rng, pick_prob, border);
+
+    super::updates_flags(&mut updates, &weights_of_reads, &mut rng, pick_prob, border);
     'outer: loop {
         for _ in 0..pick_up_len {
             let before_soe = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
             let wor = &mut weights_of_reads;
-            update_weights(wor, &mut ws, border, &data, &models, &updates, beta, config);
-            // updates_flags(&mut updates, &weights_of_reads, &mut rng, pick_prob, border);
-            models.iter_mut().enumerate().for_each(|(cluster, model)| {
-                mf.update_model(&weights_of_reads, &updates, &data, cluster, model, config);
-            });
+            update_weights(
+                wor, &mut ws, border, &data, &models, &updates, &betas, config,
+            );
+            super::updates_flags(&mut updates, &weights_of_reads, &mut rng, pick_prob, border);
+            models = models
+                .into_iter()
+                .enumerate()
+                .map(|(cl, m)| mf.update_model(m, &weights_of_reads, &data, cl, config))
+                .collect();
             let soe = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
             let rate = soe / max_entropy;
             let diff = (before_soe - soe) / max_entropy;
-            if rate < ENTROPY_THR || (diff < ENTROPY_THR && beta >= 1.0) {
+            if rate < entropy_thr || (diff < entropy_thr && beta >= 1.0) {
                 break 'outer;
             }
             let wr = &weights_of_reads;
             report(id, wr, border, answer, &ws, beta);
         }
-        for ms in models.iter() {
-            for (idx, m) in ms.iter().enumerate() {
-                debug!("{}\t{}", idx, m);
-            }
-        }
+        let weights = super::variant_calling::variant_call_poa(&models, &data, config);
+        let max = weights
+            .iter()
+            .map(|&b| b.abs())
+            .fold(0., |x, y| if x < y { y } else { x });
+        let wr = &weights_of_reads;
+        let rate = wr.iter().map(|e| entropy(e)).sum::<f64>() / max_entropy;
         beta = (beta * beta_step).min(1.);
+        betas = weights
+            .iter()
+            .map(|b| beta * ((1. - rate) * b.abs() / max + rate))
+            .collect();
     }
     let wr = &weights_of_reads;
     report(id, wr, border, answer, &ws, beta);
@@ -173,7 +182,8 @@ fn search_initial_beta(
     let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
     let wor = &weight_of_read;
     loop {
-        let next = soe_after_sampling(beta, data, wor, border, &mut rng, cluster_num, &mut mf, c);
+        let betas = vec![beta; chain_len];
+        let next = soe_after_sampling(&betas, data, wor, border, &mut rng, cluster_num, &mut mf, c);
         debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, next, soe - next);
         if soe > next {
             break;
@@ -183,7 +193,8 @@ fn search_initial_beta(
     }
     beta /= FACTOR;
     loop {
-        let next = soe_after_sampling(beta, data, wor, border, &mut rng, cluster_num, &mut mf, c);
+        let betas = vec![beta; chain_len];
+        let next = soe_after_sampling(&betas, data, wor, border, &mut rng, cluster_num, &mut mf, c);
         debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, next, soe - next);
         if soe < next {
             break;
@@ -195,17 +206,17 @@ fn search_initial_beta(
 }
 
 fn soe_after_sampling<R: Rng>(
-    beta: f64,
+    betas: &[f64],
     data: &[Read],
     wor: &[Vec<f64>],
     border: usize,
-    _rng: &mut R,
+    rng: &mut R,
     cluster_num: usize,
     mf: &mut ModelFactory,
     c: &Config,
 ) -> f64 {
     let datasize = data.len() as f64;
-    let updates = vec![false; data.len()];
+    let mut updates = vec![false; data.len()];
     let mut ws: Vec<f64> = (0..cluster_num)
         .map(|i| wor.iter().map(|g| g[i]).sum::<f64>() / datasize)
         .collect();
@@ -215,11 +226,14 @@ fn soe_after_sampling<R: Rng>(
     let mut wor = wor.to_vec();
     //for _ in 0..SAMPLING {
     for _ in 0..10 {
-        // updates_flags(&mut updates, &wor, rng, INIT_PICK_PROB, border);
-        update_weights(&mut wor, &mut ws, border, data, &models, &updates, beta, c);
-        models.iter_mut().enumerate().for_each(|(cluster, model)| {
-            mf.update_model(&wor, &updates, data, cluster, model, c);
-        });
+        use super::INIT_PICK_PROB;
+        super::updates_flags(&mut updates, &wor, rng, INIT_PICK_PROB, border);
+        update_weights(
+            &mut wor, &mut ws, border, data, &models, &updates, &betas, c,
+        );
+        models = (0..cluster_num)
+            .map(|cl| mf.generate_model(&wor, &data, cl, c))
+            .collect();
     }
     wor.iter().map(|e| entropy(e)).sum::<f64>()
 }
@@ -268,24 +282,6 @@ fn report(
     0.
 }
 
-// fn updates_flags<R: Rng>(
-//     updates: &mut [bool],
-//     weight_of_read: &[Vec<f64>],
-//     rng: &mut R,
-//     pick_prob: f64,
-//     border: usize,
-// ) {
-//     updates.iter_mut().for_each(|e| *e = false);
-//     let total = ((weight_of_read.len() - border) as f64 * pick_prob).floor() as usize;
-//     let mut current = 0;
-//     let max = weight_of_read.len();
-//     while current < total {
-//         let i = rng.gen_range(border, max);
-//         current += (!updates[i]) as usize;
-//         updates[i] = true;
-//     }
-// }
-
 fn update_weights(
     weight_of_read: &mut [Vec<f64>],
     ws: &mut [f64],
@@ -293,16 +289,16 @@ fn update_weights(
     data: &[Read],
     models: &[Vec<POA>],
     updates: &[bool],
-    beta: f64,
+    betas: &[f64],
     c: &Config,
 ) {
     data.par_iter()
         .zip(weight_of_read.par_iter_mut())
         .zip(updates.par_iter())
         .skip(border)
-        // .filter(|&(_, &b)| b)
+        .filter(|&(_, &b)| b)
         .for_each(|((read, weights), _)| {
-            compute_log_probs(models, &ws, read, weights, c, beta);
+            compute_log_probs(models, &ws, read, weights, c, &betas);
             let tot = utils::logsumexp(weights);
             weights.iter_mut().for_each(|w| *w = (*w - tot).exp());
         });
@@ -319,7 +315,7 @@ fn compute_log_probs(
     read: &Read,
     weights: &mut Vec<f64>,
     c: &Config,
-    beta: f64,
+    betas: &[f64],
 ) {
     assert_eq!(models.len(), ws.len());
     assert_eq!(models.len(), weights.len());
@@ -333,6 +329,7 @@ fn compute_log_probs(
                 .par_iter()
                 .map(|&(pos, ref u)| {
                     let model = &ms[pos];
+                    let beta = betas[pos];
                     beta * model.forward(u, c)
                 })
                 .sum::<f64>()

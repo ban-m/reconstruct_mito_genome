@@ -100,12 +100,17 @@ impl PartialOrderAlignment {
         };
         let lk = obs
             .iter()
+            .enumerate()
             .skip(1)
-            .map(|&base| {
+            .map(|(idx, &base)| {
                 updated.iter_mut().for_each(|e| *e = 0.);
                 let (c, d) = self.update(&mut updated, &prev, base, config, &edges);
                 std::mem::swap(&mut prev, &mut updated);
-                -(c * d).ln()
+                if idx < obs.len() - 1 {
+                    -(c * d).ln()
+                } else {
+                    -d.ln()
+                }
             })
             .sum::<f64>();
         c.ln() + lk

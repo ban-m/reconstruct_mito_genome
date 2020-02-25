@@ -10,6 +10,7 @@ edition = "2018"
 
 poa_hmm = {path = "../poa_hmm"}
 edlib_sys = {path = "../../edlib-sys"}
+last_decompose = {path = "../last_decompose"}
 rand = "*"
 rand_xoshiro = "*"
 rayon = "*"

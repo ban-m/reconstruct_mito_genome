@@ -11,7 +11,7 @@ impl PartialOrderAlignment {
             let (idx, _) = node
                 .edges()
                 .iter()
-                .zip(node.weights().iter())
+                .zip(node.weights.iter())
                 .max_by(|a, b| (a.1).partial_cmp(&(b.1)).unwrap())?;
             node = &self.nodes[*idx];
             res.push(node.base());

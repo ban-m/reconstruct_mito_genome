@@ -72,6 +72,28 @@ fn bubble() {
     let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
     assert_eq!(res.nodes.len(), seed.len() + 2);
 }
+
+#[test]
+fn merge_test() {
+    let seq1 = b"ACAAT";
+    let seq2 = b"ATGCT";
+    let seq3 = b"ACACT";
+    let res = POA::new(seq1, 1.).add(seq2, 1.).add(seq3, 1.);
+    assert_eq!(res.nodes.len(), 8);
+    let seq1 = b"GATC";
+    let seq2 = b"GCTC";
+    let seq3 = b"GAGTC";
+    let seq4 = b"GCGTC";
+    let res = POA::new(seq1, 1.).add(seq2, 1.).add(seq3, 1.).add(seq4, 1.);
+    assert_eq!(res.nodes.len(), 6);
+    let seq1 = b"GATC";
+    let seq2 = b"GCTC";
+    let seq3 = b"GAGTC";
+    let seq4 = b"GCGTC";
+    let res = POA::new(seq1, 1.).add(seq2, 1.).add(seq3, 1.).add(seq4, 1.);
+    assert_eq!(res.nodes.len(), 6);
+}
+
 #[test]
 fn initialize() {
     let test = [
@@ -397,10 +419,10 @@ fn abundance_test_prior() {
         assert!(correct >= num * 6 / 10, "2:{}", correct);
     }
 }
+use rand::Rng;
 #[test]
 fn single_error_test() {
     let bases = b"ACTG";
-    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(1_234_567);
     let coverage = 200;
     let start = 20;
     let step = 4;
@@ -408,6 +430,9 @@ fn single_error_test() {
     let results: Vec<_> = (start..coverage)
         .step_by(step)
         .map(|cov| {
+            let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(1_234_567);
+            let seed = rng.gen_range(0, 100_000);
+            let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
             let template1: Vec<_> = (0..len)
                 .filter_map(|_| bases.choose(&mut rng))
                 .copied()

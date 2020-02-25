@@ -995,19 +995,6 @@ fn minibatch_sgd_by(
     });
     assert!((1. - ws.iter().sum::<f64>()).abs() < 0.001);
 }
-// fn normalize(weights: &mut [f64]) {
-//     if weights.iter().any(|&w| w > 0.9) {
-//         let cmp = |a: &&f64, b: &&f64| a.partial_cmp(b).unwrap();
-//         let max = weights.iter().max_by(cmp).unwrap();
-//         let diff = (max - 0.9) / weights.len() as f64;
-//         weights.iter_mut().for_each(|e| *e = e.min(0.9) + diff);
-//     }
-//     assert!(
-//         (1. - weights.iter().sum::<f64>()).abs() < 0.01,
-//         "{:?}",
-//         weights
-//     );
-// }
 
 fn compute_log_probs(
     models: &[Vec<DBGHMM>],

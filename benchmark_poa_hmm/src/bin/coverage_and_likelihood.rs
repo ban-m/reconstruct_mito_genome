@@ -10,7 +10,7 @@ fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let len = 150;
     let num_seq = 150;
-    println!("Seed\tCoverage\tLikelihoodRatio\tOriginalLK\tNumEdges");
+    println!("Seed\tCoverage\tLikelihoodRatio\tOriginalLK");
     let rep = 20;
     let covs: Vec<_> = (15..num_seq).collect();
     let reps: Vec<_> = (0..rep).collect();

@@ -5,6 +5,8 @@ use std::fmt;
 pub struct Base {
     pub base: u8,
     pub edges: Vec<usize>,
+    // Mismatch tie.
+    pub ties: Vec<usize>,
     pub weights: Vec<f64>,
     pub base_count: [f64; 4],
     pub weight: f64,
@@ -19,6 +21,7 @@ impl Base {
         Self {
             base,
             edges: vec![],
+            ties: vec![],
             weights: vec![],
             weight: 0.,
             head_weight: 0.,
@@ -40,6 +43,9 @@ impl Base {
             self.edges.remove(idx);
             self.weights.remove(idx);
         }
+        if let Some(idx) = self.ties.iter().position(|&to| to == node) {
+            self.ties.remove(idx);
+        }
     }
     pub fn remove_if(&mut self, mapping: &[(usize, bool)]) {
         self.weights = self
@@ -60,6 +66,17 @@ impl Base {
                 }
             })
             .collect();
+        self.ties = self
+            .ties
+            .iter()
+            .filter_map(|&idx| {
+                if mapping[idx].1 {
+                    Some(mapping[idx].0)
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert_eq!(self.edges.len(), self.weights.len());
     }
     // Remove all edges with weight less than thr and
@@ -68,7 +85,7 @@ impl Base {
         if self.edges.len() <= 1 {
             return;
         }
-        let thr = (self.weights().iter().sum::<f64>() * f).max(thr);
+        let thr = (self.weights.iter().sum::<f64>() * f).max(thr);
         let removed = self
             .edges()
             .iter()
@@ -115,6 +132,7 @@ impl Base {
     }
     pub fn rename_by(&mut self, map: &[usize]) {
         self.edges.iter_mut().for_each(|e| *e = map[*e]);
+        self.ties.iter_mut().for_each(|e| *e = map[*e]);
     }
     pub fn base(&self) -> u8 {
         self.base

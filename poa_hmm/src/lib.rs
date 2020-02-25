@@ -74,6 +74,7 @@ impl PartialOrderAlignment {
         //     .zip(ws.iter())
         //     .filter(|&(_, &w)| w > 0.001)
         //     .fold(POA::default(), |x, (y, &w)| x.add_with(y, w, config))
+        //  .remove_node()
         //     .finalize()
         //     .clean_up()
         seqs.iter()
@@ -82,6 +83,28 @@ impl PartialOrderAlignment {
             .filter(|&(_idx, (_, &w))| w > 0.001) // && idx != picked)
             .map(|(_, x)| x)
             .fold(POA::default(), |x, (y, &w)| {
+                if x.nodes.len() > 3 * max_len / 2 {
+                    x.add_with(y, w, config).remove_node()
+                } else {
+                    x.add_with(y, w, config)
+                }
+            })
+            .remove_node()
+            .clean_up()
+            .finalize()
+    }
+    pub fn update_by(mut self, seqs: &[&[u8]], ws: &[f64], config: &Config) -> POA {
+        let max_len = seqs
+            .iter()
+            .zip(ws.iter())
+            .map(|(xs, &w)| if w > 0.001 { xs.len() } else { 0 })
+            .max()
+            .unwrap_or(0);
+        self.weight = 0.;
+        self.nodes.iter_mut().for_each(|n| n.weight = 0.);
+        seqs.iter()
+            .zip(ws.iter())
+            .fold(self, |x, (y, &w)| {
                 if x.nodes.len() > 3 * max_len / 2 {
                     x.add_with(y, w, config).remove_node()
                 } else {
@@ -179,7 +202,7 @@ impl PartialOrderAlignment {
             std::mem::swap(&mut prev, &mut updated);
             updated.clear();
         }
-        eprintln!("OK");
+        // eprintln!("OK");
         // Traceback
         // g_pos = position on the graph, q_pos = position on the query
         let mut q_pos = seq.len();
@@ -220,13 +243,6 @@ impl PartialOrderAlignment {
     pub fn add(self, seq: &[u8], w: f64) -> Self {
         self.add_w_param(seq, w, -1., -1., |x, y| if x == y { 1. } else { -1. })
     }
-    fn has_outedge(&self, node: usize, base: u8) -> Option<usize> {
-        self.nodes[node]
-            .edges()
-            .iter()
-            .find(|&&to| self.nodes[to].base() == base)
-            .map(|&e| e)
-    }
     pub fn add_w_param<F>(mut self, seq: &[u8], w: f64, ins: f64, del: f64, score: F) -> Self
     where
         F: Fn(u8, u8) -> f64,
@@ -245,8 +261,12 @@ impl PartialOrderAlignment {
                     let position = if self.nodes[to].base() == base {
                         to
                     } else {
-                        self.nodes.push(Base::new(seq[q_pos]));
-                        self.nodes.len() - 1
+                        let mut new_node = Base::new(seq[q_pos]);
+                        new_node.ties.push(to);
+                        let position = self.nodes.len();
+                        self.nodes.push(new_node);
+                        self.nodes[to].ties.push(position);
+                        position
                     };
                     self.nodes[position].add_weight(w);
                     if q_pos == seq.len() - 1 {
@@ -332,6 +352,11 @@ impl PartialOrderAlignment {
             for &to in n.edges.iter() {
                 edges[from].push(to);
             }
+            for &tied in n.ties.iter() {
+                for &to in self.nodes[tied].edges.iter() {
+                    edges[from].push(to);
+                }
+            }
         }
         edges
     }
@@ -340,6 +365,11 @@ impl PartialOrderAlignment {
         for (from, n) in self.nodes.iter().enumerate() {
             for &to in n.edges.iter() {
                 edges[to].push(from);
+            }
+            for &tied in n.ties.iter() {
+                for &to in self.nodes[tied].edges.iter() {
+                    edges[to].push(from);
+                }
             }
         }
         edges
