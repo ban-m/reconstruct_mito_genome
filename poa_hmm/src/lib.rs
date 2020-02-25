@@ -22,7 +22,7 @@ pub mod forward;
 pub mod gen_sample;
 mod remove_nodes;
 const SMALL: f64 = 0.000_000_001;
-const DEFAULT_WEIGHT: f64 = 3.;
+// const DEFAULT_WEIGHT: f64 = 3.;
 pub mod generate;
 #[cfg(test)]
 mod tests;
@@ -52,8 +52,7 @@ pub struct PartialOrderAlignment {
     weight: f64,
 }
 
-type DP = Vec<f64>;
-type TraceBack = Vec<Vec<EditOp>>;
+type TraceBack = Vec<EditOp>;
 
 impl PartialOrderAlignment {
     pub fn generate(seqs: &[&[u8]], ws: &[f64], config: &Config) -> POA {
@@ -132,11 +131,11 @@ impl PartialOrderAlignment {
     //  |
     //  v
     // Semi-Global alignment containing query sequence.
-    pub fn align<F>(&mut self, seq: &[u8], ins: f64, del: f64, score: F) -> (DP, TraceBack)
+    pub fn align<F>(&mut self, seq: &[u8], ins: f64, del: f64, score: F) -> (f64, TraceBack)
     where
         F: Fn(u8, u8) -> f64,
     {
-        let mut traceback = Vec::with_capacity(seq.len() + 2);
+        let mut traceback = Vec::with_capacity(seq.len() + 1);
         let edges = self.reverse_edges();
         let mut prev = vec![0.; self.nodes.len() + 1];
         let tb = vec![EditOp::Stop; self.nodes.len() + 1];
@@ -180,7 +179,36 @@ impl PartialOrderAlignment {
             std::mem::swap(&mut prev, &mut updated);
             updated.clear();
         }
-        (prev, traceback)
+        eprintln!("OK");
+        // Traceback
+        // g_pos = position on the graph, q_pos = position on the query
+        let mut q_pos = seq.len();
+        let mut operations = vec![];
+        let (mut g_pos, poa_score) = prev
+            .into_iter()
+            .enumerate()
+            .max_by(|a, b| (a.1).partial_cmp(&b.1).unwrap())
+            .expect(&format!("{}", line!()));
+        while traceback[q_pos][g_pos] != EditOp::Stop {
+            match traceback[q_pos][g_pos] {
+                EditOp::Match(from) => {
+                    operations.push(EditOp::Match(g_pos - 1));
+                    g_pos = from;
+                    q_pos -= 1;
+                }
+                EditOp::Deletion(from) => {
+                    operations.push(EditOp::Deletion(g_pos - 1));
+                    g_pos = from;
+                }
+                EditOp::Insertion(_) => {
+                    operations.push(EditOp::Insertion(g_pos - 1));
+                    q_pos -= 1;
+                }
+                EditOp::Stop => break,
+            }
+        }
+        operations.reverse();
+        (poa_score, operations)
     }
     pub fn add_with(self, seq: &[u8], w: f64, c: &Config) -> Self {
         let ins = c.p_ins.ln();
@@ -192,6 +220,13 @@ impl PartialOrderAlignment {
     pub fn add(self, seq: &[u8], w: f64) -> Self {
         self.add_w_param(seq, w, -1., -1., |x, y| if x == y { 1. } else { -1. })
     }
+    fn has_outedge(&self, node: usize, base: u8) -> Option<usize> {
+        self.nodes[node]
+            .edges()
+            .iter()
+            .find(|&&to| self.nodes[to].base() == base)
+            .map(|&e| e)
+    }
     pub fn add_w_param<F>(mut self, seq: &[u8], w: f64, ins: f64, del: f64, score: F) -> Self
     where
         F: Fn(u8, u8) -> f64,
@@ -200,78 +235,56 @@ impl PartialOrderAlignment {
             return Self::new(seq, w);
         }
         // Alignment
-        let (dp, traceback) = self.align(seq, ins, del, score);
-        // Traceback
-        // g_pos = position on the graph, q_pos = position on the query
-        assert_eq!(self.nodes.len() + 1, dp.len());
-        let mut q_pos = seq.len();
-        let (mut g_pos, _) = self
-            .nodes
-            .iter()
-            .zip(dp.into_iter().skip(1))
-            .enumerate()
-            .filter_map(|(idx, (node, score))| {
-                if node.is_tail {
-                    Some((idx + 1, score))
-                } else {
-                    None
-                }
-            })
-            .max_by(|a, b| (a.1).partial_cmp(&b.1).unwrap())
-            .expect(&format!("{}", line!()));
-        let mut previous = None;
-        while traceback[q_pos][g_pos] != EditOp::Stop {
-            // eprintln!("{:?}", traceback[q_pos][g_pos]);
-            match traceback[q_pos][g_pos] {
-                EditOp::Match(from) => {
-                    let current_pos = if self.nodes[g_pos - 1].base() == seq[q_pos - 1] {
-                        g_pos - 1
+        let (_, traceback) = self.align(seq, ins, del, score);
+        let mut q_pos = 0;
+        let mut previous: Option<usize> = None;
+        for operation in traceback {
+            match operation {
+                EditOp::Match(to) => {
+                    let base = seq[q_pos];
+                    let position = if self.nodes[to].base() == base {
+                        to
                     } else {
-                        self.nodes.push(Base::new(seq[q_pos - 1]));
+                        self.nodes.push(Base::new(seq[q_pos]));
                         self.nodes.len() - 1
                     };
-                    self.nodes[current_pos].add_weight(w);
-                    if q_pos == seq.len() {
-                        self.nodes[current_pos].is_tail = true;
-                        self.nodes[current_pos].tail_weight += w;
-                    } else if q_pos == 1 {
-                        self.nodes[current_pos].is_head = true;
-                        self.nodes[current_pos].head_weight += w;
+                    self.nodes[position].add_weight(w);
+                    if q_pos == seq.len() - 1 {
+                        self.nodes[position].is_tail = true;
+                        self.nodes[position].tail_weight += w;
+                    } else if q_pos == 0 {
+                        self.nodes[position].is_head = true;
+                        self.nodes[position].head_weight += w;
                     }
                     if let Some(p) = previous {
-                        let base = self.nodes[p].base();
-                        self.nodes[current_pos].add(base, w, p);
+                        self.nodes[p].add(base, w, position);
                     };
-                    previous = Some(current_pos);
-                    g_pos = from;
-                    q_pos -= 1;
-                }
-                EditOp::Deletion(from) => {
-                    // We do not increment the weight of g_pos,
-                    // because the weight is query's, not graph's.
-                    g_pos = from;
+                    previous = Some(position);
+                    q_pos += 1;
                 }
                 EditOp::Insertion(_) => {
-                    let mut new_node = Base::new(seq[q_pos - 1]);
+                    let base = seq[q_pos];
+                    let mut new_node = Base::new(base);
                     new_node.add_weight(w);
-                    if q_pos == seq.len() {
+                    if q_pos == seq.len() - 1 {
                         new_node.is_tail = true;
                         new_node.tail_weight += w;
-                    } else if q_pos == 1 {
+                    } else if q_pos == 0 {
                         new_node.is_head = true;
                         new_node.head_weight += w;
                     }
                     self.nodes.push(new_node);
                     if let Some(p) = previous {
-                        let base = self.nodes[p].base();
-                        self.nodes.last_mut().unwrap().add(base, w, p);
+                        let position = self.nodes.len() - 1;
+                        self.nodes[p].add(base, w, position);
                     }
                     previous = Some(self.nodes.len() - 1);
-                    q_pos -= 1;
+                    q_pos += 1;
                 }
-                EditOp::Stop => break,
+                EditOp::Deletion(_) | EditOp::Stop => {}
             }
         }
+        assert_eq!(q_pos, seq.len());
         self.weight += w;
         assert!(self.nodes.iter().all(|node| node.weight() > 0.));
         self.topological_sort()

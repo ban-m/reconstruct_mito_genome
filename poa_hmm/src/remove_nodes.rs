@@ -14,20 +14,20 @@ impl crate::PartialOrderAlignment {
             self
         }
     }
-    fn adjust_weight(&mut self, weight: f64) {
-        // The unwrap is safe.
-        let max = self
-            .nodes
-            .iter()
-            .map(|n| n.weight())
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap();
-        let factor = weight / max;
-        self.nodes
-            .iter_mut()
-            .for_each(|n| n.weight = n.weight.mul_add(factor, 1.));
-        self.weight = self.weight.mul_add(factor, 1.);
-    }
+    // fn adjust_weight(&mut self, weight: f64) {
+    //     // The unwrap is safe.
+    //     let max = self
+    //         .nodes
+    //         .iter()
+    //         .map(|n| n.weight())
+    //         .max_by(|a, b| a.partial_cmp(b).unwrap())
+    //         .unwrap();
+    //     let factor = weight / max;
+    //     self.nodes
+    //         .iter_mut()
+    //         .for_each(|n| n.weight = n.weight.mul_add(factor, 1.));
+    //     self.weight = self.weight.mul_add(factor, 1.);
+    // }
     fn merge_nodes(mut self) -> Self {
         let margeable_nodes = self.get_margeable_nodes();
         for (i, (_, b)) in margeable_nodes.into_iter().enumerate().filter(|x| (x.1).0) {
