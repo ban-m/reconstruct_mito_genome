@@ -1,5 +1,5 @@
 use super::base_table::BASE_TABLE;
-// use super::LAMBDA;
+use super::LAMBDA;
 use std::fmt;
 #[derive(Default, Clone)]
 pub struct Base {
@@ -81,7 +81,23 @@ impl Base {
     }
     // Remove all edges with weight less than thr and
     // not the edges used in traverse(`e` in argument);
-    pub fn remove_edges(&mut self, thr: f64, e: usize, f: f64) {
+    // (if e[i] = true then the i-th edge was used in the traverse.
+    // pub fn remove_edges(&mut self, thr: f64, e: usize, f: f64) {
+    //     if self.edges.len() <= 1 {
+    //         return;
+    //     }
+    //     let thr = (self.weights.iter().sum::<f64>() * f).max(thr);
+    //     let removed = self
+    //         .edges()
+    //         .iter()
+    //         .zip(self.weights.iter())
+    //         .filter(|(&to, &w)| w > thr || to == e);
+    //     let weights: Vec<_> = removed.clone().map(|(_, &w)| w).collect();
+    //     let edges: Vec<_> = removed.clone().map(|(&to, _)| to).collect();
+    //     self.weights = weights;
+    //     self.edges = edges;
+    // }
+    pub fn remove_edges(&mut self, thr: f64, e: &[bool], f: f64) {
         if self.edges.len() <= 1 {
             return;
         }
@@ -90,9 +106,10 @@ impl Base {
             .edges()
             .iter()
             .zip(self.weights.iter())
-            .filter(|(&to, &w)| w > thr || to == e);
-        let weights: Vec<_> = removed.clone().map(|(_, &w)| w).collect();
-        let edges: Vec<_> = removed.clone().map(|(&to, _)| to).collect();
+            .zip(e.iter())
+            .filter(|&((_, &w), &b)| w > thr || b);
+        let weights: Vec<_> = removed.clone().map(|((_, &w), _)| w).collect();
+        let edges: Vec<_> = removed.clone().map(|((&to, _), _)| to).collect();
         self.weights = weights;
         self.edges = edges;
     }
@@ -147,14 +164,14 @@ impl Base {
             .unwrap()
             .1
     }
-    pub fn prob_with(&self, base: u8, config: &super::Config, src: &Self) -> f64 {
-        let p = src.base_count[BASE_TABLE[base as usize]];
+    pub fn prob_with(&self, base: u8, config: &super::Config, from: &Self) -> f64 {
+        let p = from.base_count[BASE_TABLE[base as usize]];
         let q = if self.base == base {
             1. - config.mismatch
         } else {
             config.mismatch / 3.
         };
-        p * 0.05 + 0.95 * q
+        p * LAMBDA + (1. - LAMBDA) * q
     }
     pub fn prob(&self, base: u8, config: &super::Config) -> f64 {
         if self.base == base {
@@ -167,7 +184,7 @@ impl Base {
     pub fn insertion(&self, base: u8) -> f64 {
         let p = self.base_count[BASE_TABLE[base as usize]];
         let q = 0.25;
-        p * 0.1 + 0.9 * q
+        p * LAMBDA + (1. - LAMBDA) * q
     }
     #[inline]
     pub fn has_edge(&self) -> bool {
@@ -176,12 +193,20 @@ impl Base {
     pub fn edges(&self) -> &[usize] {
         &self.edges
     }
-    pub fn weights_except<'a>(&'a self, e: usize) -> impl Iterator<Item = &'a f64> {
-        self.edges
+    pub fn weights_except<'a>(&'a self, e: &'a [bool]) -> impl Iterator<Item = &'a f64> {
+        assert!(e.len() == self.edges.len() && e.len() == self.weights.len());
+        self.weights
             .iter()
-            .zip(self.weights.iter())
-            .filter_map(move |(&x, w)| if x != e { Some(w) } else { None })
+            .zip(e.iter())
+            .filter_map(move |(w, b)| if !b { Some(w) } else { None })
     }
+    // pub fn weights_except<'a>(&'a self, e: usize) -> impl Iterator<Item = &'a f64> {
+    //     self.edges
+    //         .iter()
+    //         .zip(self.weights.iter())
+    //         .filter_map(move |(&x, w)| if x != e { Some(w) } else { None })
+    // }
+    // return P(v|u)
     pub fn weights(&self) -> &[f64] {
         &self.weights
     }

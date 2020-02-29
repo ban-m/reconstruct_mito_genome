@@ -29,7 +29,7 @@ fn main() {
     };
     debug!("Seed:{}", seed);
     let coverage = 0;
-    let chain_len = 120;
+    let chain_len = 60;
     let k = 6;
     let len = 150;
     let prob: Vec<_> = (1..=10).collect();

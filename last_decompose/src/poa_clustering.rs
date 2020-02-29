@@ -9,7 +9,9 @@ use poa_hmm::*;
 use rand::{thread_rng, Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
-const BETA_STEP: f64 = 1.09;
+const BETA_STEP: f64 = 1.2;
+const DEFAULT_WEIGHT: f64 = 0.4;
+const BETA_OFFSET: f64 = 0.1;
 struct ModelFactory<'a> {
     chunks: Vec<Vec<&'a [u8]>>,
     weights: Vec<Vec<f64>>,
@@ -52,15 +54,19 @@ impl<'a> ModelFactory<'a> {
     fn update_model(
         &mut self,
         models: Vec<POA>,
+        updates: &[bool],
         ws: &[Vec<f64>],
         reads: &[Read],
         cl: usize,
         config: &Config,
+        class: usize,
     ) -> Vec<POA> {
+        let default_weight = DEFAULT_WEIGHT / class as f64;
         assert!(self.weights.iter().all(|ws| ws.is_empty()));
-        for (read, w) in reads.iter().zip(ws) {
+        for ((read, w), &b) in reads.iter().zip(ws).zip(updates) {
+            let w = if b { 0. } else { w[cl] + default_weight };
             for &(pos, _) in read.iter() {
-                self.weights[pos].push(w[cl] + 0.2);
+                self.weights[pos].push(w);
             }
         }
         assert_eq!(self.weights.len(), self.chunks.len());
@@ -68,7 +74,7 @@ impl<'a> ModelFactory<'a> {
             .into_par_iter()
             .zip(self.chunks.par_iter())
             .zip(self.weights.par_iter())
-            .map(|((m, chunks), ws)| m.update_by(chunks, ws, &config))
+            .map(|((_, chunks), ws)| POA::generate(chunks, ws, &config))
             .collect();
         self.weights.iter_mut().for_each(|ws| ws.clear());
         res
@@ -123,42 +129,48 @@ pub fn soft_clustering_poa(
     let mut ws: Vec<f64> = (0..cluster_num)
         .map(|i| weights_of_reads.iter().map(|g| g[i]).sum::<f64>() / datasize)
         .collect();
-
     super::updates_flags(&mut updates, &weights_of_reads, &mut rng, pick_prob, border);
     'outer: loop {
         for _ in 0..pick_up_len {
             let before_soe = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
-            let wor = &mut weights_of_reads;
-            update_weights(
-                wor, &mut ws, border, &data, &models, &updates, &betas, config,
-            );
-            super::updates_flags(&mut updates, &weights_of_reads, &mut rng, pick_prob, border);
+            {
+                let w = &mut weights_of_reads;
+                update_weights(w, &mut ws, border, &data, &models, &updates, &betas, config);
+            }
+            let wor = &weights_of_reads;
+            super::updates_flags(&mut updates, wor, &mut rng, pick_prob, border);
             models = models
                 .into_iter()
                 .enumerate()
-                .map(|(cl, m)| mf.update_model(m, &weights_of_reads, &data, cl, config))
+                .map(|(cl, m)| mf.update_model(m, &updates, wor, &data, cl, config, cluster_num))
                 .collect();
-            let soe = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
+            let wr = &weights_of_reads;
+            let soe = wr.iter().map(|e| entropy(e)).sum::<f64>();
             let rate = soe / max_entropy;
             let diff = (before_soe - soe) / max_entropy;
             if rate < entropy_thr || (diff < entropy_thr && beta >= 1.0) {
                 break 'outer;
             }
-            let wr = &weights_of_reads;
             report(id, wr, border, answer, &ws, beta);
         }
-        let weights = super::variant_calling::variant_call_poa(&models, &data, config);
-        let max = weights
-            .iter()
-            .map(|&b| b.abs())
-            .fold(0., |x, y| if x < y { y } else { x });
-        let wr = &weights_of_reads;
-        let rate = wr.iter().map(|e| entropy(e)).sum::<f64>() / max_entropy;
         beta = (beta * beta_step).min(1.);
-        betas = weights
-            .iter()
-            .map(|b| beta * ((1. - rate) * b.abs() / max + rate))
-            .collect();
+        betas = vec![beta; chain_len];
+        for i in 0..chain_len {
+            let line: Vec<_> = (0..cluster_num)
+                .map(|cl| format!("{}", models[cl][i]))
+                .collect();
+            debug!("{}\t{}", i, line.join("\t"));
+        }
+        // let weights = super::variant_calling::variant_call_poa(&models, &data, config);
+        // let max = weights
+        //     .iter()
+        //     .map(|&b| b.abs())
+        //     .fold(0., |x, y| if x < y { y } else { x });
+        // let mix_rate = rate - BETA_OFFSET;
+        // betas = weights
+        //     .iter()
+        //     .map(|b| beta * ((1. - mix_rate) * b.abs() / max + mix_rate))
+        //     .collect();
     }
     let wr = &weights_of_reads;
     report(id, wr, border, answer, &ws, beta);

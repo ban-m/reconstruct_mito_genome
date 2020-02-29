@@ -315,7 +315,7 @@ pub fn critical_regions(
         .iter()
         .map(|&e| e as usize)
         .sum::<usize>();
-    let mean = (reads.len() / tot).max(20);
+    let mean = 2 * reads.len() / tot;
     debug!("Total units:{}\tMean:{}", tot, mean);
     for from in 0..num_of_contig {
         if let Some(res) = critical_region_within(from, reads, contigs, repeats) {
@@ -323,7 +323,6 @@ pub fn critical_regions(
         }
         let thr = mean;
         if let Some(res) = critical_region_confluent(from, reads, contigs) {
-            // Check if the region has been already added.
             for cr in res {
                 let in_confluent: Vec<&ERead> = reads.iter().filter(|r| cr.along_with(r)).collect();
                 let has_been_added = regions.iter().any(|e| {

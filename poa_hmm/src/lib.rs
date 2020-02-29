@@ -22,7 +22,9 @@ pub mod forward;
 pub mod gen_sample;
 mod remove_nodes;
 const SMALL: f64 = 0.000_000_001;
-// const DEFAULT_WEIGHT: f64 = 3.;
+const LAMBDA: f64 = 0.0;
+const FRAC: usize = 10;
+const THR: f64 = 1.;
 pub mod generate;
 #[cfg(test)]
 mod tests;
@@ -59,11 +61,11 @@ impl PartialOrderAlignment {
         if seqs.is_empty() {
             panic!("Empty string.")
         }
-        let seed = ws.iter().sum::<f64>().floor() as u64 + seqs.len() as u64;
+        let seed = (100. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
         let choises: Vec<_> = (0..seqs.len()).collect();
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
         let picked = *choises.choose_weighted(&mut rng, |&i| ws[i]).unwrap();
-        let (_seed, _seed_weight) = (&seqs[picked], ws[picked]);
+        let (seed, seed_weight) = (&seqs[picked], ws[picked]);
         let max_len = seqs
             .iter()
             .zip(ws.iter())
@@ -80,9 +82,10 @@ impl PartialOrderAlignment {
         seqs.iter()
             .zip(ws.iter())
             .enumerate()
-            .filter(|&(_idx, (_, &w))| w > 0.001) // && idx != picked)
+            .filter(|&(idx, (_, &w))| w > 0.001 && idx != picked)
             .map(|(_, x)| x)
-            .fold(POA::default(), |x, (y, &w)| {
+            .fold(POA::new(seed, seed_weight), |x, (y, &w)| {
+                // .fold(POA::default(), |x, (y, &w)| {
                 if x.nodes.len() > 3 * max_len / 2 {
                     x.add_with(y, w, config).remove_node()
                 } else {
@@ -211,7 +214,7 @@ impl PartialOrderAlignment {
             .into_iter()
             .enumerate()
             .max_by(|a, b| (a.1).partial_cmp(&b.1).unwrap())
-            .expect(&format!("{}", line!()));
+            .unwrap_or_else(|| panic!("{}", line!()));
         while traceback[q_pos][g_pos] != EditOp::Stop {
             match traceback[q_pos][g_pos] {
                 EditOp::Match(from) => {

@@ -55,16 +55,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "poa_hmm"
+version = "0.1.0"
+dependencies = [
+ "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "packed_simd 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand_xoshiro 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "ppv-lite86"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "py_dbhmm"
+name = "py_hmm"
 version = "0.1.0"
 dependencies = [
  "dbg_hmm 0.1.0",
  "libc 0.2.66 (registry+https://github.com/rust-lang/crates.io-index)",
+ "poa_hmm 0.1.0",
 ]
 
 [[package]]

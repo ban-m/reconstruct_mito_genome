@@ -1,5 +1,5 @@
 [package]
-name = "py_dbhmm"
+name = "py_hmm"
 version = "0.1.0"
 authors = ["ban-m <ban-m@g.ecc.u-tokyo.ac.jp>"]
 edition = "2018"
@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 dbg_hmm = {"path" = "../dbg_hmm"}
+poa_hmm = {"path" = "../poa_hmm"}
 libc = "*"
 
 [lib]

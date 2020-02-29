@@ -61,7 +61,7 @@ fn main() -> std::io::Result<()> {
     use std::collections::HashMap;
     let cr = &critical_regions;
     let results: HashMap<String, u8> =
-        last_decompose::decompose(encoded_reads, cr, &contigs, &repeats, config, &answer)
+        last_decompose::decompose(encoded_reads, cr, &contigs, &repeats, config, &answer, 2)
             .into_iter()
             .collect();
     use bio_utils::fasta;

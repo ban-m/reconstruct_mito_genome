@@ -2,15 +2,15 @@
 #$ -S /bin/bash
 #$ -N DecError
 #$ -cwd
-#$ -pe smp 6
-#$ -e ./logfiles/last_decompose_vb.log
-#$ -o ./logfiles/last_decompose_vb.log
+#$ -pe smp 8
+#$ -e ./logfiles/last_decompose_poa.log
+#$ -o ./logfiles/last_decompose_poa.log
 #$ -V
 #$ -m e
-#$ -t 1:12
+#$ -t 1:10
 set -ue
-OUTPUT=./result/last_decompose_gibbs_150_${SGE_TASK_ID}.txt
-OUTLOG_PREFIX=./logfiles/last_decompose_gibbs_150_${SGE_TASK_ID}
+OUTPUT=./result/last_decompose_poa_${SGE_TASK_ID}.txt
+OUTLOG_PREFIX=./logfiles/last_decompose_poa_${SGE_TASK_ID}
 # RUSTFLAGS="-C target-cpu=native" cargo build --release
 
 echo "-----start-----" >> ${OUTPUT}

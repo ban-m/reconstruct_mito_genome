@@ -21,7 +21,7 @@ fn main() -> std::io::Result<()> {
     let args: Vec<_> = std::env::args().collect();
     let reads: Vec<_> = bio_utils::fasta::parse_into_vec(&args[1])?
         .into_iter()
-        // .filter(|r| r.desc().unwrap().contains("sample"))
+    // .filter(|r| r.desc().unwrap().contains("sample"))
         .collect();
     debug!("{} reads in total.", reads.len());
     let reference = last_tiling::Contigs::from_file(&args[2])?;

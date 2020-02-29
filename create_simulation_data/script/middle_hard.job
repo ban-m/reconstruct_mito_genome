@@ -2,7 +2,7 @@
 #$ -S /bin/bash
 #$ -N MockGenomePred
 #$ -cwd
-#$ -pe smp 24
+#$ -pe smp 20
 #$ -e ./logfiles/mock_genome_middle_hard.log
 #$ -o ./logfiles/mock_genome_middle_hard.log
 #$ -V
@@ -12,7 +12,7 @@ ROOT=${PWD}
 READ=${ROOT}/data/middle_hard/reads.fa
 REFERENCE=${ROOT}/data/middle_hard/mock_genome_ref.fa
 OUTPUT=${ROOT}/result/middle_hard/
-CORES=24
+CORES=20
 
 # ----- Alignment -----
 mkdir -p ${OUTPUT}/last_db

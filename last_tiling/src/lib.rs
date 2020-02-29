@@ -13,15 +13,15 @@ pub mod contig;
 pub mod lasttab;
 pub mod repeat;
 pub mod unit;
+use bio_utils::fasta;
 pub use contig::Contigs;
 pub use lasttab::LastTAB;
 pub use lasttab::Op;
-pub use unit::EncodedRead;
-use bio_utils::fasta;
 use rayon::prelude::*;
 use repeat::RepeatPairs;
 use std::collections::HashMap;
 use std::path::Path;
+pub use unit::EncodedRead;
 use unit::*;
 pub const UNIT_SIZE: usize = 150;
 // If an alignment is in a repetitive region,
@@ -39,6 +39,19 @@ pub fn into_repeats(alns: &[LastTAB], contig: &Contigs) -> Vec<RepeatPairs> {
             // Check Long alignment.
             let long = aln.seq1_matchlen() > THR && aln.seq2_matchlen() > THR;
             seq1_cmp && seq2_cmp && long
+        })
+        .filter_map(|aln| repeat::RepeatPairs::new(&aln, &contig))
+        .collect()
+}
+
+pub fn into_repeats_full(alns: &[LastTAB], contig: &Contigs) -> Vec<RepeatPairs> {
+    alns.into_iter()
+        .filter(|aln| {
+            // Check complete alignment.
+            let seq1_cmp = aln.seq1_matchlen() != aln.seq1_len();
+            let seq2_cmp = aln.seq2_matchlen() != aln.seq2_len();
+            // Check Long alignment.
+            seq1_cmp && seq2_cmp
         })
         .filter_map(|aln| repeat::RepeatPairs::new(&aln, &contig))
         .collect()

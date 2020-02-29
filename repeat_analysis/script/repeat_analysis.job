@@ -1,0 +1,31 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N RepAnalysis
+#$ -cwd
+#$ -pe smp 1
+#$ -e ./logfiles/log
+#$ -o ./logfiles/log
+#$ -V
+#$ -m e
+set -ue
+function repeat_analysis(){
+    REFERENCE=$1
+    SELF_ALN=$2
+    ALN=$3
+    READ=$4
+    OUTNAME=$5
+    cargo run --release --bin positions --\
+          ${REFERENCE} ${SELF_ALN} ${ALN} ${READ} \
+          > ${OUTNAME}_positions.tsv
+    cargo run --release --bin main --\
+          ${REFERENCE} ${ALN} ${OUTNAME}_positions.tsv \
+          > ${OUTNAME}_nearest.tsv
+}
+
+DATA=/work/ban-m/arabidopsis_mitochondria/create_dataset_and_circos_plots/result
+MITO_REF=${DATA}/NC_037304_1_split.fa
+SELF=${DATA}/pacbio/last_db/self.tab
+ALIGNMENTS=${DATA}/pacbio/last_db/initial.tab
+READS=${DATA}/pacbio/filtered_read.fasta
+repeat_analysis ${MITO_REF} ${SELF} ${ALIGNMENTS} ${READS} ./result/test
+

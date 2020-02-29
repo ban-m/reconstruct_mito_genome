@@ -85,28 +85,22 @@ fn lk(m: &[DBGHMM], read: &super::Read, c: &Config, cl: usize) -> Vec<f64> {
     res
 }
 
+fn lk_poa(m: &[POA], read: &super::Read, c: &poa_hmm::Config, cl: usize) -> Vec<f64> {
+    let mut res: Vec<_> = vec![0.; cl];
+    for &(pos, ref unit) in read.iter() {
+        assert!(pos < cl);
+        res[pos] = m[pos].forward(unit, c);
+    }
+    res
+}
+
+fn lks_poa(models: &[Vec<POA>], read: &super::Read, c: &poa_hmm::Config, cl: usize) -> Vec<f64> {
+    models.iter().flat_map(|m| lk_poa(m, read, c, cl)).collect()
+}
+
 fn calc_matrix_poa(models: &[Vec<POA>], data: &[super::Read], c: &poa_hmm::Config) -> DMatrix<f64> {
     let num_cluster = models.len();
     let chain_len = models[0].len();
-    let lk_poa = |m: &[POA], read: &super::Read, c, cl| {
-        let mut res: Vec<_> = vec![0.; cl];
-        for &(pos, ref unit) in read.iter() {
-            res[pos] = m[pos].forward(unit, c);
-        }
-        res
-    };
-
-    let lks_poa = |models: &[Vec<POA>], read, c, cl| {
-        let mut data: Vec<_> = models.iter().flat_map(|m| lk_poa(m, read, c, cl)).collect();
-        let ng_column: Vec<_> = data.chunks_exact(cl).flat_map(check_lk).collect();
-        let class = models.len();
-        for column in ng_column {
-            for i in 0..class {
-                data[i * cl + column] = 0.;
-            }
-        }
-        data
-    };
     data.par_iter()
         .map(|read| lks_poa(models, read, c, chain_len))
         .map(|data| DMatrix::from_row_slice(num_cluster, chain_len, &data))

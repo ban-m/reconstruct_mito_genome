@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+use super::{FRAC, THR};
 impl crate::PartialOrderAlignment {
     pub fn remove_node(mut self) -> Self {
         let saved = self.clone();
@@ -6,124 +8,12 @@ impl crate::PartialOrderAlignment {
         // self = self.merge_nodes();
         self.trim_unreachable_nodes();
         if self.nodes.len() < 10 {
-            return saved;
+            saved
         } else {
             assert!(self.nodes.len() > 10);
             self
         }
     }
-    // Merge two nodes which have the same label, go to the same edges, and
-    // order can not be defined between them.
-    // fn merge_nodes(mut self) -> Self {
-    //     let margeable_nodes = self.get_margeable_nodes();
-    //     for (i, (_, b)) in margeable_nodes.into_iter().enumerate().filter(|x| (x.1).0) {
-    //         let merge_idx: Vec<_> = self
-    //             .nodes
-    //             .iter()
-    //             .enumerate()
-    //             .filter(|&(_, n)| n.base() == b && n.edges.contains(&i))
-    //             .map(|(idx, _)| idx)
-    //             .collect();
-    //         let (u, v) = match merge_idx.as_slice() {
-    //             &[u, v] if u < v => (u, v),
-    //             &[_, _] => panic!("u >= v, violating topological order"),
-    //             _ => {
-    //                 for n in self.nodes.iter() {
-    //                     if n.edges.contains(&i) {
-    //                         eprintln!("{:?}", n);
-    //                     }
-    //                 }
-    //                 eprintln!("{}\t{}", i, b as char);
-    //                 panic!(
-    //                     "merge index's length is not 2.{:?}\n{:?}",
-    //                     merge_idx, self.nodes[merge_idx[0]]
-    //                 );
-    //             }
-    //         };
-    //         if self.not_reachable(u, v) {
-    //             // Merge u and v.
-    //             self.merge(u, v);
-    //         }
-    //     }
-    //     self
-    // }
-    // Return true if v is reachable from u.
-    // fn not_reachable(&self, u: usize, v: usize) -> bool {
-    //     let mut stack = vec![u];
-    //     while let Some(node) = stack.pop() {
-    //         for &to in self.nodes[node].edges().iter() {
-    //             if to == v {
-    //                 return true;
-    //             } else if to > v {
-    //                 continue;
-    //             } else {
-    //                 stack.push(to);
-    //             }
-    //         }
-    //     }
-    //     false
-    // }
-    // // merge the v-th node into the u-th node.
-    // fn merge(&mut self, u: usize, v: usize) {
-    //     let weight_and_edges: Vec<_> = self.nodes[v]
-    //         .weights
-    //         .iter()
-    //         .zip(self.nodes[v].edges().iter())
-    //         .map(|(&w, &e)| (w, e))
-    //         .collect();
-    //     for (w, to) in weight_and_edges {
-    //         match self.nodes[u].edges.iter().position(|&e| e == to) {
-    //             Some(x) => self.nodes[u].weights[x] += w,
-    //             None => {
-    //                 self.nodes[u].edges.push(to);
-    //                 self.nodes[u].weights.push(w);
-    //             }
-    //         }
-    //     }
-    //     let ties = self.nodes[v].ties.clone();
-    //     for to in ties {
-    //         if !self.nodes[u].ties.contains(&to) {
-    //             self.nodes[u].ties.push(to);
-    //         }
-    //     }
-    //     self.nodes[v].weights.clear();
-    //     self.nodes[v].edges.clear();
-    //     self.nodes[v].ties.clear();
-    //     self.nodes.iter_mut().for_each(|n| {
-    //         n.remove(v);
-    //         if n.ties.contains(&v) {
-    //             n.ties = n.ties.iter().filter(|&&n| n != v).copied().collect();
-    //         }
-    //     });
-    // }
-    // fn get_margeable_nodes(&self) -> Vec<(bool, u8)> {
-    //     let mut base_counts = vec![(0, 0, 0, 0); self.nodes.len()];
-    //     for n in self.nodes.iter() {
-    //         for &to in n.edges().iter() {
-    //             match n.base() {
-    //                 b'A' => base_counts[to].0 += 1,
-    //                 b'C' => base_counts[to].1 += 1,
-    //                 b'G' => base_counts[to].2 += 1,
-    //                 b'T' => base_counts[to].3 += 1,
-    //                 _ => {}
-    //             }
-    //         }
-    //     }
-    //     fn is_margeable((a, c, g, t): (u8, u8, u8, u8)) -> (bool, u8) {
-    //         if a == 2 {
-    //             (true, b'A')
-    //         } else if c == 2 {
-    //             (true, b'C')
-    //         } else if g == 2 {
-    //             (true, b'G')
-    //         } else if t == 2 {
-    //             (true, b'T')
-    //         } else {
-    //             (false, 0)
-    //         }
-    //     }
-    //     base_counts.into_iter().map(is_margeable).collect()
-    // }
     fn nodewise_remove(mut self) -> Self {
         // Removing with node
         let (start, arrived, _) = self.traverse();
@@ -134,7 +24,7 @@ impl crate::PartialOrderAlignment {
             .zip(arrived.iter())
             .filter_map(|(n, &b)| if b { None } else { Some(n.weight()) })
             .collect();
-        let thr_rank = remaining_nodes.len().max(arrived_len / 10) - arrived_len / 10;
+        let thr_rank = remaining_nodes.len().max(arrived_len / FRAC) - arrived_len / FRAC;
         let thr = select_nth_by(&remaining_nodes, thr_rank, |&x| x).unwrap_or(1.);
         let median = select_nth_by(&self.nodes, self.nodes.len() / 2, |n| n.weight()).unwrap();
         let deviation = |n: &super::Base| (n.weight() - median).abs();
@@ -162,46 +52,55 @@ impl crate::PartialOrderAlignment {
             .nodes
             .iter()
             .zip(used_edges.iter())
-            .flat_map(|(n, &e)| n.weights_except(e))
+            .flat_map(|(n, e)| n.weights_except(e))
             .copied()
             .collect();
         let arrived_len = used_nodes.iter().filter(|&&b| b).count();
         let thr_rank = remaining_edges.len() - arrived_len / 10;
-        // let ave = remaining_edges.iter().sum::<f64>() / remaining_edges.len() as f64;
         let edge_thr = select_nth_by(&remaining_edges, thr_rank, |&x| x).unwrap_or(1.);
         self.nodes
             .iter_mut()
             .zip(used_edges)
-            .for_each(|(n, e)| n.remove_edges(edge_thr, e, 0.1));
+            .for_each(|(n, e)| n.remove_edges(edge_thr, &e, 0.1));
         self
     }
-    fn traverse(&mut self) -> (usize, Vec<bool>, Vec<usize>) {
-        // if self.nodes.iter().all(|n| !n.is_head) {
-        //     self.select_head();
-        // }
+    fn traverse(&mut self) -> (usize, Vec<bool>, Vec<Vec<bool>>) {
         let mut arrived = vec![false; self.nodes.len()];
-        let mut used_edges = vec![0; self.nodes.len()];
-        let (start, mut node) = self
+        //let mut used_edges = vec![0; self.nodes.len()];
+        let mut used_edges: Vec<_> = self
+            .nodes
+            .iter()
+            .map(|n| vec![false; n.edges.len()])
+            .collect();
+        let (start, _) = self
             .nodes
             .iter()
             .enumerate()
             .filter(|(_, e)| e.is_head)
             .max_by(|&(_, a), &(_, b)| a.head_weight().partial_cmp(&b.head_weight()).unwrap())
             .expect(&format!("{}:{}", line!(), self));
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(start);
         arrived[start] = true;
-        let mut idx = start;
-        while node.has_edge() {
-            let (&next, _) = node
-                .edges()
+        while !queue.is_empty() {
+            let idx = queue.pop_front().unwrap();
+            let node = &self.nodes[idx];
+            if !node.has_edge() {
+                continue;
+            }
+            let max = node
+                .weights
                 .iter()
-                .zip(node.weights.iter())
-                .max_by(|a, b| (a.1).partial_cmp(&(b.1)).unwrap())
-                .expect(&format!("{}", line!()));
-            arrived[next] = true;
-            used_edges[idx] = next;
-            // Update
-            idx = next;
-            node = &self.nodes[next];
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap();
+            for (edg, (&next, &w)) in node.edges().iter().zip(node.weights.iter()).enumerate() {
+                if max * THR <= w && !arrived[next] {
+                    arrived[next] = true;
+                    //used_edges[idx] = next;
+                    used_edges[idx][edg] = true;
+                    queue.push_back(next);
+                }
+            }
         }
         (start, arrived, used_edges)
     }

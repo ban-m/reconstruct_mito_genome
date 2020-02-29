@@ -69,6 +69,7 @@ pub fn decompose(
     repeats: &[RepeatPairs],
     config: dbg_hmm::Config,
     answer: &HashMap<String, u8>,
+    cluster_num: usize,
 ) -> Vec<(String, u8)> {
     for (idx, cr) in critical_regions.iter().enumerate() {
         debug!("{}\t{}", idx, cr);
@@ -177,7 +178,7 @@ pub fn decompose(
         &labels,
         &forbidden,
         K,
-        critical_regions.len().max(1) + 1,
+        critical_regions.len().max(cluster_num - 1) + 1,
         &contigs,
         &answer,
         &config,
@@ -586,9 +587,9 @@ pub fn clustering(
     data: &[ERead],
     label: &[u8],
     forbidden: &[Vec<u8>],
-    k: usize,
+    _k: usize,
     cluster_num: usize,
-    contigs: &[usize],
+    _contigs: &[usize],
     answer: &[u8],
     c: &Config,
 ) -> Vec<u8> {
@@ -665,6 +666,7 @@ pub fn to_pos(reads: &[ERead]) -> (Vec<Vec<usize>>, usize) {
                 .map(|e| e.unit());
             let max_unit = iter.clone().max()?;
             let min_unit = iter.clone().min()?;
+            eprintln!("{}-{}", min_unit, max_unit);
             Some((min_unit, max_unit))
         })
         .collect();
@@ -679,7 +681,7 @@ pub fn to_pos(reads: &[ERead]) -> (Vec<Vec<usize>>, usize) {
     for (contig, mm) in minmax_units.into_iter().enumerate() {
         if let Some((min, max)) = mm {
             for i in min..=max {
-                res[contig][i] = len + i;
+                res[contig][i] = len + i - min;
             }
             len += max - min + 1;
         }

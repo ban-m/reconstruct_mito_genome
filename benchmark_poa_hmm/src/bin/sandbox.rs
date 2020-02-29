@@ -6,7 +6,7 @@ extern crate rand_xoshiro;
 use poa_hmm::*;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
-// use rayon::prelude::*;
+use rayon::prelude::*;
 // fn alignment<F>(xs: &[u8], ys: &[u8], del: f64, ins: f64, score: F) -> f64
 // where
 //     F: Fn(u8, u8) -> f64,
@@ -44,8 +44,8 @@ fn main() {
     let config = &DEFAULT_CONFIG;
     let seeds: Vec<_> = (0..1000).collect();
     //seeds.par_iter().for_each(|&i| {
-    let i = 265;
-    //let i = 10;
+    let i = 460;
+    //    let i = 10;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(i);
     let template1 = gen_sample::generate_seq(&mut rng, len);
     let template2 = gen_sample::introduce_randomness(&template1, &mut rng, &p);
@@ -87,7 +87,7 @@ fn main() {
             if l2 < l1 {
                 as_one += 1;
             }
-            eprintln!("{}\t{:.3}\t{:.3}", ans, l1, l2);
+            // eprintln!("{}\t{:.3}\t{:.3}", ans, l1, l2);
             (l2 < l1 && *ans == 1) || (l1 < l2 && *ans == 2)
         })
         .count();
@@ -105,8 +105,8 @@ fn main() {
             String::from_utf8_lossy(&model2.consensus().unwrap())
         );
     }
-    eprintln!("{}", model2);
-    // });
+    //    });
+    eprintln!("{:?}", model1);
     // for d in data2 {
     //     eprintln!("{}", String::from_utf8_lossy(&d));
     // }

@@ -6,15 +6,15 @@ extern crate last_tiling;
 extern crate log;
 extern crate env_logger;
 extern crate mito_assembler;
-use mito_assembler::dump_viewer;
 use clap::{App, Arg};
-use last_decompose::find_breakpoint::{ReadClassify};
+use last_decompose::find_breakpoint::ReadClassify;
 use last_decompose::ERead;
+use mito_assembler::dump_viewer;
 fn main() -> std::io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
-    let matches = App::new("YellowGate")
+    let matches = App::new("MMMM")
         .version("0.1")
-        .author("Bansho MASUTANI")
+        .author("Bansho Masutani")
         .about("Decomposing long reads.")
         .arg(
             Arg::with_name("reads")
@@ -61,6 +61,16 @@ fn main() -> std::io::Result<()> {
                 .help("Output directory")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("cluster_num")
+                .short("c")
+                .long("cluster_num")
+                .required(false)
+                .value_name("CLUSTER_NUM")
+                .help("Output directory")
+                .default_value(&"2")
+                .takes_value(true),
+        )
         .get_matches();
     let reads = matches
         .value_of("reads")
@@ -94,6 +104,10 @@ fn main() -> std::io::Result<()> {
         .value_of("outdir")
         .expect("please specify output directry.");
     let config = last_decompose::error_profile::summarize_tab(&alignments, &reads, &reference);
+    let cluster_num: usize = matches
+        .value_of("cluster_num")
+        .and_then(|num| num.parse().ok())
+        .unwrap();
     debug!("Profiled Error Rates:{}", config);
     let contigs = last_tiling::contig::Contigs::new(reference);
     let repeats = last_tiling::into_repeats(&self_aln, &contigs);
@@ -113,10 +127,18 @@ fn main() -> std::io::Result<()> {
     use std::collections::HashMap;
     let cr = &critical_regions;
     let mock_ans: HashMap<String, u8> = HashMap::new();
-    let results: HashMap<String, u8> =
-        last_decompose::decompose(encoded_reads, &cr, &contigs, &repeats, config, &mock_ans)
-            .into_iter()
-            .collect();
+    let cl = cluster_num;
+    let results: HashMap<String, u8> = last_decompose::decompose(
+        encoded_reads,
+        &cr,
+        &contigs,
+        &repeats,
+        config,
+        &mock_ans,
+        cl,
+    )
+    .into_iter()
+    .collect();
     use bio_utils::fasta;
     let mut decomposed: HashMap<u8, Vec<&fasta::Record>> = HashMap::new();
     for read in &reads {

@@ -16,16 +16,17 @@ echo "-----start-----" >> ${OUTPUT}
 
 ./target/release/test_last_decompose_multiple \
     50 0 0 0.5 0.5 > ./result/test_poa.tsv \
-    2>> ./logfiles/test_batch_poa.log
-
-./target/release/test_last_decompose_multiple \
-    100 0 0 0.5 0.5 > ./result/test_poa.tsv \
-    2>> ./logfiles/test_batch_poa.log
-
-./target/release/test_last_decompose_multiple \
-    200 0 0 0.2 0.8 > ./result/test_poa.tsv \
-    2>> ./logfiles/test_batch_poa.log
+    2>> ./logfiles/two_test.log
 exit 0;
+
+# ./target/release/test_last_decompose_multiple \
+#     100 0 0 0.5 0.5 > ./result/test_poa.tsv \
+#     2>> ./logfiles/test_batch_poa.log
+
+# ./target/release/test_last_decompose_multiple \
+#     200 0 0 0.2 0.8 > ./result/test_poa.tsv \
+#     2>> ./logfiles/test_batch_poa.log
+# exit 0;
 
 for read in `seq 50 10 200`
 do

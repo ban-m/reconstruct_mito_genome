@@ -40,7 +40,7 @@ fn main() {
         .par_iter()
         .map(|&(seed, num_seq)| benchmark(p, s, seed, len, num_seq, test_num, &c))
         .collect();
-    println!("HMM\tWHMM\tAln\tDist\tCoverage");
+    println!("HMM\tAln\tDist\tCoverage");
     for (hmm, aln, dist, num_seq) in result {
         println!("{}\t{}\t{}\t{}", hmm, aln, dist, num_seq);
     }

@@ -97,9 +97,9 @@ fn benchmark(
             (l2 < l1 && *ans == 1) || (l1 < l2 && *ans == 2)
         })
         .count();
-    let time = time::Instant::now() - start;
-    let time_par_case = time.as_millis() as f64 / test_num as f64;
-    eprintln!("{:?}({:.3}millis/sample)", time, time_par_case);
+    // let time = time::Instant::now() - start;
+    // let time_par_case = time.as_millis() as f64 / test_num as f64;
+    // eprintln!("{:?}({:.3}millis/sample)", time, time_par_case);
     let whmm = correct as f64 / test_num as f64;
     let correct = tests
         .iter()

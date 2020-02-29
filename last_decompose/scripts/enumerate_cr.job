@@ -7,13 +7,13 @@
 #$ -o ./logfiles/enumerate_cr.log
 #$ -V
 #$ -m e
-# READ=../create_dataset_and_circos_plots/result/pacbio/filtered_read.fasta
-# ALIGN=../create_dataset_and_circos_plots/result/pacbio/last_db/initial.tab
-# CONTIG=../create_dataset_and_circos_plots/result/NC_037304_1_split.fa
-# REPEAT=../create_dataset_and_circos_plots/result/pacbio/circos/repeats.json
+READ=../create_dataset_and_circos_plots/result/pacbio/filtered_read.fasta
+ALIGN=../create_dataset_and_circos_plots/result/pacbio/last_db/initial.tab
+CONTIG=../create_dataset_and_circos_plots/result/NC_037304_1_split.fa
+REPEAT=../create_dataset_and_circos_plots/result/pacbio/circos/repeats.json
 # cargo run --release --bin test -- ${READ} ${ALIGN} ${CONTIG}
-# cargo run --release --bin enumerate_cr -- ${READ} ${ALIGN} ${CONTIG} ${REPEAT} \
-#       > ./logfiles/cr.json
+cargo run --release --bin enumerate_cr -- ${READ} ${ALIGN} ${CONTIG} ${REPEAT} \
+      > ./logfiles/cr.json 2> ./logfiles/cr.log
 
 # set -ue
 # for accession in pacbio an1 c24 cvi eri kyo ler sha col0_1106_exp2 tal6111_1106_exp2 tal6144_1115_exp2 tal61up63_1106_exp2 tal6226_1115_exp2
@@ -25,10 +25,10 @@
 #     cargo run --release --bin enumerate_cr -- ${READ} ${ALIGN} ${CONTIG} ${REPEAT} \
 #           > ./result/${accession}.json 2> ./result/${accession}.dump
 # done
-ROOT=../create_dataset_and_circos_plots/result/complex1
-READ=${ROOT}/filtered_read.fasta
-ALIGN=${ROOT}/last_db/initial.tab
-CONTIG=../create_simulation_data/data/complex/reference.fa
-REPEAT=${ROOT}/circos/repeats.json
-cargo run --release --bin enumerate_cr -- ${READ} ${ALIGN} ${CONTIG} ${REPEAT}
+# ROOT=../create_dataset_and_circos_plots/result/complex1
+# READ=${ROOT}/filtered_read.fasta
+# ALIGN=${ROOT}/last_db/initial.tab
+# CONTIG=../create_simulation_data/data/complex/reference.fa
+# REPEAT=${ROOT}/circos/repeats.json
+# cargo run --release --bin enumerate_cr -- ${READ} ${ALIGN} ${CONTIG} ${REPEAT}
 

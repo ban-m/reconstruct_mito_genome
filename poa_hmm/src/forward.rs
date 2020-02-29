@@ -33,11 +33,13 @@ impl PartialOrderAlignment {
             let (match_state, insertion_state) = froms
                 .iter()
                 .map(|&(src, weight)| {
+                    let src_node = &self.nodes[src];
                     let src = src * 3;
                     let f_dist = prev[src] * config.p_match
                         + prev[src + 1] * (1. - config.p_extend_ins)
                         + prev[src + 2] * del_to_match;
-                    let m = f_dist * dist.prob(base, config) * weight;
+                    // let m = f_dist * dist.prob(base, config) * weight;
+                    let m = f_dist * dist.prob_with(base, config, src_node) * weight;
                     let i = prev[node + 2] * config.p_del_to_ins * weight;
                     (m, i)
                 })

@@ -10,7 +10,7 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let len = 150;
     let k = 6;
-    let mut rng: StdRng = SeedableRng::seed_from_u64(1213329);
+    let mut rng: StdRng = SeedableRng::seed_from_u64(12133);
     let chain_len = 40;
     let template: Vec<Vec<u8>> = (0..chain_len)
         .map(|_| gen_sample::generate_seq(&mut rng, len))
@@ -29,22 +29,39 @@ fn main() {
         .zip(template2.iter())
         .map(|(t1, t2)| edlib_sys::global_dist(t1, t2))
         .collect();
-    let d = dists.iter().sum::<u32>();
-    println!("{}", d);
-    let coverage1 = 30;
-    let coverage2 = 30;
+    // let d = dists.iter().sum::<u32>();
+    let coverage1 = 300;
+    let coverage2 = 300;
     let mut gen = |ts: &Vec<Vec<u8>>| {
         ts.iter()
             .map(|t| gen_sample::introduce_randomness(&t, &mut rng, &gen_sample::PROFILE))
             .collect::<Vec<_>>()
     };
     let data1: Vec<_> = (0..coverage1).map(|_| gen(&template)).collect();
+    let chunks1 = {
+        let mut chunks = vec![vec![]; chain_len];
+        for seq in data1.iter() {
+            for (idx, chunk) in seq.iter().enumerate() {
+                chunks[idx].push(chunk.clone());
+            }
+        }
+        chunks
+    };
     let data2: Vec<_> = (0..coverage2).map(|_| gen(&template2)).collect();
-    let m1: Vec<_> = data1
+    let chunks2 = {
+        let mut chunks = vec![vec![]; chain_len];
+        for seq in data2.iter() {
+            for (idx, chunk) in seq.iter().enumerate() {
+                chunks[idx].push(chunk.to_vec());
+            }
+        }
+        chunks
+    };
+    let m1: Vec<_> = chunks1
         .iter()
         .map(|chunks| POA::generate_vec(chunks))
         .collect();
-    let m2: Vec<_> = data2
+    let m2: Vec<_> = chunks2
         .iter()
         .map(|chunks| POA::generate_vec(chunks))
         .collect();

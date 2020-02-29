@@ -59,7 +59,7 @@ where
         select_nth_by(&xs, n - small - same, f)
     } else {
         assert!(small <= n && n < small + same);
-        return Some(pivot);
+        Some(pivot)
     }
 }
 
@@ -171,7 +171,7 @@ impl Factory {
         if coverage < 2. {
             return DBGHMM {
                 nodes: vec![],
-                k: k,
+                k,
                 weight: coverage,
                 is_broken: true,
             };
@@ -259,7 +259,7 @@ impl Factory {
         if coverage < 2. {
             return DBGHMM {
                 nodes: vec![],
-                k: k,
+                k,
                 weight: coverage,
                 is_broken: true,
             };
@@ -363,8 +363,9 @@ impl Factory {
             .map(|n| n.base_count)
             .nth(0)
         {
-            for i in 0..4 {
-                node.base_count[i] = lm * node.base_count[i] + km * prev_node[i]
+            for (i, bc) in node.base_count.iter_mut().enumerate() {
+                *bc *= lm;
+                *bc += km * prev_node[i];
             }
         }
     }
@@ -905,8 +906,7 @@ impl Factory {
                     Some(res) => res,
                     None => continue,
                 };
-                let is_ng = (nodes[i].is_head && nodes[to].kmer_weight <= thr)
-                    || (nodes[to].is_tail && nodes[to].kmer_weight <= thr);
+                let is_ng = (nodes[i].is_head || nodes[to].is_tail) && nodes[to].kmer_weight <= thr;
                 if is_ng {
                     nodes[i].remove(idx);
                 }
