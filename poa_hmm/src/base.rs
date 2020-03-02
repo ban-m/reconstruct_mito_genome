@@ -97,17 +97,17 @@ impl Base {
     //     self.weights = weights;
     //     self.edges = edges;
     // }
-    pub fn remove_edges(&mut self, thr: f64, e: &[bool], f: f64) {
+    pub fn remove_edges(&mut self, _thr: f64, e: &[bool]) {
         if self.edges.len() <= 1 {
             return;
         }
-        let thr = (self.weights.iter().sum::<f64>() * f).max(thr);
         let removed = self
             .edges()
             .iter()
             .zip(self.weights.iter())
             .zip(e.iter())
-            .filter(|&((_, &w), &b)| w > thr || b);
+            .filter(|&((_, _), &b)| b);
+        //.filter(|&((_, &w), &b)| if self.is_tail { w > thr && b } else { b });
         let weights: Vec<_> = removed.clone().map(|((_, &w), _)| w).collect();
         let edges: Vec<_> = removed.clone().map(|((&to, _), _)| to).collect();
         self.weights = weights;

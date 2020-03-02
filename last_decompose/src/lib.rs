@@ -587,9 +587,9 @@ pub fn clustering(
     data: &[ERead],
     label: &[u8],
     forbidden: &[Vec<u8>],
-    _k: usize,
+    k: usize,
     cluster_num: usize,
-    _contigs: &[usize],
+    contigs: &[usize],
     answer: &[u8],
     c: &Config,
 ) -> Vec<u8> {

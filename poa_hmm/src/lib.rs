@@ -23,8 +23,8 @@ pub mod gen_sample;
 mod remove_nodes;
 const SMALL: f64 = 0.000_000_001;
 const LAMBDA: f64 = 0.0;
-const FRAC: usize = 10;
-const THR: f64 = 1.;
+//const FRAC: usize = 10;
+const THR: f64 = 0.4;
 pub mod generate;
 #[cfg(test)]
 mod tests;
@@ -57,7 +57,56 @@ pub struct PartialOrderAlignment {
 type TraceBack = Vec<EditOp>;
 
 impl PartialOrderAlignment {
-    pub fn generate(seqs: &[&[u8]], ws: &[f64], config: &Config) -> POA {
+    pub fn num_nodes(&self) -> usize {
+        self.nodes.len()
+    }
+    pub fn num_edges(&self) -> usize {
+        self.nodes.iter().map(|n| n.edges.len()).sum::<usize>()
+    }
+    pub fn generate(seqs: &[&[u8]], ws: &[f64], _config: &Config) -> POA {
+        if seqs.is_empty() {
+            panic!("Empty string.")
+        }
+        let seed = (100. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
+        let choises: Vec<_> = (0..seqs.len()).collect();
+        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
+        let picked = *choises.choose_weighted(&mut rng, |&i| ws[i]).unwrap();
+        let (seed, seed_weight) = (&seqs[picked], ws[picked]);
+        let max_len = seqs
+            .iter()
+            .zip(ws.iter())
+            .map(|(xs, &w)| if w > 0.001 { xs.len() } else { 0 })
+            .max()
+            .unwrap_or(0);
+        let (ins, del, mat, mism) = (-3., -3., 1.5, -2.);
+        let score = |x, y| if x == y { mat } else { mism };
+        // seqs.iter()
+        //     .zip(ws.iter())
+        //     .fold(POA::default(), |x, (y, &w)| {
+        //         x.add_w_param(y, w, -2., -2., score)
+        //     })
+        //     .remove_weight(0.)
+        seqs.iter()
+            .zip(ws.iter())
+            .enumerate()
+            .filter(|&(idx, (_, &w))| w > 0.001 && idx != picked)
+            .map(|(_, x)| x)
+            .fold(POA::new(seed, seed_weight), |x, (y, &w)| {
+                //.fold(POA::default(), |x, (y, &w)| {
+                if x.nodes.len() > 3 * max_len / 2 {
+                    x.add_w_param(y, w, ins, del, score).remove_node()
+                } else {
+                    x.add_w_param(y, w, ins, del, score)
+                }
+            })
+            .remove_node()
+            .clean_up()
+            .finalize()
+    }
+    pub fn generate_w_param<F>(seqs: &[&[u8]], ws: &[f64], ins: f64, del: f64, score: &F) -> POA
+    where
+        F: Fn(u8, u8) -> f64,
+    {
         if seqs.is_empty() {
             panic!("Empty string.")
         }
@@ -74,29 +123,28 @@ impl PartialOrderAlignment {
             .unwrap_or(0);
         // seqs.iter()
         //     .zip(ws.iter())
-        //     .filter(|&(_, &w)| w > 0.001)
-        //     .fold(POA::default(), |x, (y, &w)| x.add_with(y, w, config))
-        //  .remove_node()
-        //     .finalize()
-        //     .clean_up()
+        //     .fold(POA::default(), |x, (y, &w)| {
+        //         x.add_w_param(y, w, -2., -2., score)
+        //     })
+        //     .remove_weight(0.)
         seqs.iter()
             .zip(ws.iter())
             .enumerate()
             .filter(|&(idx, (_, &w))| w > 0.001 && idx != picked)
             .map(|(_, x)| x)
             .fold(POA::new(seed, seed_weight), |x, (y, &w)| {
-                // .fold(POA::default(), |x, (y, &w)| {
+                //.fold(POA::default(), |x, (y, &w)| {
                 if x.nodes.len() > 3 * max_len / 2 {
-                    x.add_with(y, w, config).remove_node()
+                    x.add_w_param(y, w, ins, del, score).remove_node()
                 } else {
-                    x.add_with(y, w, config)
+                    x.add_w_param(y, w, ins, del, score)
                 }
             })
             .remove_node()
             .clean_up()
             .finalize()
     }
-    pub fn update_by(mut self, seqs: &[&[u8]], ws: &[f64], config: &Config) -> POA {
+    pub fn update_by(mut self, seqs: &[&[u8]], ws: &[f64], _config: &Config) -> POA {
         let max_len = seqs
             .iter()
             .zip(ws.iter())
@@ -105,13 +153,15 @@ impl PartialOrderAlignment {
             .unwrap_or(0);
         self.weight = 0.;
         self.nodes.iter_mut().for_each(|n| n.weight = 0.);
+        let (ins, del, mat, mism) = (-3., -3., 1.5, -2.);
+        let score = |x, y| if x == y { mat } else { mism };
         seqs.iter()
             .zip(ws.iter())
             .fold(self, |x, (y, &w)| {
                 if x.nodes.len() > 3 * max_len / 2 {
-                    x.add_with(y, w, config).remove_node()
+                    x.add_w_param(y, w, ins, del, score).remove_node()
                 } else {
-                    x.add_with(y, w, config)
+                    x.add_w_param(y, w, ins, del, score)
                 }
             })
             .remove_node()
@@ -164,12 +214,15 @@ impl PartialOrderAlignment {
         let mut traceback = Vec::with_capacity(seq.len() + 1);
         let edges = self.reverse_edges();
         let mut prev = vec![0.; self.nodes.len() + 1];
+        let mut p_weight = vec![0.; self.nodes.len() + 1];
         let tb = vec![EditOp::Stop; self.nodes.len() + 1];
         traceback.push(tb);
         let mut updated = vec![];
+        let mut updated_weight = vec![];
         let min = -100_000.;
         for (i, &b) in seq.iter().enumerate() {
             updated.push(ins * (i + 1) as f64);
+            updated_weight.push(0.);
             let mut tb: Vec<_> = Vec::with_capacity(self.nodes.len() + 1);
             tb.push(EditOp::Insertion(0));
             for (j, (n, edges)) in self.nodes.iter().zip(edges.iter()).enumerate() {
@@ -177,35 +230,59 @@ impl PartialOrderAlignment {
                 let (m_argmax, m_max, d_argmax, d_max) = if edges.is_empty() {
                     (0, prev[0] + ms, 0, updated[0] + del)
                 } else {
+                    use std::cmp::Ordering::*;
                     edges
                         .iter()
                         .map(|&from| from + 1)
                         .map(|idx| (idx, prev[idx] + ms, updated[idx] + del))
-                        .fold(
-                            (0, min, 0, min),
-                            |(m_ax, m_x, d_ax, d_x), (i, m, d)| match (m_x < m, d_x < d) {
-                                (true, true) => (i, m, i, d),
-                                (true, false) => (i, m, d_ax, d_x),
-                                (false, true) => (m_ax, m_x, i, d),
-                                (false, false) => (m_ax, m_x, d_ax, d_x),
-                            },
-                        )
+                        .fold((0, min, 0, min), |(m_ax, m_x, d_ax, d_x), (i, m, d)| {
+                            let (m_ax, m_x) = match m_x.partial_cmp(&m).unwrap() {
+                                Greater => (m_ax, m_x),
+                                Less => (i, m),
+                                Equal if p_weight[m_ax] > p_weight[i] => (m_ax, m_x),
+                                Equal => (i, m),
+                            };
+                            let (d_ax, d_x) = match d_x.partial_cmp(&d).unwrap() {
+                                Greater => (d_ax, d_x),
+                                Less => (i, d),
+                                Equal if p_weight[m_ax] > p_weight[i] => (d_ax, d_x),
+                                Equal => (i, d),
+                            };
+                            (m_ax, m_x, d_ax, d_x)
+                        })
                 };
-                let max = d_max.max(m_max).max(prev[j + 1] + ins);
+                let i_max = prev[j + 1] + ins;
+                let max = d_max.max(m_max).max(i_max);
                 let argmax = match max {
-                    x if (x - m_max).abs() < SMALL => EditOp::Match(m_argmax),
                     x if (x - d_max).abs() < SMALL => EditOp::Deletion(d_argmax),
-                    _ => EditOp::Insertion(j + 1),
+                    x if (x - i_max).abs() < SMALL => EditOp::Insertion(j + 1),
+                    x if (x - m_max).abs() < SMALL => EditOp::Match(m_argmax),
+                    _ => unreachable!(),
                 };
-                // Select one of the optimal operations.
                 updated.push(max);
+                let max_weight = match max {
+                    x if (x - d_max).abs() < SMALL => updated_weight[d_argmax],
+                    x if (x - i_max).abs() < SMALL => p_weight[j + 1] + 1.,
+                    x if (x - m_max).abs() < SMALL => p_weight[m_argmax] + self.nodes[j].weight(),
+                    _ => unreachable!(),
+                };
+                updated_weight.push(max_weight);
                 tb.push(argmax)
             }
             traceback.push(tb);
             std::mem::swap(&mut prev, &mut updated);
+            std::mem::swap(&mut p_weight, &mut updated_weight);
+            // let line: Vec<_> = prev.iter().map(|e| format!("{:.0}", e)).collect();
+            // eprintln!("{}", line.join("\t"));
+            // let line: Vec<_> = p_weight.iter().map(|e| format!("{:.0}", e)).collect();
+            // eprintln!("{}", line.join("\t"));
             updated.clear();
+            updated_weight.clear();
         }
-        // eprintln!("OK");
+        // for ts in &traceback {
+        //     let line: Vec<_> = ts.iter().map(|e| format!("{}", e)).collect();
+        //     eprintln!("{}", line.join("\t"));
+        // }
         // Traceback
         // g_pos = position on the graph, q_pos = position on the query
         let mut q_pos = seq.len();
@@ -213,9 +290,14 @@ impl PartialOrderAlignment {
         let (mut g_pos, poa_score) = prev
             .into_iter()
             .enumerate()
-            .max_by(|a, b| (a.1).partial_cmp(&b.1).unwrap())
+            .max_by(|(a_i, a), (b_i, b)| match a.partial_cmp(&b) {
+                Some(std::cmp::Ordering::Equal) => a_i.cmp(&b_i),
+                Some(x) => x,
+                None => panic!("{}", line!()),
+            })
             .unwrap_or_else(|| panic!("{}", line!()));
         while traceback[q_pos][g_pos] != EditOp::Stop {
+            //eprintln!("{},{},{:?}", q_pos, g_pos, traceback[q_pos][g_pos]);
             match traceback[q_pos][g_pos] {
                 EditOp::Match(from) => {
                     operations.push(EditOp::Match(g_pos - 1));
@@ -227,12 +309,13 @@ impl PartialOrderAlignment {
                     g_pos = from;
                 }
                 EditOp::Insertion(_) => {
-                    operations.push(EditOp::Insertion(g_pos - 1));
+                    operations.push(EditOp::Insertion(g_pos));
                     q_pos -= 1;
                 }
                 EditOp::Stop => break,
             }
         }
+        // eprintln!("{},{:?}", poa_score, operations);
         operations.reverse();
         (poa_score, operations)
     }
@@ -244,7 +327,7 @@ impl PartialOrderAlignment {
         self.add_w_param(seq, w, ins, del, |x, y| if x == y { mat } else { mism })
     }
     pub fn add(self, seq: &[u8], w: f64) -> Self {
-        self.add_w_param(seq, w, -1., -1., |x, y| if x == y { 1. } else { -1. })
+        self.add_w_param(seq, w, -2., -2., |x, y| if x == y { 1. } else { -1. })
     }
     pub fn add_w_param<F>(mut self, seq: &[u8], w: f64, ins: f64, del: f64, score: F) -> Self
     where
@@ -254,7 +337,8 @@ impl PartialOrderAlignment {
             return Self::new(seq, w);
         }
         // Alignment
-        let (_, traceback) = self.align(seq, ins, del, score);
+        let (_s, traceback) = self.align(seq, ins, del, score);
+        //eprintln!("{:.0}\n{:?}", s, traceback);
         let mut q_pos = 0;
         let mut previous: Option<usize> = None;
         for operation in traceback {

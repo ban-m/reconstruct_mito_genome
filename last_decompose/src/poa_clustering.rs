@@ -10,8 +10,10 @@ use rand::{thread_rng, Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
 const BETA_STEP: f64 = 1.2;
-const DEFAULT_WEIGHT: f64 = 0.4;
+const DEFAULT_WEIGHT: f64 = 0.3;
 const BETA_OFFSET: f64 = 0.1;
+const ENTROPY_THR: f64 = 0.25;
+const PICK_PROB: f64 = 0.1;
 struct ModelFactory<'a> {
     chunks: Vec<Vec<&'a [u8]>>,
     weights: Vec<Vec<f64>>,
@@ -61,7 +63,7 @@ impl<'a> ModelFactory<'a> {
         config: &Config,
         class: usize,
     ) -> Vec<POA> {
-        let default_weight = DEFAULT_WEIGHT / class as f64;
+        let default_weight = DEFAULT_WEIGHT; // / class as f64;
         assert!(self.weights.iter().all(|ws| ws.is_empty()));
         for ((read, w), &b) in reads.iter().zip(ws).zip(updates) {
             let w = if b { 0. } else { w[cl] + default_weight };
@@ -110,9 +112,7 @@ pub fn soft_clustering_poa(
     let seed = data.len() as u64;
     let mut weights_of_reads =
         crate::construct_initial_weights(label, forbidden, cluster_num, data.len(), seed);
-    let entropy_thr = 0.25;
-    let pick_prob: f64 = 0.1;
-    let pick_up_len = 3 * pick_prob.recip().floor() as usize / 2;
+    let pick_up_len = 2 * PICK_PROB.recip().floor() as usize;
     let max_coverage = get_max_coverage(&data, chain_len);
     let beta_step = 1. + (BETA_STEP - 1.) / (max_coverage as f64).log10();
     let mut beta = search_initial_beta(&data, label, forbidden, cluster_num, config, chain_len);
@@ -129,7 +129,7 @@ pub fn soft_clustering_poa(
     let mut ws: Vec<f64> = (0..cluster_num)
         .map(|i| weights_of_reads.iter().map(|g| g[i]).sum::<f64>() / datasize)
         .collect();
-    super::updates_flags(&mut updates, &weights_of_reads, &mut rng, pick_prob, border);
+    super::updates_flags(&mut updates, &weights_of_reads, &mut rng, PICK_PROB, border);
     'outer: loop {
         for _ in 0..pick_up_len {
             let before_soe = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
@@ -138,7 +138,7 @@ pub fn soft_clustering_poa(
                 update_weights(w, &mut ws, border, &data, &models, &updates, &betas, config);
             }
             let wor = &weights_of_reads;
-            super::updates_flags(&mut updates, wor, &mut rng, pick_prob, border);
+            super::updates_flags(&mut updates, wor, &mut rng, PICK_PROB, border);
             models = models
                 .into_iter()
                 .enumerate()
@@ -148,19 +148,19 @@ pub fn soft_clustering_poa(
             let soe = wr.iter().map(|e| entropy(e)).sum::<f64>();
             let rate = soe / max_entropy;
             let diff = (before_soe - soe) / max_entropy;
-            if rate < entropy_thr || (diff < entropy_thr && beta >= 1.0) {
+            if rate < ENTROPY_THR || (diff < ENTROPY_THR && beta >= 1.0) {
                 break 'outer;
             }
             report(id, wr, border, answer, &ws, beta);
         }
         beta = (beta * beta_step).min(1.);
         betas = vec![beta; chain_len];
-        for i in 0..chain_len {
-            let line: Vec<_> = (0..cluster_num)
-                .map(|cl| format!("{}", models[cl][i]))
-                .collect();
-            debug!("{}\t{}", i, line.join("\t"));
-        }
+        // for i in 0..chain_len {
+        //     let line: Vec<_> = (0..cluster_num)
+        //         .map(|cl| format!("{}", models[cl][i]))
+        //         .collect();
+        //     debug!("{}\t{}", i, line.join("\t"));
+        // }
         // let weights = super::variant_calling::variant_call_poa(&models, &data, config);
         // let max = weights
         //     .iter()

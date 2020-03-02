@@ -1,53 +1,39 @@
 #![allow(dead_code)]
-use super::{FRAC, THR};
+use super::THR;
 impl crate::PartialOrderAlignment {
+    pub fn remove_weight(mut self, f: f64) -> Self {
+        let to_remove: Vec<_> = self.nodes.iter().map(|n| n.weight() <= f).collect();
+        self = self.remove(&to_remove);
+        self.trim_unreachable_nodes();
+        self
+    }
     pub fn remove_node(mut self) -> Self {
         let saved = self.clone();
         self = self.nodewise_remove();
         self = self.edgewise_remove();
         // self = self.merge_nodes();
         self.trim_unreachable_nodes();
-        if self.nodes.len() < 10 {
+        if self.nodes.len() < saved.nodes.len() / 10 {
+            eprintln!("!!!!");
             saved
         } else {
-            assert!(self.nodes.len() > 10);
             self
         }
     }
     fn nodewise_remove(mut self) -> Self {
         // Removing with node
-        let (start, arrived, _) = self.traverse();
-        let arrived_len = arrived.iter().filter(|&&b| b).count();
-        let remaining_nodes: Vec<_> = self
-            .nodes
-            .iter()
-            .zip(arrived.iter())
-            .filter_map(|(n, &b)| if b { None } else { Some(n.weight()) })
-            .collect();
-        let thr_rank = remaining_nodes.len().max(arrived_len / FRAC) - arrived_len / FRAC;
-        let thr = select_nth_by(&remaining_nodes, thr_rank, |&x| x).unwrap_or(1.);
-        let median = select_nth_by(&self.nodes, self.nodes.len() / 2, |n| n.weight()).unwrap();
-        let deviation = |n: &super::Base| (n.weight() - median).abs();
-        let mad = select_nth_by(&self.nodes, self.nodes.len() / 2, deviation).unwrap();
-        let thr = thr.max(median - mad * 10.);
-        let to_remove: Vec<_> = self
-            .nodes
-            .iter()
-            .zip(arrived)
-            .enumerate()
-            .map(|(idx, (n, a))| {
-                if n.is_head || n.is_tail {
-                    n.weight() <= thr && idx != start
-                } else {
-                    n.weight() <= thr && !a
-                }
-            })
+        let (_start, arrived, _) = self.traverse();
+        let to_remove: Vec<_> = arrived
+            .into_iter()
+            .zip(self.nodes.iter())
+            //.map(|(b, n)| (n.is_tail && n.weight() <= 2.) || !b)
+            .map(|(b, _)| !b)
             .collect();
         self.remove(&to_remove)
     }
     fn edgewise_remove(mut self) -> Self {
         // Removing with edges.
-        let (_, used_nodes, used_edges) = self.traverse();
+        let (_, _used_nodes, used_edges) = self.traverse();
         let remaining_edges: Vec<_> = self
             .nodes
             .iter()
@@ -56,17 +42,16 @@ impl crate::PartialOrderAlignment {
             .copied()
             .collect();
         let arrived_len = used_nodes.iter().filter(|&&b| b).count();
-        let thr_rank = remaining_edges.len() - arrived_len / 10;
+        let thr_rank = remaining_edges.len().max(arrived_len / FRAC) - arrived_len / FRAC;
         let edge_thr = select_nth_by(&remaining_edges, thr_rank, |&x| x).unwrap_or(1.);
         self.nodes
             .iter_mut()
             .zip(used_edges)
-            .for_each(|(n, e)| n.remove_edges(edge_thr, &e, 0.1));
+            .for_each(|(n, e)| n.remove_edges(edge_thr, &e));
         self
     }
     fn traverse(&mut self) -> (usize, Vec<bool>, Vec<Vec<bool>>) {
         let mut arrived = vec![false; self.nodes.len()];
-        //let mut used_edges = vec![0; self.nodes.len()];
         let mut used_edges: Vec<_> = self
             .nodes
             .iter()
@@ -82,23 +67,36 @@ impl crate::PartialOrderAlignment {
         let mut queue = std::collections::VecDeque::new();
         queue.push_back(start);
         arrived[start] = true;
+        let weight_thr = {
+            let sum = self
+                .nodes
+                .iter()
+                .flat_map(|n| n.weights.iter())
+                .sum::<f64>();
+            let ave = sum / self.nodes.iter().map(|n| n.edges.len()).sum::<usize>() as f64;
+            ave * THR
+        };
         while !queue.is_empty() {
             let idx = queue.pop_front().unwrap();
             let node = &self.nodes[idx];
-            if !node.has_edge() {
-                continue;
-            }
-            let max = node
-                .weights
+            let max = *node
+                .weights()
                 .iter()
                 .max_by(|a, b| a.partial_cmp(b).unwrap())
-                .unwrap();
+                .unwrap_or(&0.);
             for (edg, (&next, &w)) in node.edges().iter().zip(node.weights.iter()).enumerate() {
-                if max * THR <= w && !arrived[next] {
+                // let is_heavy = if node.is_tail {
+                //     weight_thr <= w
+                // } else {
+                //     weight_thr <= w || w == max
+                // };
+                if weight_thr <= w || w == max {
+                    //if is_heavy {
+                    if !arrived[next] {
+                        queue.push_back(next);
+                    }
                     arrived[next] = true;
-                    //used_edges[idx] = next;
                     used_edges[idx][edg] = true;
-                    queue.push_back(next);
                 }
             }
         }
@@ -129,34 +127,31 @@ impl crate::PartialOrderAlignment {
         self.trim_unreachable_nodes_reverse();
     }
     fn trim_unreachable_nodes_forward(&mut self) {
-        let mut dfs_flag = vec![0; self.nodes.len()];
-        let mut dfs_stack: Vec<_> = self
+        let mut arrived = vec![false; self.nodes.len()];
+        let mut bfs_queue: std::collections::VecDeque<_> = self
             .nodes
             .iter()
             .enumerate()
             .filter_map(|(idx, n)| if n.is_head { Some(idx) } else { None })
             .collect();
-        assert!(!dfs_stack.is_empty());
-        'dfs: while !dfs_stack.is_empty() {
-            let node = *dfs_stack.last().unwrap();
-            dfs_flag[node] = 1;
-            for &to in self.nodes[node].edges.iter() {
-                if dfs_flag[to] == 0 {
-                    dfs_stack.push(to);
-                    continue 'dfs;
+        while !bfs_queue.is_empty() {
+            let node = bfs_queue.pop_front().unwrap();
+            if !arrived[node] {
+                arrived[node] = true;
+                for &to in self.nodes[node].edges.iter() {
+                    bfs_queue.push_back(to);
                 }
             }
-            dfs_stack.pop().unwrap();
         }
-        let (mapping, _) = dfs_flag.iter().fold((vec![], 0), |(mut map, index), &b| {
-            map.push((index, b == 1));
+        let (mapping, _) = arrived.iter().fold((vec![], 0), |(mut map, index), &b| {
+            map.push((index, b));
             (map, index + b as usize)
         });
         let mut buffer = vec![];
         let mut idx = self.nodes.len();
         while let Some(mut node) = self.nodes.pop() {
             idx -= 1;
-            if dfs_flag[idx] == 1 {
+            if arrived[idx] {
                 node.remove_if(&mapping);
                 buffer.push(node);
             }
@@ -166,34 +161,35 @@ impl crate::PartialOrderAlignment {
         std::mem::swap(&mut self.nodes, &mut buffer);
     }
     fn trim_unreachable_nodes_reverse(&mut self) {
-        let mut dfs_flag = vec![0; self.nodes.len()];
-        let mut dfs_stack: Vec<_> = self
+        let mut arrived = vec![false; self.nodes.len()];
+        let mut bfs_queue: std::collections::VecDeque<_> = self
             .nodes
             .iter()
             .enumerate()
             .filter_map(|(idx, n)| if n.is_tail { Some(idx) } else { None })
             .collect();
         let edges = self.reverse_edges();
-        'dfs: while !dfs_stack.is_empty() {
-            let node = *dfs_stack.last().unwrap();
-            dfs_flag[node] = 1;
-            for &to in &edges[node] {
-                if dfs_flag[to] == 0 {
-                    dfs_stack.push(to);
-                    continue 'dfs;
+        if bfs_queue.is_empty() {
+            return;
+        }
+        while !bfs_queue.is_empty() {
+            let node = bfs_queue.pop_front().unwrap();
+            if !arrived[node] {
+                arrived[node] = true;
+                for &to in &edges[node] {
+                    bfs_queue.push_back(to);
                 }
             }
-            dfs_stack.pop().unwrap();
         }
-        let (mapping, _) = dfs_flag.iter().fold((vec![], 0), |(mut map, index), &b| {
-            map.push((index, b == 1));
+        let (mapping, _) = arrived.iter().fold((vec![], 0), |(mut map, index), &b| {
+            map.push((index, b));
             (map, index + b as usize)
         });
         let mut buffer = vec![];
         let mut idx = self.nodes.len();
         while let Some(mut node) = self.nodes.pop() {
             idx -= 1;
-            if dfs_flag[idx] == 1 {
+            if arrived[idx] {
                 node.remove_if(&mapping);
                 buffer.push(node);
             }

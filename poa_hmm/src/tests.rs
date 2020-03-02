@@ -26,25 +26,13 @@ fn create() {
     assert_eq!(res.nodes.len(), seed.len());
 }
 #[test]
-fn bubble() {
-    let seed = b"ACGTAGCTGATCGTAC";
-    let seq = b"ACGTAGCTGATCGGAC";
-    let res = POA::new(seed, 1.).add(seq, 1.).clean_up();
-    assert_eq!(res.nodes.len(), seed.len() + 1);
-    let seed = b"ACGTAGCTGATCGTAC";
-    let seq2 = b"ACGTAGCTGATCGTCC";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
-    assert_eq!(res.nodes.len(), seed.len() + 1);
+fn insertion_test() {
     let seed = b"ACGTAGCTGATCGTAC";
     let seq2 = b"ACGTAGCTGATTTCGTAC";
     let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
     assert_eq!(res.nodes.len(), seed.len() + 2);
     let seed = b"ACGTAGCTGATCGTAC";
     let seq2 = b"ACGTAGCTGATTTCGTAC";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
-    assert_eq!(res.nodes.len(), seed.len() + 2);
-    let seed = b"ACGTAGCTGAGTAC";
-    let seq2 = b"ACGAGCTGATCTAC";
     let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
     assert_eq!(res.nodes.len(), seed.len() + 2);
     let seed = b"ACGTAGCTGATCGTAC";
@@ -55,14 +43,6 @@ fn bubble() {
     let seq2 = b"ACGTAGCTGATCGTACG";
     let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
     assert_eq!(res.nodes.len(), seed.len() + 1);
-    let seed = b"ACGTAGCTGATCGTAC";
-    let seq2 = b"CCGTAGCTGATCGTAC";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
-    assert_eq!(res.nodes.len(), seed.len() + 1);
-    let seed = b"ACGTAGCTGATCGTAC";
-    let seq2 = b"ACGTAGCTGATCGTAG";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
-    assert_eq!(res.nodes.len(), seed.len() + 1);
     let seq2 = b"ACGTAGCTGATCGTAC";
     let seed = b"AACGTAGCTGATCGTAC";
     let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
@@ -71,6 +51,58 @@ fn bubble() {
     let seq2 = b"AAACGTAGCTGATCGTAC";
     let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
     assert_eq!(res.nodes.len(), seed.len() + 2);
+}
+
+#[test]
+fn mismatch_test() {
+    let seed = b"ACGTAGCTGATCGTAC";
+    let seq2 = b"ACGTAGCTGATCGGAC";
+    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    assert_eq!(res.nodes.len(), seed.len() + 1);
+    let seed = b"ACGTAGCTGATCGTAC";
+    let seq2 = b"ACGTAGCTGATCGTCC";
+    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    assert_eq!(res.nodes.len(), seed.len() + 1);
+    let seed = b"ACGTAGCTGAGTAC";
+    let seq2 = b"ACGAGCTGATCTAC";
+    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    assert_eq!(res.nodes.len(), seed.len() + 2);
+    let seed = b"ACGTAGCTGATCGTAC";
+    let seq2 = b"CCGTAGCTGATCGTAC";
+    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    assert_eq!(res.nodes.len(), seed.len() + 1);
+    let seed = b"ACGTAGCTGATCGTAC";
+    let seq2 = b"ACGTAGCTGATCGTAG";
+    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    assert_eq!(res.nodes.len(), seed.len() + 1);
+}
+#[test]
+fn deletion_test() {
+    let seed = b"ACGTAGCTGATCGTAC";
+    let seq2 = b"ACGTAGCTGTCGTAC";
+    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    assert_eq!(res.nodes.len(), seed.len());
+    assert_eq!(res.num_edges(), seed.len());
+    let seed = b"ACGTAGCTGATCGTAC";
+    let seq2 = b"ACGAGCTGATCGTAC";
+    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    assert_eq!(res.nodes.len(), seed.len());
+    assert_eq!(res.num_edges(), seed.len());
+    let seed = b"ACGTAGCTGATCGTAC";
+    let seq2 = b"ACGAGCTGATCTAC";
+    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    assert_eq!(res.nodes.len(), seed.len());
+    assert_eq!(res.num_edges(), seed.len() + 1);
+    let seed = b"ACGTAGCTGATCGTAC";
+    let seq2 = b"ACGTAGCTGATCGTA";
+    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    assert_eq!(res.nodes.len(), seed.len());
+    assert_eq!(res.num_edges(), seed.len() - 1);
+    let seed = b"ACGTAGCTGATCGTAC";
+    let seq2 = b"CGTAGCTGATCGTAC";
+    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    assert_eq!(res.nodes.len(), seed.len());
+    assert_eq!(res.num_edges(), seed.len() - 1);
 }
 
 #[test]
@@ -361,9 +393,9 @@ fn abundance_test_prior() {
     let bases = b"ACTG";
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(1_219);
     let p = Profile {
-        sub: 0.03,
-        ins: 0.03,
-        del: 0.03,
+        sub: 0.01,
+        ins: 0.01,
+        del: 0.01,
     };
     let len = 150;
     let cov = 20;
@@ -423,9 +455,9 @@ use rand::Rng;
 #[test]
 fn single_error_test() {
     let bases = b"ACTG";
-    let coverage = 200;
+    let coverage = 150;
     let start = 20;
-    let step = 4;
+    let step = 3;
     let len = 150;
     let results: Vec<_> = (start..coverage)
         .step_by(step)
