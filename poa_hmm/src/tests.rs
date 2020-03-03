@@ -250,7 +250,9 @@ fn alignment_check() {
         let score = |x, y| if x == y { -1. } else { -2. };
         let opt = alignment(&y, &x, -2., -2., score.clone());
         eprintln!("OPT:{}", opt);
-        let (poa_score, _) = POA::new(&x, 1.).align(&y, -2., -2., score);
+                let score = |x, y| if x == y { -1 } else { -2 };
+        let (poa_score, _) = POA::new(&x, 1.).align(&y, -2, -2, score);
+        let poa_score = poa_score as f64;
         eprintln!("POA:{}", poa_score);
         assert!((opt - poa_score).abs() < 0.001, "{},{}", opt, poa_score);
     }

@@ -587,15 +587,16 @@ pub fn clustering(
     data: &[ERead],
     label: &[u8],
     forbidden: &[Vec<u8>],
-    k: usize,
+    _k: usize,
     cluster_num: usize,
-    contigs: &[usize],
+    _contigs: &[usize],
     answer: &[u8],
     c: &Config,
 ) -> Vec<u8> {
     assert_eq!(forbidden.len(), data.len());
     assert_eq!(label.len() + answer.len(), data.len());
-    let weights = soft_clustering_poa(data, label, forbidden, cluster_num, answer, c);
+    use poa_clustering::DEFAULT_ALN;
+    let weights = soft_clustering_poa(data, label, forbidden, cluster_num, answer, c, &DEFAULT_ALN);
     // let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
     debug!("WEIGHTS\tPrediction. Dump weights");
     assert_eq!(weights.len(), label.len() + answer.len());

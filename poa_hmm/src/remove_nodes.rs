@@ -34,20 +34,20 @@ impl crate::PartialOrderAlignment {
     fn edgewise_remove(mut self) -> Self {
         // Removing with edges.
         let (_, _used_nodes, used_edges) = self.traverse();
-        let remaining_edges: Vec<_> = self
-            .nodes
-            .iter()
-            .zip(used_edges.iter())
-            .flat_map(|(n, e)| n.weights_except(e))
-            .copied()
-            .collect();
-        let arrived_len = used_nodes.iter().filter(|&&b| b).count();
-        let thr_rank = remaining_edges.len().max(arrived_len / FRAC) - arrived_len / FRAC;
-        let edge_thr = select_nth_by(&remaining_edges, thr_rank, |&x| x).unwrap_or(1.);
+        // let remaining_edges: Vec<_> = self
+        //     .nodes
+        //     .iter()
+        //     .zip(used_edges.iter())
+        //     .flat_map(|(n, e)| n.weights_except(e))
+        //     .copied()
+        //     .collect();
+        // let arrived_len = used_nodes.iter().filter(|&&b| b).count();
+        // let thr_rank = remaining_edges.len().max(arrived_len / FRAC) - arrived_len / FRAC;
+        // let edge_thr = select_nth_by(&remaining_edges, thr_rank, |&x| x).unwrap_or(1.);
         self.nodes
             .iter_mut()
             .zip(used_edges)
-            .for_each(|(n, e)| n.remove_edges(edge_thr, &e));
+            .for_each(|(n, e)| n.remove_edges(100., &e));
         self
     }
     fn traverse(&mut self) -> (usize, Vec<bool>, Vec<Vec<bool>>) {
@@ -85,13 +85,13 @@ impl crate::PartialOrderAlignment {
                 .max_by(|a, b| a.partial_cmp(b).unwrap())
                 .unwrap_or(&0.);
             for (edg, (&next, &w)) in node.edges().iter().zip(node.weights.iter()).enumerate() {
-                // let is_heavy = if node.is_tail {
-                //     weight_thr <= w
-                // } else {
-                //     weight_thr <= w || w == max
-                // };
-                if weight_thr <= w || w == max {
-                    //if is_heavy {
+                let is_heavy = if node.is_tail {
+                    weight_thr <= w
+                } else {
+                    weight_thr <= w || w == max
+                };
+                //if weight_thr <= w || w == max {
+                if is_heavy {
                     if !arrived[next] {
                         queue.push_back(next);
                     }

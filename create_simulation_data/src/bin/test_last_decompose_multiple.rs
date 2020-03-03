@@ -38,9 +38,9 @@ fn main() {
         // sub: 0.001 / 6.,
         // ins: 0.001 / 6.,
         // del: 0.001 / 6.,
-        sub: 0.001,
-        ins: 0.001,
-        del: 0.001,
+        sub: 0.002,
+        ins: 0.002,
+        del: 0.002,
     };
     use std::time::Instant;
     println!("TestNum:{}\tLabeled:{}", test_num, coverage);

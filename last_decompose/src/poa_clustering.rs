@@ -9,11 +9,34 @@ use poa_hmm::*;
 use rand::{thread_rng, Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
-const BETA_STEP: f64 = 1.2;
-const DEFAULT_WEIGHT: f64 = 0.3;
-const BETA_OFFSET: f64 = 0.1;
+const BETA_STEP: f64 = 1.1;
+const DEFAULT_WEIGHT: f64 = 0.;
+// const BETA_OFFSET: f64 = 0.1;
 const ENTROPY_THR: f64 = 0.25;
-const PICK_PROB: f64 = 0.1;
+const PICK_PROB: f64 = 0.05;
+
+pub struct AlnParam<F>
+where
+    F: Fn(u8, u8) -> i32,
+{
+    ins: i32,
+    del: i32,
+    score: F,
+}
+
+fn score(x: u8, y: u8) -> i32 {
+    if x == y {
+        3
+    } else {
+        -4
+    }
+}
+pub const DEFAULT_ALN: AlnParam<fn(u8, u8) -> i32> = AlnParam {
+    ins: -6,
+    del: -6,
+    score: score,
+};
+
 struct ModelFactory<'a> {
     chunks: Vec<Vec<&'a [u8]>>,
     weights: Vec<Vec<f64>>,
@@ -30,13 +53,20 @@ impl<'a> ModelFactory<'a> {
         }
         Self { chunks, weights }
     }
-    fn generate_model(
+    fn generate_model<F>(
         &mut self,
         ws: &[Vec<f64>],
         reads: &[Read],
         cl: usize,
-        config: &Config,
-    ) -> Vec<POA> {
+        &AlnParam {
+            ins,
+            del,
+            ref score,
+        }: &AlnParam<F>,
+    ) -> Vec<POA>
+    where
+        F: Fn(u8, u8) -> i32 + std::marker::Sync,
+    {
         assert!(self.weights.iter().all(|ws| ws.is_empty()));
         for (read, w) in reads.iter().zip(ws) {
             for &(pos, _) in read.iter() {
@@ -48,21 +78,27 @@ impl<'a> ModelFactory<'a> {
             .chunks
             .par_iter()
             .zip(self.weights.par_iter())
-            .map(|(chunks, ws)| poa_hmm::PartialOrderAlignment::generate(chunks, ws, &config))
+            .map(|(chunks, ws)| POA::generate_w_param(chunks, ws, ins, del, score))
             .collect();
         self.weights.iter_mut().for_each(|ws| ws.clear());
         res
     }
-    fn update_model(
+    fn update_model<F>(
         &mut self,
-        models: Vec<POA>,
         updates: &[bool],
         ws: &[Vec<f64>],
         reads: &[Read],
         cl: usize,
-        config: &Config,
-        class: usize,
-    ) -> Vec<POA> {
+        &AlnParam {
+            ins,
+            del,
+            ref score,
+        }: &AlnParam<F>,
+        _class: usize,
+    ) -> Vec<POA>
+    where
+        F: Fn(u8, u8) ->i32 + std::marker::Sync,
+    {
         let default_weight = DEFAULT_WEIGHT; // / class as f64;
         assert!(self.weights.iter().all(|ws| ws.is_empty()));
         for ((read, w), &b) in reads.iter().zip(ws).zip(updates) {
@@ -72,11 +108,11 @@ impl<'a> ModelFactory<'a> {
             }
         }
         assert_eq!(self.weights.len(), self.chunks.len());
-        let res: Vec<_> = models
-            .into_par_iter()
-            .zip(self.chunks.par_iter())
+        let res: Vec<_> = self
+            .chunks
+            .par_iter()
             .zip(self.weights.par_iter())
-            .map(|((_, chunks), ws)| POA::generate(chunks, ws, &config))
+            .map(|(chunks, ws)| POA::generate_w_param(chunks, ws, ins, del, score))
             .collect();
         self.weights.iter_mut().for_each(|ws| ws.clear());
         res
@@ -96,14 +132,18 @@ fn convert(c: &dbg_hmm::Config) -> poa_hmm::Config {
     }
 }
 
-pub fn soft_clustering_poa(
+pub fn soft_clustering_poa<F>(
     data: &[ERead],
     label: &[u8],
     forbidden: &[Vec<u8>],
     cluster_num: usize,
     answer: &[u8],
     config: &dbg_hmm::Config,
-) -> Vec<Vec<f64>> {
+    aln: &AlnParam<F>,
+) -> Vec<Vec<f64>>
+where
+    F: Fn(u8, u8) -> i32 + std::marker::Sync,
+{
     assert!(cluster_num > 1);
     let config = &convert(config);
     let (matrix_pos, chain_len) = to_pos(data);
@@ -115,12 +155,13 @@ pub fn soft_clustering_poa(
     let pick_up_len = 2 * PICK_PROB.recip().floor() as usize;
     let max_coverage = get_max_coverage(&data, chain_len);
     let beta_step = 1. + (BETA_STEP - 1.) / (max_coverage as f64).log10();
-    let mut beta = search_initial_beta(&data, label, forbidden, cluster_num, config, chain_len);
+    let mut beta =
+        search_initial_beta(&data, label, forbidden, cluster_num, config, chain_len, aln);
     let mut betas: Vec<_> = vec![beta; chain_len];
     debug!("Chain length is {}", chain_len);
     let mut mf = ModelFactory::new(chain_len, &data);
     let mut models: Vec<Vec<POA>> = (0..cluster_num)
-        .map(|cl| mf.generate_model(&weights_of_reads, &data, cl, config))
+        .map(|cl| mf.generate_model(&weights_of_reads, &data, cl, aln))
         .collect();
     let mut updates = vec![false; data.len()];
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(data.len() as u64 * 23);
@@ -132,62 +173,62 @@ pub fn soft_clustering_poa(
     super::updates_flags(&mut updates, &weights_of_reads, &mut rng, PICK_PROB, border);
     'outer: loop {
         for _ in 0..pick_up_len {
-            let before_soe = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
             {
                 let w = &mut weights_of_reads;
                 update_weights(w, &mut ws, border, &data, &models, &updates, &betas, config);
             }
             let wor = &weights_of_reads;
             super::updates_flags(&mut updates, wor, &mut rng, PICK_PROB, border);
-            models = models
-                .into_iter()
-                .enumerate()
-                .map(|(cl, m)| mf.update_model(m, &updates, wor, &data, cl, config, cluster_num))
+            models = (0..cluster_num)
+                .map(|cl| mf.update_model(&updates, wor, &data, cl, aln, cluster_num))
                 .collect();
-            let wr = &weights_of_reads;
-            let soe = wr.iter().map(|e| entropy(e)).sum::<f64>();
+            let soe = wor.iter().map(|e| entropy(e)).sum::<f64>();
             let rate = soe / max_entropy;
-            let diff = (before_soe - soe) / max_entropy;
-            if rate < ENTROPY_THR || (diff < ENTROPY_THR && beta >= 1.0) {
+            if rate < ENTROPY_THR {
                 break 'outer;
             }
-            report(id, wr, border, answer, &ws, beta);
+            report(id, wor, border, answer, &ws, beta);
         }
         beta = (beta * beta_step).min(1.);
-        betas = vec![beta; chain_len];
-        // for i in 0..chain_len {
-        //     let line: Vec<_> = (0..cluster_num)
-        //         .map(|cl| format!("{}", models[cl][i]))
-        //         .collect();
-        //     debug!("{}\t{}", i, line.join("\t"));
-        // }
-        // let weights = super::variant_calling::variant_call_poa(&models, &data, config);
-        // let max = weights
-        //     .iter()
-        //     .map(|&b| b.abs())
-        //     .fold(0., |x, y| if x < y { y } else { x });
-        // let mix_rate = rate - BETA_OFFSET;
-        // betas = weights
-        //     .iter()
-        //     .map(|b| beta * ((1. - mix_rate) * b.abs() / max + mix_rate))
-        //     .collect();
+        debug!("{:.5}\t{:.5}", beta, beta_step);
+        let weights = super::variant_calling::variant_call_poa(&models, &data, config);
+        let max = weights
+            .iter()
+            .map(|&b| b.abs())
+            .fold(0., |x, y| if x < y { y } else { x });
+        let soe = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
+        let mix_rate = soe / max_entropy - ENTROPY_THR;
+        betas = weights
+            .iter()
+            .map(|b| beta * ((1. - mix_rate) * b.abs() / max + mix_rate))
+            .collect();
     }
     let wr = &weights_of_reads;
     report(id, wr, border, answer, &ws, beta);
+    for i in 0..chain_len {
+        let line: Vec<_> = (0..cluster_num)
+            .map(|cl| format!("{}", models[cl][i]))
+            .collect();
+        debug!("{}\t{}\t{:.3}", i, line.join("\t"), betas[i]);
+    }
     weights_of_reads
 }
 
-fn search_initial_beta(
+fn search_initial_beta<F>(
     data: &[Read],
     label: &[u8],
     forbidden: &[Vec<u8>],
-    cluster_num: usize,
+    cluster: usize,
     c: &Config,
     chain_len: usize,
-) -> f64 {
+    aln: &AlnParam<F>,
+) -> f64
+where
+    F: Fn(u8, u8) -> i32 + std::marker::Sync,
+{
     let seed = data.iter().map(|e| e.len()).sum::<usize>() as u64;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
-    let weight_of_read = construct_initial_weights(label, forbidden, cluster_num, data.len(), seed);
+    let weight_of_read = construct_initial_weights(label, forbidden, cluster, data.len(), seed);
     let border = label.len();
     let mut mf = ModelFactory::new(chain_len, data);
     let mut beta = INIT_BETA;
@@ -195,7 +236,9 @@ fn search_initial_beta(
     let wor = &weight_of_read;
     loop {
         let betas = vec![beta; chain_len];
-        let next = soe_after_sampling(&betas, data, wor, border, &mut rng, cluster_num, &mut mf, c);
+        let next = soe_after_sampling(
+            &betas, data, wor, border, &mut rng, cluster, &mut mf, c, aln,
+        );
         debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, next, soe - next);
         if soe > next {
             break;
@@ -206,7 +249,9 @@ fn search_initial_beta(
     beta /= FACTOR;
     loop {
         let betas = vec![beta; chain_len];
-        let next = soe_after_sampling(&betas, data, wor, border, &mut rng, cluster_num, &mut mf, c);
+        let next = soe_after_sampling(
+            &betas, data, wor, border, &mut rng, cluster, &mut mf, c, aln,
+        );
         debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, next, soe - next);
         if soe < next {
             break;
@@ -217,7 +262,7 @@ fn search_initial_beta(
     beta
 }
 
-fn soe_after_sampling<R: Rng>(
+fn soe_after_sampling<R: Rng, F>(
     betas: &[f64],
     data: &[Read],
     wor: &[Vec<f64>],
@@ -226,14 +271,18 @@ fn soe_after_sampling<R: Rng>(
     cluster_num: usize,
     mf: &mut ModelFactory,
     c: &Config,
-) -> f64 {
+    aln: &AlnParam<F>,
+) -> f64
+where
+    F: Fn(u8, u8) -> i32 + std::marker::Sync,
+{
     let datasize = data.len() as f64;
     let mut updates = vec![false; data.len()];
     let mut ws: Vec<f64> = (0..cluster_num)
         .map(|i| wor.iter().map(|g| g[i]).sum::<f64>() / datasize)
         .collect();
     let mut models: Vec<Vec<POA>> = (0..cluster_num)
-        .map(|cl| mf.generate_model(&wor, data, cl, c))
+        .map(|cl| mf.generate_model(&wor, data, cl, aln))
         .collect();
     let mut wor = wor.to_vec();
     //for _ in 0..SAMPLING {
@@ -244,7 +293,7 @@ fn soe_after_sampling<R: Rng>(
             &mut wor, &mut ws, border, data, &models, &updates, &betas, c,
         );
         models = (0..cluster_num)
-            .map(|cl| mf.generate_model(&wor, &data, cl, c))
+            .map(|cl| mf.generate_model(&wor, &data, cl, aln))
             .collect();
     }
     wor.iter().map(|e| entropy(e)).sum::<f64>()
