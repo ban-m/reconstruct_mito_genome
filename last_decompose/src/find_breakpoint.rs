@@ -1,11 +1,17 @@
+#![allow(dead_code)]
 use super::ERead;
 use last_tiling::repeat::RepeatPairs;
-use last_tiling::Contigs;
+use last_tiling::{Contigs, LastTAB};
 use serde::{Deserialize, Serialize};
 use std::cmp::{Ord, Ordering, PartialOrd};
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
-/// The threshould used to determine whether two regions would be regarded as pairs.
+const MERGE_THR: usize = 500;
+const COVERAGE_THR: usize = 25;
+const WINDOW: usize = 3;
+use std::collections::HashMap;
+
+// The threshould used to determine whether two regions would be regarded as pairs.
 const fn factor(x: usize) -> usize {
     x * 3 / 2
 }
@@ -301,10 +307,10 @@ impl ReadClassify for ConfluentRegion {
 pub fn critical_regions(
     reads: &[ERead],
     contigs: &Contigs,
-    repeats: &[RepeatPairs],
+    _repeats: &[RepeatPairs],
 ) -> Vec<CriticalRegion> {
     let num_of_contig = contigs.get_num_of_contigs() as u16;
-    let mut regions = vec![];
+    let regions = vec![];
     debug!("There are {} contigs", num_of_contig);
     debug!("There are {} reads", reads.len());
     for c in contigs.names().iter() {
@@ -317,30 +323,66 @@ pub fn critical_regions(
         .sum::<usize>();
     let mean = 2 * reads.len() / tot;
     debug!("Total units:{}\tMean:{}", tot, mean);
-    for from in 0..num_of_contig {
-        if let Some(res) = critical_region_within(from, reads, contigs, repeats) {
-            regions.extend(res);
-        }
-        let thr = mean;
-        if let Some(res) = critical_region_confluent(from, reads, contigs) {
-            for cr in res {
-                let in_confluent: Vec<&ERead> = reads.iter().filter(|r| cr.along_with(r)).collect();
-                let has_been_added = regions.iter().any(|e| {
-                    let count = in_confluent.iter().filter(|r| e.along_with(r)).count();
-                    if count > thr {
-                        debug!("{:?} and {:?} shares {} reads.", e, cr, count);
-                        true
-                    } else {
-                        false
-                    }
-                });
-                if !has_been_added {
-                    regions.push(cr);
-                }
+    // for from in 0..num_of_contig {
+    //     if let Some(res) = critical_region_within(from, reads, contigs, repeats) {
+    //         regions.extend(res);
+    //     }
+    // }
+    regions
+}
+
+pub fn contigpair_position(reads: &[ERead], contigs: &Contigs) -> Vec<ContigPair> {
+    let mut from_up_counts: Vec<Vec<Vec<(usize, bool)>>> = contigs
+        .get_last_units()
+        .iter()
+        .map(|&len| vec![vec![]; len as usize + 1])
+        .collect();
+    let mut to_down_counts = from_up_counts.clone();
+    for read in reads.iter() {
+        let jumps = read.seq().windows(4).filter(is_jumping);
+        for w in jumps {
+            let (start, end) = (w[1].unit as usize, w[2].unit as usize);
+            let (c1, c2) = (w[1].contig as usize, w[2].contig as usize);
+            match (start < end, is_from_up(&w[..2]), is_from_up(&w[2..])) {
+                (true, true, x) => from_up_counts[c1][start].push((end, x)),
+                (true, false, x) => to_down_counts[c1][start].push((end, x)),
+                (false, x, true) => from_up_counts[c2][end].push((start, x)),
+                (false, x, false) => to_down_counts[c2][end].push((start, x)),
             }
         }
     }
-    regions
+    let contigpairs = vec![];
+    for (_contig, jumps) in from_up_counts.iter_mut().enumerate() {
+        let (mut start, end) = (0, jumps.len());
+        while start < end {
+            // Search a heviest edge from this contig.
+            start = 10;
+            // Determine the range of the start position ad the range of
+            // the end position.
+
+            // Collect the edges from (start,end) to (start_dst, end_dst)
+            // and remove them from counts.
+
+            // Move start to the next position.
+        }
+    }
+    // The same as forward.
+    contigpairs
+}
+
+fn is_jumping(w: &&[super::CUnit]) -> bool {
+    const ACCEPTED_GAP: u16 = 10;
+    fn diff(x: &super::CUnit, y: &super::CUnit) -> u16 {
+        (x.unit).max(y.unit) - (x.unit).min(y.unit)
+    }
+    let is_first_part_cont = w[0].contig == w[1].contig && diff(&w[0], &w[1]) <= ACCEPTED_GAP;
+    let is_second_part_cont = w[2].contig == w[3].contig && diff(&w[2], &w[3]) <= ACCEPTED_GAP;
+    let is_cont = is_first_part_cont && is_second_part_cont;
+    is_cont && (w[1].contig != w[2].contig || diff(&w[1], &w[2]) > ACCEPTED_GAP)
+}
+
+fn is_from_up(w: &[super::CUnit]) -> bool {
+    w[0].unit < w[1].unit
 }
 
 // Return all critical region within a given contig.
@@ -350,8 +392,7 @@ fn critical_region_within(
     reads: &[ERead],
     contigs: &Contigs,
     repeats: &[RepeatPairs],
-) -> Option<Vec<CriticalRegion>> {
-    // debug!("{}-th contig, self critical region.", contig);
+) -> Option<Vec<ContigPair>> {
     let last_unit = contigs.get_last_unit(contig)? as usize;
     let mut inner_count: Vec<Vec<&ERead>> = vec![vec![]; last_unit + 1];
     const ACCEPTED_GAP: u16 = 10;
@@ -443,7 +484,7 @@ fn critical_region_within(
                 // );
                 let c1 = Position::new(contig, s, t, Direction::UpStream, last_unit);
                 let c2 = Position::new(contig, x, y, Direction::DownStream, last_unit);
-                result.push(CriticalRegion::CP(ContigPair::new(c1, c2)));
+                result.push(ContigPair::new(c1, c2));
             }
             // Case2
             if st_downstream.intersection(&xy_upstream).count() >= thr {
@@ -453,91 +494,20 @@ fn critical_region_within(
                 // );
                 let c1 = Position::new(contig, s, t, Direction::DownStream, last_unit);
                 let c2 = Position::new(contig, x, y, Direction::UpStream, last_unit);
-                result.push(CriticalRegion::CP(ContigPair::new(c1, c2)));
+                result.push(ContigPair::new(c1, c2));
             }
             // Case3
             if st_upstream.intersection(&xy_upstream).count() >= thr {
                 let c1 = Position::new(contig, s, t, Direction::UpStream, last_unit);
                 let c2 = Position::new(contig, x, y, Direction::UpStream, last_unit);
-                result.push(CriticalRegion::CP(ContigPair::new(c1, c2)));
+                result.push(ContigPair::new(c1, c2));
             }
             // Case4
             if st_downstream.intersection(&xy_downstream).count() >= thr {
                 let c1 = Position::new(contig, s, t, Direction::DownStream, last_unit);
                 let c2 = Position::new(contig, x, y, Direction::DownStream, last_unit);
-                result.push(CriticalRegion::CP(ContigPair::new(c1, c2)));
+                result.push(ContigPair::new(c1, c2));
             }
-        }
-    }
-    Some(result)
-}
-
-fn critical_region_confluent(
-    contig: u16,
-    reads: &[ERead],
-    contigs: &Contigs,
-) -> Option<Vec<CriticalRegion>> {
-    // debug!("{}-th contig, self critical region.", contig);
-    let last_unit = contigs.get_last_unit(contig)? as usize;
-    let mut clip_count: Vec<Vec<&ERead>> = vec![vec![]; last_unit + 1];
-    for read in reads.iter().filter(|r| r.has(contig) && r.len() > 2) {
-        let first_chunk = &read.seq()[0];
-        if first_chunk.contig == contig {
-            clip_count[first_chunk.unit as usize].push(read);
-        }
-        let last_chunk = &read.seq().last().unwrap();
-        if last_chunk.contig == contig && last_chunk.unit != last_unit as u16 {
-            clip_count[last_chunk.unit as usize].push(read);
-        }
-    }
-    let ave = reads.len() * 2 / last_unit;
-    let clip_region = {
-        let clip_counts = clip_count.iter().map(|e| e.len()).collect::<Vec<_>>();
-        let clip_region = peak_detection(&clip_counts, 2 * ave);
-        merge_overlap_and_remove_contained(clip_region)
-            .into_iter()
-            .map(|(s, e)| (s as u16, e as u16))
-            .filter(|&(s, e)| CHECK_THR < s || CHECK_THR < e)
-            .collect::<Vec<_>>()
-    };
-    // debug!("Aggregated!");
-    // debug!("Start\tEnd");
-    // for &(s, t) in clip_region.iter() {
-    //     debug!("{}\t{}", s, t);
-    // }
-    let mut result = vec![];
-    for (s, t) in clip_region {
-        if s.max(t) - s.min(t) > 20 {
-            // Too long to be conlfulent regions.
-            continue;
-        }
-        // Let's move on to case exhaution.
-        // ----s||||t-----
-        // Case1: <---s(entry)y     : (s,t):UpStream
-        // Case2:     s(entry)t---> : (s,t):DownStream
-        let width = (t - s + 2 * CHECK_THR) as usize;
-        let (s_thr, t_thr) = (s.max(CHECK_THR) - CHECK_THR, t + CHECK_THR);
-        // Here, we maybe want to get circulaized genome region.
-        // It should not happen in x-y, because we force 0 < t < x < y.
-        let st_upstream: HashSet<&ERead> = reads
-            .iter()
-            .filter(|read| read.does_touch(contig, s_thr, s) && !read.does_touch(contig, t, t_thr))
-            .collect();
-        let st_downstream: HashSet<&ERead> = reads
-            .iter()
-            .filter(|read| !read.does_touch(contig, s_thr, s) && read.does_touch(contig, t, t_thr))
-            .collect();
-        let thr = factor(width.max(20) * ave);
-        let last_unit = last_unit as u16;
-        // Case1.
-        if st_upstream.len() >= thr {
-            let c1 = Position::new(contig, s, t, Direction::UpStream, last_unit);
-            result.push(CriticalRegion::CR(ConfluentRegion::new(c1)));
-        }
-        // Case2
-        if st_downstream.len() >= thr {
-            let c1 = Position::new(contig, s, t, Direction::DownStream, last_unit);
-            result.push(CriticalRegion::CR(ConfluentRegion::new(c1)));
         }
     }
     Some(result)
@@ -568,6 +538,127 @@ fn merge_overlap_and_remove_contained(mut regions: Vec<(usize, usize)>) -> Vec<(
         .collect()
 }
 
+pub fn covert_to_unit_positions(
+    regions: &[(String, usize, usize, bool)],
+    contigs: &Contigs,
+    unit_size: usize,
+) -> Vec<ConfluentRegion> {
+    regions
+        .iter()
+        .map(|&(ref id, start, end, to_downstream)| {
+            let id = contigs.get_id(id).unwrap();
+            let (start, end) = (start / unit_size, end / unit_size);
+            let (start, end) = (start as u16, end as u16);
+            let max = contigs.get_last_unit(id).unwrap();
+            use Direction::*;
+            let di = if to_downstream { DownStream } else { UpStream };
+            ConfluentRegion::new(Position::new(id, start, end, di, max))
+        })
+        .collect()
+}
+
+/// Enumerate confluent region in the references.
+pub fn confluent_position(alignments: &[LastTAB]) -> Vec<(String, usize, usize, bool)> {
+    let references: Vec<_> = {
+        let mut reference: Vec<_> = alignments
+            .iter()
+            .map(|r| (r.seq1_name(), r.seq1_len()))
+            .collect();
+        reference.sort_by_key(|&e| e.1);
+        reference.dedup();
+        reference
+    };
+    let mut start_stop_count: HashMap<String, Vec<(usize, usize)>> = references
+        .into_iter()
+        .map(|(id, len)| (id.to_string(), vec![(0, 0); len + 1]))
+        .collect();
+    let mut reads: HashMap<_, Vec<_>> = HashMap::new();
+    for tab in alignments {
+        reads
+            .entry(tab.seq2_name().to_string())
+            .or_insert(Vec::new())
+            .push(tab);
+    }
+    for (_id, tabs) in reads.into_iter() {
+        if let Some((ref_name, position)) = get_first_alignment(&tabs) {
+            if let Some(res) = start_stop_count.get_mut(ref_name) {
+                res[position].0 += 1;
+            }
+        }
+        if let Some((ref_name, position)) = get_last_alignment(&tabs) {
+            if let Some(res) = start_stop_count.get_mut(ref_name) {
+                res[position].1 += 1;
+            }
+        }
+    }
+    for (_, counts) in start_stop_count.iter() {
+        let downs: Vec<_> = counts.iter().map(|&(d, _)| d).collect();
+        let ups: Vec<_> = counts.iter().map(|&(_, u)| u).collect();
+        for (idx, ds) in downs.windows(WINDOW).enumerate() {
+            let d = ds.iter().sum::<usize>();
+            debug!("STST\t{}\t{}\tDown", idx, d);
+        }
+        for (idx, us) in ups.windows(WINDOW).enumerate() {
+            let u = us.iter().sum::<usize>();
+            debug!("STST\t{}\t{}\tUp", idx, u);
+        }
+    }
+    let mut result = vec![];
+    for (id, counts) in start_stop_count {
+        let downstream: Vec<_> = counts.iter().map(|x| x.0).collect();
+        let chunks = peak_call(&downstream)
+            .into_iter()
+            .map(|(s, e)| (id.clone(), s, e, true));
+        result.extend(chunks);
+        let upstream: Vec<_> = counts.iter().map(|x| x.1).collect();
+        let chunks = peak_call(&upstream)
+            .into_iter()
+            .map(|(s, e)| (id.clone(), s, e, false));
+        result.extend(chunks);
+    }
+    result
+}
+
+fn get_first_alignment<'a>(tabs: &[&'a LastTAB]) -> Option<(&'a str, usize)> {
+    let tab = tabs.iter().min_by_key(|t| t.seq2_start_from_forward())?;
+    let id = tab.seq1_name();
+    let position = tab.seq1_start_from_forward();
+    Some((id, position))
+}
+
+fn get_last_alignment<'a>(tabs: &[&'a LastTAB]) -> Option<(&'a str, usize)> {
+    let tab = tabs.iter().min_by_key(|t| t.seq2_end_from_forward())?;
+    let id = tab.seq1_name();
+    let position = tab.seq1_end_from_forward();
+    Some((id, position))
+}
+
+fn peak_call(counts: &[usize]) -> Vec<(usize, usize)> {
+    let positions: Vec<_> = counts
+        .windows(WINDOW)
+        .enumerate()
+        .filter(|(_, w)| w.iter().sum::<usize>() >= COVERAGE_THR)
+        .map(|(idx, _)| idx)
+        .collect();
+    merge(positions, MERGE_THR)
+}
+
+fn merge(positions: Vec<usize>, thr: usize) -> Vec<(usize, usize)> {
+    let mut result: Vec<(usize, usize)> = vec![];
+    let mut start = 0;
+    while start < positions.len() {
+        let mut current = positions[start];
+        let mut end = start + 1;
+        while end < positions.len() && positions[end] < current + thr {
+            current = positions[end];
+            end += 1;
+        }
+        result.push((positions[start], positions[end - 1] + 1));
+        start = end;
+    }
+    result
+}
+
 fn peak_detection(counts: &[usize], threshold: usize) -> Vec<(usize, usize)> {
     let (mut res, is_in_peak, start) = counts.iter().enumerate().fold(
         (vec![], false, 0),
@@ -585,21 +676,4 @@ fn peak_detection(counts: &[usize], threshold: usize) -> Vec<(usize, usize)> {
         res.push((start, counts.len()));
     }
     res
-}
-
-#[allow(dead_code)]
-fn merge_circular_genome(mut regions: Vec<(u16, u16)>, len: usize) -> Vec<(u16, u16)> {
-    let len = len as u16;
-    if regions.len() <= 1 {
-        regions
-    } else {
-        let first: (u16, u16) = *regions.first().unwrap();
-        let last: (u16, u16) = *regions.last().unwrap();
-        if first.0 < 10 && last.1 - len < 10 {
-            regions.remove(0);
-            regions.pop();
-            regions.insert(0, (last.0, first.1));
-        }
-        regions
-    }
 }

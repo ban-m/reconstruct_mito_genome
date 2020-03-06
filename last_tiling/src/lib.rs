@@ -14,6 +14,8 @@ pub mod lasttab;
 pub mod repeat;
 pub mod unit;
 use bio_utils::fasta;
+mod coverage;
+pub use coverage::get_start_stop;
 pub use contig::Contigs;
 pub use lasttab::LastTAB;
 pub use lasttab::Op;

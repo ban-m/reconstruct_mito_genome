@@ -112,6 +112,7 @@ fn main() -> std::io::Result<()> {
     let contigs = last_tiling::contig::Contigs::new(reference);
     let repeats = last_tiling::into_repeats(&self_aln, &contigs);
     let encoded_reads = last_tiling::encoding(&reads, &contigs, &alignments);
+    let start_stop = last_tiling::get_start_stop(&encoded_reads, &contigs);
     let encoded_reads: Vec<_> = encoded_reads
         .into_iter()
         .map(ERead::new_no_gapfill)
@@ -180,6 +181,13 @@ fn main() -> std::io::Result<()> {
     }
     let encoded_reads = last_tiling::encoding(&reads, &contigs, &alignments);
     let res = dump_viewer(&results, &encoded_reads, &critical_regions, &contigs)?;
+    let file = format!("{}/start_stop.tsv", output_dir);
+    let mut writer = BufWriter::new(std::fs::File::create(&file)?);
+    for (contig, stst) in start_stop {
+        for (pos, count) in stst {
+            writeln!(&mut writer, "{}\t{}\t{}", contig, pos, count)?;
+        }
+    }
     let dir = format!("{}/viwer", output_dir);
     if let Err(why) = std::fs::create_dir_all(&dir) {
         error!("Error Occured while outputing reads.");

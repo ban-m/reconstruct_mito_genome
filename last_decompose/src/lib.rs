@@ -28,7 +28,7 @@ use rand::{thread_rng, Rng};
 use rand_xoshiro::Xoshiro256StarStar;
 use std::collections::{HashMap, HashSet};
 pub mod error_profile;
-mod poa_clustering;
+pub mod poa_clustering;
 use dbg_hmm::Config;
 pub use poa_clustering::soft_clustering_poa;
 pub mod variant_calling;
@@ -71,8 +71,22 @@ pub fn decompose(
     answer: &HashMap<String, u8>,
     cluster_num: usize,
 ) -> Vec<(String, u8)> {
-    for (idx, cr) in critical_regions.iter().enumerate() {
-        debug!("{}\t{}", idx, cr);
+    const DEBUG: bool = true;
+    if DEBUG {
+        return encoded_reads
+            .iter()
+            .map(|read| {
+                match critical_regions
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, cr)| cr.along_with(read))
+                    .nth(0)
+                {
+                    Some((idx, _)) => (read.id().to_string(), idx as u8 + 1),
+                    None => (read.id().to_string(), 0),
+                }
+            })
+            .collect();
     }
     let datasize = encoded_reads.len();
     let mut unassigned_reads: Vec<_> = vec![];
@@ -788,7 +802,7 @@ pub fn soft_clustering(
     weights_of_reads
 }
 
-fn construct_initial_weights(
+pub fn construct_initial_weights(
     label: &[u8],
     forbidden: &[Vec<u8>],
     cluster_num: usize,

@@ -25,8 +25,9 @@ pub fn variant_call_poa(
     models: &[Vec<POA>],
     data: &[super::Read],
     c: &poa_hmm::Config,
+    centrize: bool,
 ) -> Vec<f64> {
-    let matrix = calc_matrix_poa(models, data, c);
+    let matrix = calc_matrix_poa(models, data, c, centrize);
     let eigens = matrix.symmetric_eigen();
     let max = eigens
         .eigenvalues
@@ -85,24 +86,104 @@ fn lk(m: &[DBGHMM], read: &super::Read, c: &Config, cl: usize) -> Vec<f64> {
     res
 }
 
-fn lk_poa(m: &[POA], read: &super::Read, c: &poa_hmm::Config, cl: usize) -> Vec<f64> {
-    let mut res: Vec<_> = vec![0.; cl];
-    for &(pos, ref unit) in read.iter() {
-        assert!(pos < cl);
-        res[pos] = m[pos].forward(unit, c);
+// Return likelihoods of the read.
+// the cl * i + j -th element is the likelihood for the i-th cluster at the j-th position.
+fn lks_poa(models: &[Vec<POA>], read: &super::Read, c: &poa_hmm::Config, cl: usize) -> Vec<f64> {
+    let mut res = vec![0.; cl * models.len()];
+    for (i, ms) in models.iter().enumerate() {
+        for &(pos, ref unit) in read.iter() {
+            res[i * cl + pos] = ms[pos].forward(unit, c);
+        }
     }
     res
 }
 
-fn lks_poa(models: &[Vec<POA>], read: &super::Read, c: &poa_hmm::Config, cl: usize) -> Vec<f64> {
-    models.iter().flat_map(|m| lk_poa(m, read, c, cl)).collect()
+// Return the centrize vector for matrices.
+// In other words, it calculates arrays of vector p_1,...,p_{row}, where
+// each c_i is column-dimensional vector.
+fn centrize_vector_of(
+    data: &[super::Read],
+    matrices: &[Vec<f64>],
+    row: usize,
+    column: usize,
+) -> Vec<Vec<f64>> {
+    let mut centrize_vector = vec![vec![0.; column]; row];
+    // How many units is considered at position i.
+    let mut counts = vec![0; column];
+    // Compute the avarage vector at each **column(position)**
+    for (read, matrix) in data.iter().zip(matrices.iter()) {
+        for &(pos, _) in read.iter() {
+            counts[pos] += 1;
+            for cluster in 0..row {
+                centrize_vector[cluster][pos] += matrix[column * cluster + pos];
+            }
+        }
+    }
+    centrize_vector.iter_mut().for_each(|row_vec| {
+        row_vec
+            .iter_mut()
+            .zip(counts.iter())
+            .for_each(|(sum, &count)| *sum = *sum / count as f64)
+    });
+    // Compute projection to axis, i.e., <c,1>/K 1 - c.
+    // Here, c is the column vector at each position.
+    // This is a centrize vector.
+    // First, compute the <c,1> for each column.
+    // We could have this by just add by columnwise.
+    let mut inner_product = centrize_vector
+        .iter()
+        .fold(vec![0.; column], |mut acc, row_vec| {
+            acc.iter_mut()
+                .zip(row_vec.iter())
+                .for_each(|(x, y)| *x += y);
+            acc
+        });
+    // Then, normalize it by dividing by length of row(number of cluster).
+    inner_product.iter_mut().for_each(|x| *x /= row as f64);
+    // Lastly, compute <c,1>/K 1 - c for each position.
+    centrize_vector.iter_mut().for_each(|cv| {
+        cv.iter_mut()
+            .zip(inner_product.iter())
+            .for_each(|(x, prod)| *x = prod - *x);
+    });
+    centrize_vector
 }
 
-fn calc_matrix_poa(models: &[Vec<POA>], data: &[super::Read], c: &poa_hmm::Config) -> DMatrix<f64> {
+fn calc_matrix_poa(
+    models: &[Vec<POA>],
+    data: &[super::Read],
+    c: &poa_hmm::Config,
+    centrize: bool,
+) -> DMatrix<f64> {
     let num_cluster = models.len();
     let chain_len = models[0].len();
-    data.par_iter()
+    // LK matrix of each read, i.e., lk_matrix[i] would
+    // be lk matrix for the i-th read.
+    // Note that the matrix is flattened.
+    // To access the likelihood of the j-th position of the k-th cluster,
+    // lk_matrix[i][chan_len * k + j] would work.
+    let mut lk_matrices: Vec<Vec<f64>> = data
+        .par_iter()
         .map(|read| lks_poa(models, read, c, chain_len))
+        .collect();
+    if centrize {
+        let cv = centrize_vector_of(data, &lk_matrices, num_cluster, chain_len);
+        // Centrize the matrices. In other words,
+        // we add the offset cv for each position.
+        // Note that we only care at the position where the likelihood is non-zero value.
+        lk_matrices
+            .par_iter_mut()
+            .zip(data.par_iter())
+            .for_each(|(matrix, read)| {
+                for &(pos, _) in read.iter() {
+                    for row in 0..num_cluster {
+                        matrix[row * chain_len + pos] += cv[row][pos]
+                    }
+                }
+            });
+    };
+    lk_matrices
+        .into_par_iter()
         .map(|data| DMatrix::from_row_slice(num_cluster, chain_len, &data))
         .fold(
             || DMatrix::zeros(chain_len, chain_len),

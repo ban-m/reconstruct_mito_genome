@@ -11,45 +11,19 @@ use create_simulation_data::*;
 use dbg_hmm::*;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
-// use rayon::prelude::*;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(24)
-        .build_global()
-        .unwrap();
-    let args: Vec<_> = std::env::args().collect();
-    let (test_num, coverage, _prob) = if args.len() > 3 {
-        let tn = args[1].parse::<usize>().unwrap();
-        let cov = args[2].parse::<usize>().unwrap();
-        let prob = args[3].parse::<f64>().unwrap();
-        (tn, cov, prob)
-    } else {
-        (200, 0, 0.5)
-    };
-    let chain_len = 20;
-    let k = 6;
-    let len = 150;
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(1000);
     let p = &gen_sample::Profile {
         sub: 0.002,
         ins: 0.002,
         del: 0.002,
     };
-    let seed = 11920981;
-    benchmark(seed, p, coverage, test_num, chain_len, k, len);
-}
-
-fn benchmark(
-    seed: u64,
-    p: &gen_sample::Profile,
-    coverage: usize,
-    test_num: usize,
-    chain_len: usize,
-    k: usize,
-    len: usize,
-) {
-    let seed = 1003437 + seed;
-    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
+    let chain_len = 40;
+    let len = 150;
+    let coverage = 0;
+    let test_num = 30;
+    let class = 3;
     let template1: Vec<_> = (0..chain_len)
         .map(|_| gen_sample::generate_seq(&mut rng, len))
         .collect();
@@ -57,7 +31,7 @@ fn benchmark(
         .iter()
         .map(|e| gen_sample::introduce_randomness(e, &mut rng, &p))
         .collect();
-    let (dataset, _, _, _) = generate_mul_data(
+    let (dataset, _, answer, _) = generate_mul_data(
         &[template1.clone(), template2.clone()],
         coverage,
         test_num,
@@ -68,54 +42,35 @@ fn benchmark(
         .into_iter()
         .map(|read| read.into_iter().enumerate().collect())
         .collect();
-    let mut mf = last_decompose::ModelFactory::new(chain_len, &data, k);
-    let weights: Vec<_> = (0..data.len()).map(|_| vec![0.5, 0.5]).collect();
-    let models = mf.generate_model(&weights, &data, 0, &dbg_hmm::DEFAULT_CONFIG);
-    for read in &data {
-        for &(pos, ref u) in read.iter() {
-            let model = &models[pos];
-            let lk = model.forward(u, &dbg_hmm::DEFAULT_CONFIG);
-            debug!("LK\t{:.3}\t{:.3}", model.weight(), lk);
-        }
-    }
-    let mut f = Factory::new();
-    let weights = vec![1.; data.len()];
-    let chunks = {
-        let mut res = vec![vec![]; chain_len];
-        for read in &data {
-            for &(pos, ref u) in read.iter() {
-                res[pos].push(u.as_slice());
+    let models: Vec<Vec<poa_hmm::POA>> = (0..2)
+        .map(|cl| {
+            let cl = cl as u8;
+            let mut chunks = vec![vec![]; chain_len];
+            for (seq, _) in data.iter().zip(answer.iter()).filter(|&(_, &b)| b == cl) {
+                for &(idx, ref chunk) in seq.iter() {
+                    chunks[idx].push(chunk.as_slice());
+                }
             }
-        }
-        res
-    };
-    let mut buf = vec![];
-    let models: Vec<_> = chunks
-        .iter()
-        .map(|chunks| f.generate_with_weight(chunks, &weights, k, &mut buf))
+            let score = |x, y| if x == y { 3 } else { -4 };
+            chunks
+                .iter()
+                .map(|seqs| {
+                    let ws = vec![1.; seqs.len()];
+                    poa_hmm::POA::generate_w_param(seqs, &ws, -6, -6, &score)
+                })
+                .collect()
+        })
         .collect();
-    for m in &models {
-        debug!("Model\t{}", m);
-    }
-    for read in &data {
-        for &(pos, ref u) in read.iter() {
-            let model = &models[pos];
-            let lk = model.forward(u, &DEFAULT_CONFIG);
-            debug!("NN\t{:.3}\t{:.3}", model.weight(), lk);
+    let config = &poa_hmm::DEFAULT_CONFIG;
+    for pos in 0..chain_len {
+        for (idx, read) in data.iter().enumerate() {
+            let &(_, ref unit) = read.iter().filter(|&&(p, _)| p == pos).nth(0).unwrap();
+            let lks: Vec<_> = models
+                .iter()
+                .map(|ms| ms[pos].forward(unit, config))
+                .map(|lk| format!("{}", lk))
+                .collect();
+            debug!("DUMP\t{}\t{}\t{}", idx, pos, lks.join("\t"));
         }
-    }
-    let i = 3;
-    let chunks: Vec<_> = data.iter().map(|read| read[i].1.as_slice()).collect();
-    let m = f.generate_with_weight(&chunks, &vec![0.5; chunks.len()], k, &mut buf);
-    debug!("TT\t{}", m);
-    for e in 0..100 {
-        let temp = if e % 2 == 0 {
-            &template1[i]
-        } else {
-            &template2[i]
-        };
-        let q = gen_sample::introduce_randomness(temp, &mut rng, &gen_sample::PROFILE);
-        let lk = m.forward(&q, &DEFAULT_CONFIG);
-        debug!("TT\t{:.3}\t{:.3}", m.weight(), lk);
     }
 }

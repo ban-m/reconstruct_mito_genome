@@ -22,8 +22,10 @@ pub mod forward;
 pub mod gen_sample;
 mod remove_nodes;
 const SMALL: f64 = 0.000_000_001;
-const LAMBDA: f64 = 0.0;
-//const FRAC: usize = 10;
+const LAMBDA_INS: f64 = 0.05;
+const LAMBDA_MATCH: f64 = 0.1;
+// const LAMBDA_INS: f64 = 0.0;
+// const LAMBDA_MATCH: f64 = 0.;
 const THR: f64 = 0.4;
 pub mod generate;
 #[cfg(test)]
@@ -67,10 +69,10 @@ impl PartialOrderAlignment {
         if seqs.is_empty() {
             panic!("Empty string.")
         }
-        // let seed = (10000. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
+        let seed = (100000. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
         let choises: Vec<_> = (0..seqs.len()).collect();
-        //let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
-        let mut rng = rand::thread_rng();
+        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
+        // let mut rng = rand::thread_rng();
         let picked = *choises.choose_weighted(&mut rng, |&i| ws[i]).unwrap();
         let (seed, seed_weight) = (&seqs[picked], ws[picked]);
         let max_len = seqs
@@ -101,17 +103,14 @@ impl PartialOrderAlignment {
     where
         F: Fn(u8, u8) -> i32,
     {
-        if seqs.is_empty() {
-            panic!("Empty string.")
-        }
-        let seed = (100. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
+        let seed = (10432940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
         let max_len = seqs
             .iter()
             .zip(ws.iter())
             .map(|(xs, &w)| if w > 0.001 { xs.len() } else { 0 })
             .max()
-            .unwrap_or(0);
+            .unwrap_or_else(|| panic!("Empty string."));
         rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
             .into_iter()
             .map(|idx| (&seqs[idx], ws[idx]))

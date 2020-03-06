@@ -14,9 +14,17 @@ OUTLOG_PREFIX=./logfiles/last_decompose_gibbs
 
 echo "-----start-----" >> ${OUTPUT}
 
-./target/release/test_last_decompose_multiple \
-    50 0 10 0.5 0.5 > ./result/test_poa.tsv \
-    2>> ./logfiles/two_test.log
+# ./target/release/test_last_decompose_multiple \
+#     50 0 1 0.5 0.5 >> ./result/test_poa.tsv \
+#     2>> ./logfiles/two_test.log
+# exit 0;
+
+for seed in `seq 5 10`
+do
+    ./target/release/test_last_decompose_multiple \
+        50 0 ${seed} 0.5 0.5 >> ./result/test_poa.tsv \
+        2>> ./logfiles/two_test.log
+done
 exit 0;
 
 # ./target/release/test_last_decompose_multiple \

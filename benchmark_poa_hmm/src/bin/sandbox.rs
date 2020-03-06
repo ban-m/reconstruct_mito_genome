@@ -6,7 +6,6 @@ extern crate rand_xoshiro;
 use poa_hmm::*;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
-use rayon::prelude::*;
 // fn alignment<F>(xs: &[u8], ys: &[u8], del: f64, ins: f64, score: F) -> f64
 // where
 //     F: Fn(u8, u8) -> f64,
@@ -42,7 +41,7 @@ fn main() {
     let len = 150;
     let test_num = 1000;
     let config = &DEFAULT_CONFIG;
-    let seeds: Vec<_> = (0..1000).collect();
+    let _seeds: Vec<_> = (0..1000).collect();
     //seeds.par_iter().for_each(|&i| {
     let i = 460;
     //    let i = 10;

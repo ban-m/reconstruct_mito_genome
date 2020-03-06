@@ -137,36 +137,35 @@ impl Eq for LastTAB {}
 impl LastTAB {
     pub fn from_line(line: &str) -> Option<Self> {
         let line: Vec<&str> = line.split('\t').collect();
-        if line.len() != 14 {
-            return None;
-        }
         let score: u64 = line[0].parse().ok()?;
         let seq1_information = AlignInfo::from_splits(&line[1..=5])?;
         let seq2_information = AlignInfo::from_splits(&line[6..=10])?;
         let alignment = line[11].to_string();
         let (mut eg2, mut e) = (2., 3.); // Dummy values
-        if line[12].starts_with("E=") {
-            e = match line[12][2..].parse() {
-                Ok(res) => res,
-                Err(why) => panic!("{},{}", why, &line[12][2..]),
+        if line.len() > 13 {
+            if line[12].starts_with("E=") {
+                e = match line[12][2..].parse() {
+                    Ok(res) => res,
+                    Err(why) => panic!("{},{}", why, &line[12][2..]),
+                };
+            } else if line[12].starts_with("EG2=") {
+                eg2 = match line[12][4..].parse() {
+                    Ok(res) => res,
+                    Err(why) => panic!("{},{}", why, &line[12][4..]),
+                };
             };
-        } else if line[12].starts_with("EG2=") {
-            eg2 = match line[12][4..].parse() {
-                Ok(res) => res,
-                Err(why) => panic!("{},{}", why, &line[12][4..]),
+            if line[13].starts_with("E=") {
+                e = match line[13][2..].parse() {
+                    Ok(res) => res,
+                    Err(why) => panic!("{},{}", why, &line[13][2..]),
+                };
+            } else if line[13].starts_with("EG2=") {
+                eg2 = match line[13][4..].parse() {
+                    Ok(res) => res,
+                    Err(why) => panic!("{},{}", why, &line[13][4..]),
+                };
             };
-        };
-        if line[13].starts_with("E=") {
-            e = match line[13][2..].parse() {
-                Ok(res) => res,
-                Err(why) => panic!("{},{}", why, &line[13][2..]),
-            };
-        } else if line[13].starts_with("EG2=") {
-            eg2 = match line[13][4..].parse() {
-                Ok(res) => res,
-                Err(why) => panic!("{},{}", why, &line[13][4..]),
-            };
-        };
+        }
         Some(Self {
             score,
             seq1_information,

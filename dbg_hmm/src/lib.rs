@@ -1097,7 +1097,7 @@ mod tests {
                     let q = introduce_randomness(&template1, &mut rng, &errors);
                     let lk1 = model1.forward(&q, &DEFAULT_CONFIG);
                     let lk2 = model2.forward(&q, &DEFAULT_CONFIG);
-                    eprintln!("1\t{:.3}\t{:.3}", lk1, lk2);
+                    //eprintln!("1\t{:.3}\t{:.3}", lk1, lk2);
                     lk1 > lk2
                 })
                 .count();
@@ -1108,7 +1108,7 @@ mod tests {
                     let q = introduce_randomness(&template2, &mut rng, &errors);
                     let lk1 = model1.forward(&q, &DEFAULT_CONFIG);
                     let lk2 = model2.forward(&q, &DEFAULT_CONFIG);
-                    eprintln!("2\t{:.3}\t{:.3}", lk1, lk2);
+                    //eprintln!("2\t{:.3}\t{:.3}", lk1, lk2);
                     lk1 < lk2
                 })
                 .count();

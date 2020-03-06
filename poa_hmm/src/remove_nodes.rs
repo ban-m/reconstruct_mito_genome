@@ -90,7 +90,6 @@ impl crate::PartialOrderAlignment {
                 } else {
                     weight_thr <= w || w == max
                 };
-                //if weight_thr <= w || w == max {
                 if is_heavy {
                     if !arrived[next] {
                         queue.push_back(next);
@@ -245,7 +244,6 @@ fn select_nth_by<T: Clone, F: Fn(&T) -> K, K>(xs: &[T], n: usize, f: F) -> Optio
 where
     K: PartialOrd + PartialEq,
 {
-    // Sainity check
     if xs.len() <= n {
         return None;
     }

@@ -395,9 +395,9 @@ fn abundance_test_prior() {
     let bases = b"ACTG";
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(1_219);
     let p = Profile {
-        sub: 0.01,
-        ins: 0.01,
-        del: 0.01,
+        sub: 0.03,
+        ins: 0.03,
+        del: 0.03,
     };
     let len = 150;
     let cov = 20;
@@ -416,8 +416,6 @@ fn abundance_test_prior() {
             .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
             .collect();
         eprintln!("{}/{}", template1.len(), template2.len());
-        eprintln!("{}", String::from_utf8_lossy(&template1));
-        eprintln!("{}", String::from_utf8_lossy(&template2));
         data2.extend((0..cov).map(|_| introduce_randomness(&template2, &mut rng, &PROFILE)));
         let data1: Vec<_> = data1.iter().map(|e| e.as_slice()).collect();
         let data2: Vec<_> = data2.iter().map(|e| e.as_slice()).collect();
@@ -426,8 +424,12 @@ fn abundance_test_prior() {
         let model1 = POA::generate(&data1, &weight, &DEFAULT_CONFIG);
         let model2 = POA::generate(&data2, &weight, &DEFAULT_CONFIG);
         eprintln!("{}", model1);
+        eprintln!("{}", String::from_utf8_lossy(&template1));
+        eprintln!("{}", String::from_utf8_lossy(&model1.consensus().unwrap()));
         eprintln!("----------------------");
         eprintln!("{}", model2);
+        eprintln!("{}", String::from_utf8_lossy(&template2));
+        eprintln!("{}", String::from_utf8_lossy(&model2.consensus().unwrap()));
         let num = 50;
         let correct = (0..num)
             .filter(|_| {

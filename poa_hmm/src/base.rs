@@ -1,5 +1,5 @@
 use super::base_table::BASE_TABLE;
-use super::LAMBDA;
+use super::{LAMBDA_INS, LAMBDA_MATCH};
 use std::fmt;
 #[derive(Default, Clone)]
 pub struct Base {
@@ -171,7 +171,7 @@ impl Base {
         } else {
             config.mismatch / 3.
         };
-        p * LAMBDA + (1. - LAMBDA) * q
+        p * LAMBDA_MATCH + (1. - LAMBDA_MATCH) * q
     }
     pub fn prob(&self, base: u8, config: &super::Config) -> f64 {
         if self.base == base {
@@ -184,7 +184,7 @@ impl Base {
     pub fn insertion(&self, base: u8) -> f64 {
         let p = self.base_count[BASE_TABLE[base as usize]];
         let q = 0.25;
-        p * LAMBDA + (1. - LAMBDA) * q
+        p * LAMBDA_INS + (1. - LAMBDA_INS) * q
     }
     #[inline]
     pub fn has_edge(&self) -> bool {

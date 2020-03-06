@@ -5,7 +5,7 @@ pub fn get_start_stop(
     let mut coverage: Vec<Vec<u32>> = contigs
         .get_last_units()
         .iter()
-        .map(|&len| vec![0; len as usize])
+        .map(|&last| vec![0; last as usize + 1])
         .collect();
     for read in reads {
         let mut seq = read.seq.iter().skip_while(|e| e.is_gap());

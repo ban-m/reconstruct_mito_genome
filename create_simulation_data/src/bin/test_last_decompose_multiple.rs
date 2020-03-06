@@ -35,12 +35,12 @@ fn main() {
     let len = 150;
     let chain_len = 40;
     let p = &gen_sample::Profile {
-        // sub: 0.001 / 6.,
-        // ins: 0.001 / 6.,
-        // del: 0.001 / 6.,
-        sub: 0.002,
-        ins: 0.002,
-        del: 0.002,
+        sub: 0.001 / 6.,
+        ins: 0.001 / 6.,
+        del: 0.001 / 6.,
+        // sub: 0.001,
+        // ins: 0.001,
+        // del: 0.001,
     };
     use std::time::Instant;
     println!("TestNum:{}\tLabeled:{}", test_num, coverage);

@@ -108,6 +108,7 @@ impl PartialOrderAlignment {
                 updated.iter_mut().for_each(|e| *e = 0.);
                 let (c, d) = self.update(&mut updated, &prev, base, config, &edges);
                 std::mem::swap(&mut prev, &mut updated);
+                assert!(c * d > 1.);
                 if idx < obs.len() - 1 {
                     -(c * d).ln()
                 } else {
