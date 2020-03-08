@@ -15,12 +15,13 @@ fn main() -> std::io::Result<()> {
     let reads: Vec<last_tiling::EncodedRead> =
         serde_json::de::from_reader(std::fs::File::open(&args[2]).map(BufReader::new)?).unwrap();
     let repeats: Vec<last_tiling::repeat::RepeatPairs> = last_tiling::repeat::open(&args[3])?;
+    let alns = last_tiling::parse_tab_file(&args[4])?;
     let cr = {
         let reads: Vec<_> = reads
             .iter()
             .map(|read| last_decompose::ERead::new(read.clone()))
             .collect();
-        last_decompose::critical_regions(&reads, &contigs, &repeats)
+        last_decompose::critical_regions(&reads, &contigs, &repeats, &alns)
     };
     for cr in &cr {
         eprintln!("CR:{:?}", cr);

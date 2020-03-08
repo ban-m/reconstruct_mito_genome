@@ -22,6 +22,8 @@ fn main() {
         .map(|_| gen_sample::generate_seq(&mut rng, len))
         .collect();
     let num_cluster = 2;
+    let total_coverage = 150;
+    let ws = vec![0.5, 0.5];
     let p = gen_sample::Profile {
         sub: 0.001 / 6.,
         ins: 0.001 / 6.,
@@ -48,7 +50,11 @@ fn main() {
             res
         })
         .collect();
-    let coverages = vec![25; num_cluster];
+    let coverages: Vec<_> = ws
+        .iter()
+        .map(|r| (r * total_coverage as f64).floor() as usize)
+        .collect();
+    //vec![25; num_cluster];
     let mut gen = |ts: &Vec<Vec<u8>>| {
         ts.iter()
             .map(|t| gen_sample::introduce_randomness(&t, &mut rng, &gen_sample::PROFILE))
@@ -67,13 +73,12 @@ fn main() {
                 chunks[idx].push(chunk.as_slice());
             }
         }
-        let total_coverage = coverages.iter().sum::<usize>();
         let weights_of_reads = last_decompose::construct_initial_weights(
             &vec![],
             &vec![vec![]; total_coverage],
             num_cluster,
             total_coverage,
-            10392032,
+            32,
         );
         // let weights_of_reads: Vec<_> = coverages
         //     .iter()
@@ -90,7 +95,6 @@ fn main() {
                 weights[cluster].push(w);
             }
         }
-        let total_cov = coverages.iter().sum::<usize>();
         weights
             .iter()
             .map(|ws| {
@@ -106,23 +110,25 @@ fn main() {
         .into_iter()
         .map(|read| read.into_iter().enumerate().collect())
         .collect();
-    let variants = variant_calling::variant_call_poa(&models, &dataset, &DEFAULT_CONFIG, true);
+    let (variants, _) =
+        variant_calling::variant_call_poa(&models, &dataset, &DEFAULT_CONFIG, &ws, true);
     for (idx, (d, w)) in dists.iter().zip(variants.iter()).enumerate() {
         println!("{}\t{}\t{:.4}\tCentrize", idx, d, w.abs());
     }
-    let variants = variant_calling::variant_call_poa(&models, &dataset, &DEFAULT_CONFIG, false);
+    let (variants, _) =
+        variant_calling::variant_call_poa(&models, &dataset, &DEFAULT_CONFIG, &ws, false);
     for (idx, (d, w)) in dists.iter().zip(variants.iter()).enumerate() {
         println!("{}\t{}\t{:.4}\tNormal", idx, d, w.abs());
     }
-    // for pos in 0..chain_len {
-    //     for (idx, read) in test.iter().enumerate() {
-    //         let &(_, ref unit) = read.iter().filter(|&&(p, _)| p == pos).nth(0).unwrap();
-    //         let lks: Vec<_> = models
-    //             .iter()
-    //             .map(|ms| ms[pos].forward(unit, &DEFAULT_CONFIG))
-    //             .map(|lk| format!("{}", lk))
-    //             .collect();
-    //         debug!("DUMP\t{}\t{}\t{}", idx, pos, lks.join("\t"));
-    //     }
-    // }
+    for pos in 0..chain_len {
+        for (idx, read) in dataset.iter().enumerate() {
+            let &(_, ref unit) = read.iter().filter(|&&(p, _)| p == pos).nth(0).unwrap();
+            let lks: Vec<_> = models
+                .iter()
+                .map(|ms| ms[pos].forward(unit, &DEFAULT_CONFIG))
+                .map(|lk| format!("{}", lk))
+                .collect();
+            debug!("DUMP\t{}\t{}\t{}", idx, pos, lks.join("\t"));
+        }
+    }
 }

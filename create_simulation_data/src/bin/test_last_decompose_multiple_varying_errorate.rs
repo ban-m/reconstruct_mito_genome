@@ -14,7 +14,7 @@ use rand_xoshiro::Xoshiro256StarStar;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("info")).init();
     rayon::ThreadPoolBuilder::new()
-        .num_threads(24)
+        .num_threads(8)
         .build_global()
         .unwrap();
     let args: Vec<_> = std::env::args().collect();
@@ -34,17 +34,15 @@ fn main() {
     let len = 150;
     let prob: Vec<_> = (1..=10).collect();
     let test_nums: Vec<_> = (50..150).step_by(10).collect();
-    // let prob = vec![3];
-    // let test_nums = vec![50];
     for p in prob {
         for &test_num in &test_nums {
             let seed = seed + (test_num + p) as u64;
-            let p = p as f64 / 6000. / 2.;
-            println!("ErrorRate:{:3}", p * 6.);
+            let errorrate = (p + 1) as f64 / 2000.;
+            println!("ErrorRate:{:3}", errorrate);
             let p = &gen_sample::Profile {
-                sub: p,
-                ins: p,
-                del: p,
+                sub: errorrate / 6.,
+                ins: errorrate / 6.,
+                del: errorrate / 6.,
             };
             use std::time::Instant;
             println!("TestNum:{}\tLabeled:{}", test_num, coverage);
@@ -79,6 +77,7 @@ fn main() {
                 println!();
             }
             line += &format!("\t{}", test_num);
+            line += &format!("\t{:.5}", errorrate);
             println!("{}", line);
         }
     }

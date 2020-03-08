@@ -611,7 +611,7 @@ pub fn clustering(
     assert_eq!(label.len() + answer.len(), data.len());
     use poa_clustering::DEFAULT_ALN;
     let weights = soft_clustering_poa(data, label, forbidden, cluster_num, answer, c, &DEFAULT_ALN);
-    // let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
+    //let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
     debug!("WEIGHTS\tPrediction. Dump weights");
     assert_eq!(weights.len(), label.len() + answer.len());
     for (weight, ans) in weights.iter().zip(label.iter().chain(answer.iter())) {
@@ -681,7 +681,6 @@ pub fn to_pos(reads: &[ERead]) -> (Vec<Vec<usize>>, usize) {
                 .map(|e| e.unit());
             let max_unit = iter.clone().max()?;
             let min_unit = iter.clone().min()?;
-            eprintln!("{}-{}", min_unit, max_unit);
             Some((min_unit, max_unit))
         })
         .collect();

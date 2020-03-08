@@ -18,7 +18,7 @@ const fn factor(x: usize) -> usize {
 /// How many reads are needed to construct a separate class.
 /// Note that it should be more than 1, since there is a
 /// danger of chimeric reads.
-const CHECK_THR: u16 = 4;
+const CHECK_THR: u16 = 2;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum CriticalRegion {
     CP(ContigPair),
@@ -308,34 +308,33 @@ pub fn critical_regions(
     reads: &[ERead],
     contigs: &Contigs,
     _repeats: &[RepeatPairs],
+    alignments: &[LastTAB],
 ) -> Vec<CriticalRegion> {
     let num_of_contig = contigs.get_num_of_contigs() as u16;
-    let regions = vec![];
     debug!("There are {} contigs", num_of_contig);
     debug!("There are {} reads", reads.len());
     for c in contigs.names().iter() {
         debug!("->{}({}len)", c, contigs.get(c).unwrap().len());
     }
-    let tot = contigs
-        .get_last_units()
-        .iter()
-        .map(|&e| e as usize)
-        .sum::<usize>();
-    let mean = 2 * reads.len() / tot;
-    debug!("Total units:{}\tMean:{}", tot, mean);
-    // for from in 0..num_of_contig {
-    //     if let Some(res) = critical_region_within(from, reads, contigs, repeats) {
-    //         regions.extend(res);
-    //     }
-    // }
-    regions
+    let contig_pairs = contigpair_position(reads, contigs);
+    let confluent_regions = confluent_position(alignments, contigs, last_tiling::UNIT_SIZE);
+    let contig_pairs = contig_pairs.into_iter().map(|cp| CriticalRegion::CP(cp));
+    let confluent_regions = confluent_regions
+        .into_iter()
+        .map(|cr| CriticalRegion::CR(cr));
+    contig_pairs.chain(confluent_regions).collect()
 }
 
 pub fn contigpair_position(reads: &[ERead], contigs: &Contigs) -> Vec<ContigPair> {
-    let mut from_up_counts: Vec<Vec<Vec<(usize, bool)>>> = contigs
+    let mut from_up_counts: Vec<Vec<Vec<(u16, usize, bool)>>> = contigs
         .get_last_units()
         .iter()
         .map(|&len| vec![vec![]; len as usize + 1])
+        .collect();
+    let max_len: Vec<_> = contigs
+        .get_last_units()
+        .into_iter()
+        .map(|e| e as usize)
         .collect();
     let mut to_down_counts = from_up_counts.clone();
     for read in reads.iter() {
@@ -343,31 +342,213 @@ pub fn contigpair_position(reads: &[ERead], contigs: &Contigs) -> Vec<ContigPair
         for w in jumps {
             let (start, end) = (w[1].unit as usize, w[2].unit as usize);
             let (c1, c2) = (w[1].contig as usize, w[2].contig as usize);
-            match (start < end, is_from_up(&w[..2]), is_from_up(&w[2..])) {
-                (true, true, x) => from_up_counts[c1][start].push((end, x)),
-                (true, false, x) => to_down_counts[c1][start].push((end, x)),
-                (false, x, true) => from_up_counts[c2][end].push((start, x)),
-                (false, x, false) => to_down_counts[c2][end].push((start, x)),
+            // Check if they are not circular.
+            if c1 == c2 && (start.min(end) < 5 && max_len[c1 as usize] - 5 < end.max(start)) {
+                continue;
+            }
+            // If w[0] < w[1], it is to upstream.
+            let former_from_up = is_from_up(&w[..2]);
+            // If w[2] < w[3], it is to downstream.
+            let latter_from_up = !is_from_up(&w[2..]);
+            match (start < end, former_from_up, latter_from_up) {
+                (true, true, x) => from_up_counts[c1][start].push((c2 as u16, end, x)),
+                (true, false, x) => to_down_counts[c1][start].push((c2 as u16, end, x)),
+                (false, x, true) => from_up_counts[c2][end].push((c1 as u16, start, x)),
+                (false, x, false) => to_down_counts[c2][end].push((c1 as u16, start, x)),
             }
         }
     }
-    let contigpairs = vec![];
-    for (_contig, jumps) in from_up_counts.iter_mut().enumerate() {
-        let (mut start, end) = (0, jumps.len());
-        while start < end {
-            // Search a heviest edge from this contig.
-            start = 10;
-            // Determine the range of the start position ad the range of
-            // the end position.
-
-            // Collect the edges from (start,end) to (start_dst, end_dst)
-            // and remove them from counts.
-
-            // Move start to the next position.
+    for contig in from_up_counts.iter() {
+        for (idx, jumps) in contig.iter().enumerate() {
+            if jumps.len() > 2 {
+                debug!("U\t{}\t{}", idx, jumps.len());
+            }
         }
     }
-    // The same as forward.
+    for contig in to_down_counts.iter() {
+        for (idx, jumps) in contig.iter().enumerate() {
+            if jumps.len() > 2 {
+                debug!("D\t{}\t{}", idx, jumps.len());
+            }
+        }
+    }
+    let mut contigpairs = vec![];
+    //debug!("start call peak");
+    let pairs = peak_call_contigpair(from_up_counts, true, contigs);
+    contigpairs.extend(pairs);
+    //debug!("start call peak");
+    let pairs = peak_call_contigpair(to_down_counts, false, contigs);
+    contigpairs.extend(pairs);
     contigpairs
+}
+
+fn peak_call_contigpair(
+    mut counts: Vec<Vec<Vec<(u16, usize, bool)>>>,
+    from_upstream: bool,
+    contigs: &Contigs,
+) -> Vec<ContigPair> {
+    let mut contigpairs = vec![];
+    for (contig, jumps) in counts.iter_mut().enumerate() {
+        let from_max = contigs.get_last_unit(contig as u16).unwrap();
+        let mut start_idx = 0;
+        while start_idx < jumps.len() {
+            // Search a heviest edge from this contig.
+            let (from, to_c, to, direction) = match search_jump_start(jumps, start_idx) {
+                Some(res) => res,
+                None => break,
+            };
+            //debug!("{}:{}->{}:{}({})", contig, from, to_c, to, direction);
+            // Determine the range of the start position ad the range of
+            // the end position.
+            let (from_start, from_end, to_start, to_end) =
+                search_jump_area(jumps, from, to_c, to, direction);
+            // debug!("{}-{} -> {}-{}", from_start, from_end, to_start, to_end);
+            // Collect the edges from (start,end) to (start_dst, end_dst)
+            let counts = collect_edges_in(
+                jumps, from_start, from_end, to_c, to_start, to_end, direction,
+            );
+            // debug!("having {} reads", counts);
+            // and remove them from counts.
+            if counts > COVERAGE_THR {
+                remove_edges(
+                    jumps, from_start, from_end, to_c, to_start, to_end, direction,
+                );
+                use Direction::*;
+                let from_direction = if from_upstream { UpStream } else { DownStream };
+                let to_direction = if direction { UpStream } else { DownStream };
+                let to_max = contigs.get_last_unit(to_c as u16).unwrap();
+                let (contig, from_start, from_end) =
+                    (contig as u16, from_start as u16, from_end as u16);
+                let pos1 = Position::new(contig, from_start, from_end, from_direction, from_max);
+                let (to_start, to_end) = (to_start as u16, to_end as u16);
+                let pos2 = Position::new(to_c, to_start, to_end, to_direction, to_max);
+                contigpairs.push(ContigPair::new(pos1, pos2));
+            }
+            start_idx = from_end;
+        }
+    }
+    contigpairs
+}
+
+const JUMP_THR: usize = 5;
+// Return the start position of the edge, the contig of the destination, the position of the destimation, and whether the edge is 'to_downstream'.
+fn search_jump_start(
+    jumps: &[Vec<(u16, usize, bool)>],
+    s: usize,
+) -> Option<(usize, u16, usize, bool)> {
+    let mut counts: HashMap<_, usize> = HashMap::new();
+    for (position, edges) in jumps.iter().enumerate().skip(s) {
+        for key in edges.iter() {
+            *counts.entry(key.clone()).or_default() += 1;
+        }
+        if let Some((&(x, y, z), _count)) =
+            counts.iter().filter(|&(_, &count)| count > JUMP_THR).nth(0)
+        {
+            return Some((position, x, y, z));
+        }
+        counts.clear();
+    }
+    None
+}
+
+const OFFSET: usize = 5;
+// Return the area of the junctions.
+fn search_jump_area(
+    jumps: &[Vec<(u16, usize, bool)>],
+    from: usize,
+    to_c: u16,
+    to: usize,
+    direction: bool,
+) -> (usize, usize, usize, usize) {
+    // Count the number of edges from from_start position to to_c:[to_start..to_end).
+    let count = |pos: usize, start: usize, end: usize| {
+        let start = start.max(OFFSET) - OFFSET;
+        let end = end + OFFSET;
+        jumps[pos]
+            .iter()
+            .filter(|&&(c, t, d)| c == to_c && start <= t && t < end && d == direction)
+            .count()
+    };
+    // Get the minimum/maximum position from 'pos' to the target range.
+    let get_range = |pos: usize, start: usize, end: usize| {
+        let start = start.max(OFFSET) - OFFSET;
+        let end = end + OFFSET;
+        let edges = jumps[pos]
+            .iter()
+            .filter(|&&(c, t, d)| c == to_c && start <= t && t < end && d == direction);
+        let min = edges
+            .clone()
+            .map(|&(_, t, _)| t)
+            .min()
+            .unwrap_or_else(|| panic!("{}", line!()));
+        let max = edges
+            .clone()
+            .map(|&(_, t, _)| t)
+            .max()
+            .unwrap_or_else(|| panic!("{}", line!()));
+        (min, max)
+    };
+    let (mut from_start, mut from_end) = (from, from + 1);
+    let (mut to_start, mut to_end) = (to, to + 1);
+    const STEP_SIZE: usize = 5;
+    while let Some(step) = (1..STEP_SIZE)
+        .filter(|&n| n < from_start && count(from_start - n, to_start, to_end) > 0)
+        .last()
+    {
+        from_start -= step;
+        let (start, end) = get_range(from_start, to_start, to_end);
+        to_start = to_start.min(start);
+        to_end = to_end.max(end);
+    }
+    while let Some(step) = (1..STEP_SIZE)
+        .filter(|&n| n + from_end <= jumps.len() && count(from_end + n - 1, to_start, to_end) > 0)
+        .last()
+    {
+        from_end += step;
+        let (start, end) = get_range(from_end - 1, to_start, to_end);
+        to_start = to_start.min(start);
+        to_end = to_end.max(end);
+    }
+    (from_start, from_end, to_start, to_end)
+}
+
+// Count the number of edges from [f_start, f_end) and ending in to_c:[to_start, to_end).
+fn collect_edges_in(
+    jumps: &[Vec<(u16, usize, bool)>],
+    f_start: usize,
+    f_end: usize,
+    to_c: u16,
+    to_start: usize,
+    to_end: usize,
+    direction: bool,
+) -> usize {
+    jumps[f_start..f_end]
+        .iter()
+        .map(|edges| {
+            edges
+                .iter()
+                .filter(|&&(c, t, d)| c == to_c && d == direction && to_start <= t && t < to_end)
+                .count()
+        })
+        .sum::<usize>()
+}
+
+fn remove_edges(
+    jumps: &mut [Vec<(u16, usize, bool)>],
+    f_start: usize,
+    f_end: usize,
+    to_c: u16,
+    to_start: usize,
+    to_end: usize,
+    direction: bool,
+) {
+    for edges in jumps[f_start..f_end].iter_mut() {
+        *edges = edges
+            .iter()
+            .filter(|&&(c, t, d)| !(c == to_c && d == direction && to_start <= t && t < to_end))
+            .copied()
+            .collect();
+    }
 }
 
 fn is_jumping(w: &&[super::CUnit]) -> bool {
@@ -478,10 +659,6 @@ fn critical_region_within(
             // Case1.
             let last_unit = last_unit as u16;
             if st_upstream.intersection(&xy_downstream).count() >= thr {
-                // debug!(
-                //     "Up-Down:{}",
-                //     st_upstream.intersection(&xy_downstream).count()
-                // );
                 let c1 = Position::new(contig, s, t, Direction::UpStream, last_unit);
                 let c2 = Position::new(contig, x, y, Direction::DownStream, last_unit);
                 result.push(ContigPair::new(c1, c2));
@@ -538,27 +715,12 @@ fn merge_overlap_and_remove_contained(mut regions: Vec<(usize, usize)>) -> Vec<(
         .collect()
 }
 
-pub fn covert_to_unit_positions(
-    regions: &[(String, usize, usize, bool)],
+/// Enumerate confluent region in the references.
+pub fn confluent_position(
+    alignments: &[LastTAB],
     contigs: &Contigs,
     unit_size: usize,
 ) -> Vec<ConfluentRegion> {
-    regions
-        .iter()
-        .map(|&(ref id, start, end, to_downstream)| {
-            let id = contigs.get_id(id).unwrap();
-            let (start, end) = (start / unit_size, end / unit_size);
-            let (start, end) = (start as u16, end as u16);
-            let max = contigs.get_last_unit(id).unwrap();
-            use Direction::*;
-            let di = if to_downstream { DownStream } else { UpStream };
-            ConfluentRegion::new(Position::new(id, start, end, di, max))
-        })
-        .collect()
-}
-
-/// Enumerate confluent region in the references.
-pub fn confluent_position(alignments: &[LastTAB]) -> Vec<(String, usize, usize, bool)> {
     let references: Vec<_> = {
         let mut reference: Vec<_> = alignments
             .iter()
@@ -576,7 +738,7 @@ pub fn confluent_position(alignments: &[LastTAB]) -> Vec<(String, usize, usize, 
     for tab in alignments {
         reads
             .entry(tab.seq2_name().to_string())
-            .or_insert(Vec::new())
+            .or_insert_with(Vec::new)
             .push(tab);
     }
     for (_id, tabs) in reads.into_iter() {
@@ -589,18 +751,6 @@ pub fn confluent_position(alignments: &[LastTAB]) -> Vec<(String, usize, usize, 
             if let Some(res) = start_stop_count.get_mut(ref_name) {
                 res[position].1 += 1;
             }
-        }
-    }
-    for (_, counts) in start_stop_count.iter() {
-        let downs: Vec<_> = counts.iter().map(|&(d, _)| d).collect();
-        let ups: Vec<_> = counts.iter().map(|&(_, u)| u).collect();
-        for (idx, ds) in downs.windows(WINDOW).enumerate() {
-            let d = ds.iter().sum::<usize>();
-            debug!("STST\t{}\t{}\tDown", idx, d);
-        }
-        for (idx, us) in ups.windows(WINDOW).enumerate() {
-            let u = us.iter().sum::<usize>();
-            debug!("STST\t{}\t{}\tUp", idx, u);
         }
     }
     let mut result = vec![];
@@ -617,6 +767,17 @@ pub fn confluent_position(alignments: &[LastTAB]) -> Vec<(String, usize, usize, 
         result.extend(chunks);
     }
     result
+        .iter()
+        .map(|&(ref id, start, end, to_downstream)| {
+            let id = contigs.get_id(id).unwrap();
+            let (start, end) = (start / unit_size, end / unit_size);
+            let (start, end) = (start as u16, end as u16);
+            let max = contigs.get_last_unit(id).unwrap();
+            use Direction::*;
+            let di = if to_downstream { DownStream } else { UpStream };
+            ConfluentRegion::new(Position::new(id, start, end, di, max))
+        })
+        .collect()
 }
 
 fn get_first_alignment<'a>(tabs: &[&'a LastTAB]) -> Option<(&'a str, usize)> {

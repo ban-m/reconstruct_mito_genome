@@ -1,17 +1,15 @@
-use super::construct_initial_weights;
+// use super::construct_initial_weights;
 //use super::INIT_PICK_PROB;
 use super::entropy;
-use super::get_max_coverage;
+use super::variant_calling::variant_call_poa;
+// use super::get_max_coverage;
 use super::{serialize, to_pos};
 use super::{utils, ERead, Read};
-use super::{FACTOR, INIT_BETA};
+// use super::{FACTOR, INIT_BETA};
 use poa_hmm::*;
 use rand::{thread_rng, Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
-const BETA_STEP: f64 = 1.1;
-const DEFAULT_WEIGHT: f64 = 0.;
-// const BETA_OFFSET: f64 = 0.1;
 const ENTROPY_THR: f64 = 0.2;
 const PICK_PROB: f64 = 0.02;
 
@@ -34,7 +32,7 @@ fn score(x: u8, y: u8) -> i32 {
 pub const DEFAULT_ALN: AlnParam<fn(u8, u8) -> i32> = AlnParam {
     ins: -6,
     del: -6,
-    score: score,
+    score,
 };
 
 struct ModelFactory<'a> {
@@ -99,10 +97,9 @@ impl<'a> ModelFactory<'a> {
     where
         F: Fn(u8, u8) -> i32 + std::marker::Sync,
     {
-        let default_weight = DEFAULT_WEIGHT; // / class as f64;
         assert!(self.weights.iter().all(|ws| ws.is_empty()));
         for ((read, w), &b) in reads.iter().zip(ws).zip(updates) {
-            let w = if b { 0. } else { w[cl] + default_weight };
+            let w = if b { 0. } else { w[cl] };
             for &(pos, _) in read.iter() {
                 self.weights[pos].push(w);
             }
@@ -131,7 +128,7 @@ fn convert(c: &dbg_hmm::Config) -> poa_hmm::Config {
         p_del_to_ins: c.p_del_to_ins,
     }
 }
-
+use rand::seq::SliceRandom;
 pub fn soft_clustering_poa<F>(
     data: &[ERead],
     label: &[u8],
@@ -152,9 +149,6 @@ where
     let seed = data.len() as u64;
     let mut weights_of_reads =
         crate::construct_initial_weights(label, forbidden, cluster_num, data.len(), seed);
-    //let pick_up_len = 2 * PICK_PROB.recip().floor() as usize;
-    // let max_coverage = get_max_coverage(&data, chain_len);
-    // let beta_step = 1. + (BETA_STEP - 1.) / (max_coverage as f64).log10();
     debug!("Chain length is {}", chain_len);
     let mut mf = ModelFactory::new(chain_len, &data);
     let mut models: Vec<Vec<POA>> = (0..cluster_num)
@@ -165,242 +159,72 @@ where
     let pick_num = (datasize * PICK_PROB).floor() as usize;
     let mut picks: Vec<_> = (0..data.len()).skip(border).collect();
     picks.shuffle(&mut rng);
-    use rand::seq::SliceRandom;
-    let max_entropy = (cluster_num as f64).ln() * datasize;
     let mut ws: Vec<f64> = (0..cluster_num)
         .map(|i| weights_of_reads.iter().map(|g| g[i]).sum::<f64>() / datasize)
         .collect();
-    // super::updates_flags(&mut updates, &weights_of_reads, &mut rng, PICK_PROB, border);
-    // let mut beta =
-    //     search_initial_beta(&data, label, forbidden, cluster_num, config, chain_len, aln);
-    let weights = super::variant_calling::variant_call_poa(&models, &data, config, true);
+    let (weights, mut previous_lk) = variant_call_poa(&models, &data, config, &ws, true);
     let mut variants: Vec<_> = weights.iter().map(|&b| b * b).collect();
-    let mut loop_num = 1;
-    let mut previous_lk = calc_lk(&models, &ws, &data, config);
     let mut saved = weights_of_reads.clone();
-    debug!("LK\t0\t{}\t{}", id, previous_lk);
-    loop {
+    let correct = report(id, &saved, border, answer, cluster_num);
+    info!("LK\t{}\t{}\t{}\t{}", id, 0, previous_lk, correct);
+    for loop_num in 1.. {
+        let max = variants.iter().fold(0., |x, &y| if x < y { y } else { x });
+        let betas: Vec<_> = variants.iter().map(|v| v / max).collect();
+        for (idx, (v, beta)) in variants.iter().zip(betas.iter()).enumerate() {
+            debug!("BETA\t{}\t{}\t{:.3}\t{:.3}", loop_num, idx, v, beta);
+        }
         while !picks.is_empty() {
-            // select reads to be updated.
             let mut updates = vec![false; data.len()];
             for _ in 0..pick_num {
                 if let Some(pos) = picks.pop() {
                     updates[pos] = true;
                 }
             }
-            let max = variants.iter().fold(0., |x, &y| if x < y { y } else { x });
-            let betas: Vec<_> = variants.iter().map(|v| v / max).collect();
             let w = &mut weights_of_reads;
-            update_weights(
-                w, &mut ws, border, &data, &models, &updates, &betas, config, None,
-            );
+            update_weights(w, &mut ws, border, &data, &models, &updates, &betas, config);
             let wor = &weights_of_reads;
-            //super::updates_flags(&mut updates, wor, &mut rng, PICK_PROB, border);
             models = (0..cluster_num)
                 .map(|cl| mf.update_model(&updates, wor, &data, cl, aln, cluster_num))
                 .collect();
         }
-        picks = (0..data.len()).skip(border).collect();
-        picks.shuffle(&mut rng);
         let wor = &weights_of_reads;
-        report(id, wor, border, answer, &ws, 1.);
-        let lk = calc_lk(&models, &ws, &data, config);
-        debug!("LK\t{}\t{}\t{}", loop_num, id, lk);
-        if lk <= previous_lk {
+        let correct = report(id, wor, border, answer, cluster_num);
+        let (weights, lk) = variant_call_poa(&models, &data, config, &ws, true);
+        info!("LK\t{}\t{}\t{}\t{}", id, loop_num, lk, correct);
+        let soe = wor.iter().map(|e| entropy(e)).sum::<f64>();
+        if lk <= previous_lk && soe / datasize / (cluster_num as f64).ln() < ENTROPY_THR {
             break;
         }
         previous_lk = lk;
         saved = weights_of_reads.clone();
-        loop_num += 1;
-        // if wor.iter().map(|e| entropy(e)).sum::<f64>() / max_entropy < ENTROPY_THR {
-        //     break 'outer;
-        // }
-        let weights = super::variant_calling::variant_call_poa(&models, &data, config, true);
         variants.iter_mut().zip(weights).for_each(|(v, w)| {
-            *v = (*v + w * w) / 2.;
+            *v = *v * 0.5 + w * w * 0.5;
         });
+        picks = (0..data.len()).skip(border).collect();
+        picks.shuffle(&mut rng);
     }
-    let weights_of_reads = saved;
-    report(id, &weights_of_reads, border, answer, &ws, 1.);
-    weights_of_reads
+    saved
 }
 
-fn calc_lk(models: &[Vec<POA>], ws: &[f64], data: &[Read], config: &Config) -> f64 {
-    fn lk(r: &Read, m: &[POA], c: &Config) -> f64 {
-        r.iter().map(|&(p, ref u)| m[p].forward(u, c)).sum::<f64>()
-    }
-    fn lk_of_read(read: &Read, ws: &[f64], models: &[Vec<POA>], config: &Config) -> f64 {
-        let lks: Vec<_> = models
-            .iter()
-            .zip(ws.iter())
-            .map(|(m, w)| w.ln() + lk(read, m, config))
-            .collect();
-        super::utils::logsumexp(&lks)
-    }
-    data.par_iter()
-        .map(|read| lk_of_read(read, ws, models, config))
-        .sum::<f64>()
-}
-
-// Update the K-dimensional vectors at each position towarding the axis(1,1,1,1..,1) from the center.
-fn update_centrize_vectors<R: rand::Rng>(
-    centrize_vectors: &mut [Vec<f64>],
-    models: &[Vec<POA>],
-    data: &[Read],
-    config: &Config,
-    chain_len: usize,
-    rng: &mut R,
-) {
-    //Clear vectors.
-    centrize_vectors
-        .iter_mut()
-        .for_each(|vec| vec.iter_mut().for_each(|x| *x = 0.));
-    // Let's calcurate the average lk on each position.
-    // To this end, we need aux. vector to store how many units
-    // we use at each position. Let it be counts.
-    let mut counts = vec![0.; chain_len];
-    let pick_num = 25.min(data.len());
-    use rand::seq::SliceRandom;
-    for read in data.choose_multiple(rng, pick_num) {
-        let likelihoods: Vec<_> = models
-            .par_iter()
-            .enumerate()
-            .map(|(cluster, ms)| {
-                let lks = read
-                    .par_iter()
-                    .map(|&(pos, ref unit)| (pos, ms[pos].forward(unit, config)))
-                    .collect::<Vec<_>>();
-                (cluster, lks)
-            })
-            .collect();
-        for (cluster, lks) in likelihoods {
-            for (pos, lk) in lks {
-                counts[pos] += 1.;
-                centrize_vectors[cluster][pos] += lk;
-            }
-        }
-    }
-    for vector in centrize_vectors.iter_mut() {
-        vector
-            .iter_mut()
-            .zip(counts.iter())
-            .for_each(|(sum, count)| *sum /= count);
-    }
-    // Here we've compute not c, but c/K.
-    // Thus we can calculate <c,1>/K 1by just adding the likelihood of each culaster
-    // This is because we've already add 1 for K times for
-    // each position of the read. Thus the /K is not needed.
-    // Compute <c,1>/k.
-    let projection: Vec<_> = centrize_vectors
-        .iter()
-        .fold(vec![0.; chain_len], |mut acc, xs| {
-            acc.iter_mut().zip(xs.iter()).for_each(|(a, &x)| *a += x);
-            acc
-        });
-    // Then, compuate <c,1>/K 1 - c = <c/K, 1> 1 - c/K * K.
-    let cluster_num = models.len() as f64;
-    for vector in centrize_vectors.iter_mut() {
-        vector
-            .iter_mut()
-            .zip(projection.iter())
-            .for_each(|(cv, &p)| {
-                *cv = p - *cv * cluster_num;
-            });
-    }
-}
-
-fn search_initial_beta<F>(
-    data: &[Read],
-    label: &[u8],
-    forbidden: &[Vec<u8>],
-    cluster: usize,
-    c: &Config,
-    chain_len: usize,
-    aln: &AlnParam<F>,
-) -> f64
-where
-    F: Fn(u8, u8) -> i32 + std::marker::Sync,
-{
-    let seed = data.iter().map(|e| e.len()).sum::<usize>() as u64;
-    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
-    let weight_of_read = construct_initial_weights(label, forbidden, cluster, data.len(), seed);
-    let border = label.len();
-    let mut mf = ModelFactory::new(chain_len, data);
-    let mut beta = INIT_BETA;
-    let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
-    let wor = &weight_of_read;
-    loop {
-        let betas = vec![beta; chain_len];
-        let next = soe_after_sampling(
-            &betas, data, wor, border, &mut rng, cluster, &mut mf, c, aln,
-        );
-        debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, next, soe - next);
-        if soe > next {
-            break;
-        } else {
-            beta *= FACTOR;
-        }
-    }
-    beta /= FACTOR;
-    loop {
-        let betas = vec![beta; chain_len];
-        let next = soe_after_sampling(
-            &betas, data, wor, border, &mut rng, cluster, &mut mf, c, aln,
-        );
-        debug!("SEARCH\t{:.3}\t{:.3}\t{:.3}", beta, next, soe - next);
-        if soe < next {
-            break;
-        } else {
-            beta /= FACTOR;
-        }
-    }
-    beta
-}
-
-fn soe_after_sampling<R: Rng, F>(
-    betas: &[f64],
-    data: &[Read],
-    wor: &[Vec<f64>],
-    border: usize,
-    rng: &mut R,
-    cluster_num: usize,
-    mf: &mut ModelFactory,
-    c: &Config,
-    aln: &AlnParam<F>,
-) -> f64
-where
-    F: Fn(u8, u8) -> i32 + std::marker::Sync,
-{
-    let datasize = data.len() as f64;
-    let mut updates = vec![false; data.len()];
-    let mut ws: Vec<f64> = (0..cluster_num)
-        .map(|i| wor.iter().map(|g| g[i]).sum::<f64>() / datasize)
-        .collect();
-    let mut models: Vec<Vec<POA>> = (0..cluster_num)
-        .map(|cl| mf.generate_model(&wor, data, cl, aln))
-        .collect();
-    let mut wor = wor.to_vec();
-    //for _ in 0..SAMPLING {
-    for _ in 0..10 {
-        use super::INIT_PICK_PROB;
-        super::updates_flags(&mut updates, &wor, rng, INIT_PICK_PROB, border);
-        update_weights(
-            &mut wor, &mut ws, border, data, &models, &updates, &betas, c, None,
-        );
-        models = (0..cluster_num)
-            .map(|cl| mf.generate_model(&wor, &data, cl, aln))
-            .collect();
-    }
-    wor.iter().map(|e| entropy(e)).sum::<f64>()
-}
+// fn dump(models: &[Vec<POA>], reads: &[Read], config: &Config) {
+//     for (idx, read) in reads.iter().enumerate() {
+//         for &(pos, ref unit) in read.iter() {
+//             let res: Vec<_> = models
+//                 .iter()
+//                 .map(|ms| ms[pos].forward(unit, config))
+//                 .map(|lk| format!("{}", lk))
+//                 .collect();
+//             debug!("DUMP\t{}\t{}\t{}", idx, pos, res.join("\t"));
+//         }
+//     }
+// }
 
 fn report(
     id: u64,
     weight_of_read: &[Vec<f64>],
     border: usize,
     answer: &[u8],
-    ws: &[f64],
-    beta: f64,
+    cluster_num: usize,
 ) -> f64 {
     let correct = weight_of_read
         .iter()
@@ -414,7 +238,7 @@ fn report(
                 == 0
         })
         .count();
-    let count: Vec<_> = (0..ws.len())
+    let count: Vec<_> = (0..cluster_num)
         .map(|cl| {
             weight_of_read
                 .iter()
@@ -425,17 +249,17 @@ fn report(
         .collect();
     let count = count.join("\t");
     let acc = correct as f64 / answer.len() as f64;
-    let ws: Vec<_> = (0..ws.len())
+    let ws: Vec<_> = (0..cluster_num)
         .map(|cl| weight_of_read.iter().map(|r| r[cl]).sum::<f64>())
         .collect();
     let pi: Vec<_> = ws.iter().map(|e| format!("{:.2}", *e)).collect();
     let pi = pi.join("\t");
     let soe = weight_of_read.iter().map(|e| entropy(e)).sum::<f64>();
     info!(
-        "Summary\t{}\t{:.3}\t{}\t{}\t{:.3}\t{}\t{:.2}",
-        id, soe, pi, count, beta, correct, acc
+        "Summary\t{}\t{:.3}\t{}\t{}\t{}\t{:.2}",
+        id, soe, pi, count, correct, acc,
     );
-    0.
+    acc
 }
 
 fn update_weights(
@@ -447,7 +271,6 @@ fn update_weights(
     updates: &[bool],
     betas: &[f64],
     c: &Config,
-    centrize_vectors: Option<&[Vec<f64>]>,
 ) {
     data.par_iter()
         .zip(weight_of_read.par_iter_mut())
@@ -455,7 +278,7 @@ fn update_weights(
         .skip(border)
         .filter(|&(_, &b)| b)
         .for_each(|((read, weights), _)| {
-            compute_log_probs(models, &ws, read, weights, c, &betas, &centrize_vectors);
+            compute_log_probs(models, &ws, read, weights, c, &betas);
             let tot = utils::logsumexp(weights);
             weights.iter_mut().for_each(|w| *w = (*w - tot).exp());
         });
@@ -473,44 +296,23 @@ fn compute_log_probs(
     weights: &mut Vec<f64>,
     c: &Config,
     betas: &[f64],
-    centrize_vectors: &Option<&[Vec<f64>]>,
 ) {
     assert_eq!(models.len(), ws.len());
     assert_eq!(models.len(), weights.len());
     assert!((1. - ws.iter().sum::<f64>()).abs() < 0.001);
-    if let Some(centrize_vectors) = centrize_vectors {
-        models
-            .par_iter()
-            .zip(weights.par_iter_mut())
-            .zip(ws.par_iter())
-            .zip(centrize_vectors.par_iter())
-            .for_each(|(((ms, g), w), cv)| {
-                *g = read
-                    .par_iter()
-                    .map(|&(pos, ref u)| {
-                        let model = &ms[pos];
-                        let beta = betas[pos];
-                        let centrize = cv[pos];
-                        beta * (model.forward(u, c) + centrize)
-                    })
-                    .sum::<f64>()
-                    + w.ln();
-            });
-    } else {
-        models
-            .par_iter()
-            .zip(weights.par_iter_mut())
-            .zip(ws.par_iter())
-            .for_each(|((ms, g), w)| {
-                *g = read
-                    .par_iter()
-                    .map(|&(pos, ref u)| {
-                        let model = &ms[pos];
-                        let beta = betas[pos];
-                        beta * model.forward(u, c)
-                    })
-                    .sum::<f64>()
-                    + w.ln();
-            });
-    }
+    models
+        .par_iter()
+        .zip(weights.par_iter_mut())
+        .zip(ws.par_iter())
+        .for_each(|((ms, g), w)| {
+            *g = read
+                .par_iter()
+                .map(|&(pos, ref u)| {
+                    let model = &ms[pos];
+                    let beta = betas[pos];
+                    beta * model.forward(u, c)
+                })
+                .sum::<f64>()
+                + w.ln();
+        });
 }

@@ -7,7 +7,7 @@
 #$ -o ./logfiles/last_decompose_poa.log
 #$ -V
 #$ -m e
-#$ -t 1:10
+#$ -t 1:12
 set -ue
 OUTPUT=./result/last_decompose_poa_${SGE_TASK_ID}.txt
 OUTLOG_PREFIX=./logfiles/last_decompose_poa_${SGE_TASK_ID}

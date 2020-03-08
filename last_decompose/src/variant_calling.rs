@@ -25,9 +25,10 @@ pub fn variant_call_poa(
     models: &[Vec<POA>],
     data: &[super::Read],
     c: &poa_hmm::Config,
+    ws: &[f64],
     centrize: bool,
-) -> Vec<f64> {
-    let matrix = calc_matrix_poa(models, data, c, centrize);
+) -> (Vec<f64>, f64) {
+    let (matrix, lk) = calc_matrix_poa(models, data, c, centrize, ws);
     let eigens = matrix.symmetric_eigen();
     let max = eigens
         .eigenvalues
@@ -36,7 +37,8 @@ pub fn variant_call_poa(
         .enumerate()
         .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
         .unwrap();
-    eigens.eigenvectors.column(max.0).iter().copied().collect()
+    let argmax = eigens.eigenvectors.column(max.0).iter().copied().collect();
+    (argmax, lk)
 }
 
 fn calc_matrix(models: &[Vec<DBGHMM>], data: &[super::Read], c: &Config) -> DMatrix<f64> {
@@ -123,7 +125,7 @@ fn centrize_vector_of(
         row_vec
             .iter_mut()
             .zip(counts.iter())
-            .for_each(|(sum, &count)| *sum = *sum / count as f64)
+            .for_each(|(sum, &count)| *sum /=  count as f64)
     });
     // Compute projection to axis, i.e., <c,1>/K 1 - c.
     // Here, c is the column vector at each position.
@@ -154,7 +156,8 @@ fn calc_matrix_poa(
     data: &[super::Read],
     c: &poa_hmm::Config,
     centrize: bool,
-) -> DMatrix<f64> {
+    ws: &[f64],
+) -> (DMatrix<f64>, f64) {
     let num_cluster = models.len();
     let chain_len = models[0].len();
     // LK matrix of each read, i.e., lk_matrix[i] would
@@ -166,6 +169,18 @@ fn calc_matrix_poa(
         .par_iter()
         .map(|read| lks_poa(models, read, c, chain_len))
         .collect();
+    let lk = lk_matrices
+        .iter()
+        .map(|matrix| {
+            assert_eq!(matrix.len() / chain_len, num_cluster);
+            let lks: Vec<_> = matrix
+                .chunks_exact(chain_len)
+                .zip(ws.iter())
+                .map(|(chunks, w)| w.ln() + chunks.iter().sum::<f64>())
+                .collect();
+            crate::utils::logsumexp(&lks)
+        })
+        .sum::<f64>();
     if centrize {
         let cv = centrize_vector_of(data, &lk_matrices, num_cluster, chain_len);
         // Centrize the matrices. In other words,
@@ -182,7 +197,7 @@ fn calc_matrix_poa(
                 }
             });
     };
-    lk_matrices
+    let matrix = lk_matrices
         .into_par_iter()
         .map(|data| DMatrix::from_row_slice(num_cluster, chain_len, &data))
         .fold(
@@ -195,5 +210,6 @@ fn calc_matrix_poa(
                 x + trans * reg * l
             },
         )
-        .reduce(|| DMatrix::zeros(chain_len, chain_len), |x, y| x + y)
+        .reduce(|| DMatrix::zeros(chain_len, chain_len), |x, y| x + y);
+    (matrix, lk)
 }

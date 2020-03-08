@@ -16,12 +16,13 @@ fn main() -> std::io::Result<()> {
     let reads: Vec<last_tiling::EncodedRead> =
         serde_json::de::from_reader(std::fs::File::open(&args[2]).map(BufReader::new)?).unwrap();
     let repeats: Vec<last_tiling::repeat::RepeatPairs> = last_tiling::repeat::open(&args[3])?;
+    let alns: Vec<_> = last_tiling::parse_tab_file(&args[4])?;
     let cr = {
         let reads: Vec<_> = reads
             .iter()
             .map(|read| last_decompose::ERead::new(read.clone()))
             .collect();
-        last_decompose::critical_regions(&reads, &contigs, &repeats)
+        last_decompose::critical_regions(&reads, &contigs, &repeats, &alns)
     };
     for cr in &cr {
         eprintln!("CR:{:?}", cr);
@@ -122,20 +123,19 @@ impl Read {
                 };
                 if u.contig == prev_c && diff < 2 {
                     prev_u = u.unit;
-                } else{
+                } else {
                     //If not right after a gap.
-                    if prev_c != std::u16::MAX{
+                    if prev_c != std::u16::MAX {
                         let e = Unit::E(prev_c, start, prev_c, prev_u);
                         units.push(e);
                     }
                     start = u.unit;
                     prev_u = u.unit;
                     prev_c = u.contig;
-
                 }
             } else {
                 // If not the head.
-                if prev_c != std::u16::MAX{
+                if prev_c != std::u16::MAX {
                     let e = Unit::E(prev_c, start, prev_c, prev_u);
                     units.push(e);
                 }

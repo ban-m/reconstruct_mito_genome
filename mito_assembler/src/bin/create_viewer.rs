@@ -38,7 +38,8 @@ fn main() -> std::io::Result<()> {
         .into_iter()
         .map(ERead::new_no_gapfill)
         .collect();
-    let critical_regions = last_decompose::critical_regions(&encoded_reads, &contigs, &repeats);
+    let critical_regions =
+        last_decompose::critical_regions(&encoded_reads, &contigs, &repeats, &alignments);
     let encoded_reads = last_tiling::encoding(&reads, &contigs, &alignments);
     let res = dump_viewer(&results, &encoded_reads, &critical_regions, &contigs)?;
     let dir = format!("{}/viwer", output_dir);

@@ -117,7 +117,8 @@ fn main() -> std::io::Result<()> {
         .into_iter()
         .map(ERead::new_no_gapfill)
         .collect();
-    let critical_regions = last_decompose::critical_regions(&encoded_reads, &contigs, &repeats);
+    let critical_regions =
+        last_decompose::critical_regions(&encoded_reads, &contigs, &repeats, &alignments);
     for c in &critical_regions {
         let counts = encoded_reads
             .iter()
