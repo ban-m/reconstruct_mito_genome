@@ -12,13 +12,22 @@ set -ue
 OUTPUT=./result/last_decompose_multi_gibbs.txt
 OUTLOG_PREFIX=./logfiles/last_decompose_multi_gibbs
 
-TEST_NUM=300
-COVERAGE=20
-PROBS="0.33 0.33 0.22"
+TEST_NUM=180
+COVERAGE=0
+PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
 ./target/release/test_last_decompose_multiple \
-    ${TEST_NUM} ${COVERAGE} 100 ${PROBS} >> ./result/multi_test.tsv\
-    2>> ./logfiles/multi_test.log
+    ${TEST_NUM} ${COVERAGE} 100 ${PROBS} >> ./result/multi_test_vc.tsv\
+    2>> ./logfiles/multi_test_vc.log
 exit 0;
+
+
+# TEST_NUM=240
+# COVERAGE=0
+# PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
+# ./target/release/test_last_decompose_multiple \
+#     ${TEST_NUM} ${COVERAGE} 100 ${PROBS} >> ./result/multi_test_vc.tsv\
+#     2>> ./logfiles/multi_test_vc.log
+# exit 0;
 
 
 TEST_NUM=300

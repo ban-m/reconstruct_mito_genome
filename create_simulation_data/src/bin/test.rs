@@ -23,7 +23,7 @@ fn main() {
     let len = 150;
     let coverage = 0;
     let test_num = 30;
-    let class = 3;
+    let _class = 3;
     let template1: Vec<_> = (0..chain_len)
         .map(|_| gen_sample::generate_seq(&mut rng, len))
         .collect();

@@ -768,14 +768,20 @@ pub fn confluent_position(
     }
     result
         .iter()
-        .map(|&(ref id, start, end, to_downstream)| {
+        .filter_map(|&(ref id, start, end, to_downstream)| {
             let id = contigs.get_id(id).unwrap();
             let (start, end) = (start / unit_size, end / unit_size);
             let (start, end) = (start as u16, end as u16);
             let max = contigs.get_last_unit(id).unwrap();
             use Direction::*;
             let di = if to_downstream { DownStream } else { UpStream };
-            ConfluentRegion::new(Position::new(id, start, end, di, max))
+            let is_edge = (end < OFFSET as u16 && to_downstream)
+                || (max < OFFSET as u16 + start && !to_downstream);
+            if is_edge {
+                None
+            } else {
+                Some(ConfluentRegion::new(Position::new(id, start, end, di, max)))
+            }
         })
         .collect()
 }

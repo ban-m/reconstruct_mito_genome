@@ -284,7 +284,7 @@ impl PartialOrderAlignment {
             return Self::new(seq, w);
         }
         // Alignment
-        let (_s, traceback) = self.align(seq, ins, del, score);
+        let (_, traceback) = self.align(seq, ins, del, score);
         let mut q_pos = 0;
         let mut previous: Option<usize> = None;
         for operation in traceback {

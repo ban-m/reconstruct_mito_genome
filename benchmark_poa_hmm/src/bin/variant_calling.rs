@@ -14,15 +14,15 @@ fn main() {
     let seed: u64 = std::env::args()
         .nth(1)
         .and_then(|e| e.parse().ok())
-        .unwrap_or(10);
+        .unwrap_or(132980);
     //let mut rng: StdRng = SeedableRng::seed_from_u64(1219900);
     let mut rng: StdRng = SeedableRng::seed_from_u64(seed);
-    let chain_len = 40;
+    let chain_len = 60;
     let template: Vec<Vec<u8>> = (0..chain_len)
         .map(|_| gen_sample::generate_seq(&mut rng, len))
         .collect();
     let num_cluster = 2;
-    let total_coverage = 150;
+    let total_coverage = 50;
     let ws = vec![0.5, 0.5];
     let p = gen_sample::Profile {
         sub: 0.001 / 6.,
@@ -54,7 +54,6 @@ fn main() {
         .iter()
         .map(|r| (r * total_coverage as f64).floor() as usize)
         .collect();
-    //vec![25; num_cluster];
     let mut gen = |ts: &Vec<Vec<u8>>| {
         ts.iter()
             .map(|t| gen_sample::introduce_randomness(&t, &mut rng, &gen_sample::PROFILE))
@@ -73,22 +72,10 @@ fn main() {
                 chunks[idx].push(chunk.as_slice());
             }
         }
-        let weights_of_reads = last_decompose::construct_initial_weights(
-            &vec![],
-            &vec![vec![]; total_coverage],
-            num_cluster,
-            total_coverage,
-            32,
-        );
-        // let weights_of_reads: Vec<_> = coverages
-        //     .iter()
-        //     .enumerate()
-        //     .flat_map(|(idx, &cov)| {
-        //         let mut weight = vec![0.; num_cluster];
-        //         weight[idx] = 1.;
-        //         vec![weight.clone(); cov]
-        //     })
-        //     .collect();
+        let mock = vec![vec![]; total_coverage];
+        use last_decompose::construct_initial_weights;
+        let weights_of_reads =
+            construct_initial_weights(&vec![], &mock, num_cluster, total_coverage, 2);
         let mut weights = vec![vec![]; num_cluster];
         for weights_each_cluster in weights_of_reads {
             for (cluster, &w) in weights_each_cluster.iter().enumerate() {
@@ -106,6 +93,54 @@ fn main() {
             .collect()
     };
     use last_decompose::variant_calling;
+    {
+        let dataset: Vec<Vec<_>> = dataset
+            .iter()
+            .map(|read| read.iter().cloned().enumerate().collect())
+            .collect();
+        let (variants, _) =
+            variant_calling::variant_call_poa(&models, &dataset, &DEFAULT_CONFIG, &ws, true);
+        for (idx, (d, w)) in dists.iter().zip(variants.iter()).enumerate() {
+            println!("BEFORE\t{}\t{}\t{:.4}\tCentrize", idx, d, w.abs());
+        }
+        let (variants, _) =
+            variant_calling::variant_call_poa(&models, &dataset, &DEFAULT_CONFIG, &ws, false);
+        for (idx, (d, w)) in dists.iter().zip(variants.iter()).enumerate() {
+            println!("BEFORE\t{}\t{}\t{:.4}\tNormal", idx, d, w.abs());
+        }
+    }
+    let models: Vec<Vec<_>> = {
+        let mut chunks = vec![vec![]; chain_len];
+        for seq in dataset.iter() {
+            for (idx, chunk) in seq.iter().enumerate() {
+                chunks[idx].push(chunk.as_slice());
+            }
+        }
+        let weights_of_reads: Vec<_> = coverages
+            .iter()
+            .enumerate()
+            .flat_map(|(idx, &cov)| {
+                let mut weight = vec![0.; num_cluster];
+                weight[idx] = 1.;
+                vec![weight.clone(); cov]
+            })
+            .collect();
+        let mut weights = vec![vec![]; num_cluster];
+        for weights_each_cluster in weights_of_reads {
+            for (cluster, &w) in weights_each_cluster.iter().enumerate() {
+                weights[cluster].push(w);
+            }
+        }
+        weights
+            .iter()
+            .map(|ws| {
+                chunks
+                    .iter()
+                    .map(|cs| POA::generate_w_param(cs, ws, -6, -6, &score))
+                    .collect()
+            })
+            .collect()
+    };
     let dataset: Vec<Vec<_>> = dataset
         .into_iter()
         .map(|read| read.into_iter().enumerate().collect())
@@ -113,22 +148,11 @@ fn main() {
     let (variants, _) =
         variant_calling::variant_call_poa(&models, &dataset, &DEFAULT_CONFIG, &ws, true);
     for (idx, (d, w)) in dists.iter().zip(variants.iter()).enumerate() {
-        println!("{}\t{}\t{:.4}\tCentrize", idx, d, w.abs());
+        println!("AFTER\t{}\t{}\t{:.4}\tCentrize", idx, d, w.abs());
     }
     let (variants, _) =
         variant_calling::variant_call_poa(&models, &dataset, &DEFAULT_CONFIG, &ws, false);
     for (idx, (d, w)) in dists.iter().zip(variants.iter()).enumerate() {
-        println!("{}\t{}\t{:.4}\tNormal", idx, d, w.abs());
-    }
-    for pos in 0..chain_len {
-        for (idx, read) in dataset.iter().enumerate() {
-            let &(_, ref unit) = read.iter().filter(|&&(p, _)| p == pos).nth(0).unwrap();
-            let lks: Vec<_> = models
-                .iter()
-                .map(|ms| ms[pos].forward(unit, &DEFAULT_CONFIG))
-                .map(|lk| format!("{}", lk))
-                .collect();
-            debug!("DUMP\t{}\t{}\t{}", idx, pos, lks.join("\t"));
-        }
+        println!("AFTER\t{}\t{}\t{:.4}\tNormal", idx, d, w.abs());
     }
 }

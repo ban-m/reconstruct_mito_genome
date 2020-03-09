@@ -1,49 +1,29 @@
 #![allow(dead_code)]
 use super::THR;
 impl crate::PartialOrderAlignment {
-    pub fn remove_weight(mut self, f: f64) -> Self {
-        let to_remove: Vec<_> = self.nodes.iter().map(|n| n.weight() <= f).collect();
-        self = self.remove(&to_remove);
-        self.trim_unreachable_nodes();
-        self
-    }
     pub fn remove_node(mut self) -> Self {
-        let saved = self.clone();
+        let len = self.nodes.len();
         self = self.nodewise_remove();
         self = self.edgewise_remove();
-        // self = self.merge_nodes();
         self.trim_unreachable_nodes();
-        if self.nodes.len() < saved.nodes.len() / 10 {
-            eprintln!("!!!!");
-            saved
+        if self.nodes.len() < len / 10 {
+            eprintln!("PLEASE PANIC! SOMETHING HAPPENED IN GRAPH CLEANING.");
+            self
         } else {
             self
         }
     }
     fn nodewise_remove(mut self) -> Self {
-        // Removing with node
         let (_start, arrived, _) = self.traverse();
         let to_remove: Vec<_> = arrived
             .into_iter()
             .zip(self.nodes.iter())
-            //.map(|(b, n)| (n.is_tail && n.weight() <= 2.) || !b)
             .map(|(b, _)| !b)
             .collect();
         self.remove(&to_remove)
     }
     fn edgewise_remove(mut self) -> Self {
-        // Removing with edges.
-        let (_, _used_nodes, used_edges) = self.traverse();
-        // let remaining_edges: Vec<_> = self
-        //     .nodes
-        //     .iter()
-        //     .zip(used_edges.iter())
-        //     .flat_map(|(n, e)| n.weights_except(e))
-        //     .copied()
-        //     .collect();
-        // let arrived_len = used_nodes.iter().filter(|&&b| b).count();
-        // let thr_rank = remaining_edges.len().max(arrived_len / FRAC) - arrived_len / FRAC;
-        // let edge_thr = select_nth_by(&remaining_edges, thr_rank, |&x| x).unwrap_or(1.);
+        let (_, _, used_edges) = self.traverse();
         self.nodes
             .iter_mut()
             .zip(used_edges)
@@ -197,43 +177,12 @@ impl crate::PartialOrderAlignment {
         buffer.reverse();
         std::mem::swap(&mut self.nodes, &mut buffer);
     }
-    // fn select_head(&mut self) {
-    //     let mut is_head = vec![true; self.nodes.len()];
-    //     for n in self.nodes.iter() {
-    //         for &to in n.edges.iter() {
-    //             is_head[to] = false;
-    //         }
-    //     }
-    //     if self.nodes.iter().all(|e| !e.is_head) {
-    //         self.nodes.iter_mut().zip(is_head).for_each(|(n, is_head)| {
-    //             n.is_head = is_head;
-    //         });
-    //     }
-    //     assert!(self.nodes.iter().any(|n| n.is_head));
-    // }
-
-    // fn select_head_tail(mut self) -> Self {
-    //     let mut is_head = vec![true; self.nodes.len()];
-    //     for n in self.nodes.iter() {
-    //         for &to in n.edges.iter() {
-    //             is_head[to] = false;
-    //         }
-    //     }
-    //     assert!(is_head.iter().any(|&e| e), "{:?}", self);
-    //     if self.nodes.iter().all(|e| !e.is_head) {
-    //         self.nodes.iter_mut().zip(is_head).for_each(|(n, is_head)| {
-    //             n.is_head = is_head;
-    //         });
-    //     }
-    //     if self.nodes.iter().all(|e| !e.is_tail) {
-    //         self.nodes.iter_mut().for_each(|n| {
-    //             n.is_tail = n.edges.is_empty();
-    //         });
-    //     }
-    //     assert!(self.nodes.iter().any(|n| n.is_head));
-    //     assert!(self.nodes.iter().any(|n| n.is_tail));
-    //     self
-    // }
+    pub fn remove_weight(mut self, f: f64) -> Self {
+        let to_remove: Vec<_> = self.nodes.iter().map(|n| n.weight() <= f).collect();
+        self = self.remove(&to_remove);
+        self.trim_unreachable_nodes();
+        self
+    }
 }
 
 // Return the n-th smallest element. O(log xs.len()) usually.
@@ -253,7 +202,7 @@ where
     // Recursive call.
     if n < small {
         // We can remove elements more than `pivot` from `xs`.
-        let xs: Vec<_> = xs.iter().filter(|x| f(&x) < pivot).cloned().collect();
+
         select_nth_by(&xs, n, f)
     } else if small + same <= n {
         let xs: Vec<_> = xs.iter().filter(|x| f(&x) > pivot).cloned().collect();

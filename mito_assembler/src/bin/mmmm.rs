@@ -71,6 +71,16 @@ fn main() -> std::io::Result<()> {
                 .default_value(&"2")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("threads")
+                .short("t")
+                .long("threads")
+                .required(false)
+                .value_name("THREADS")
+                .help("Number of Threads")
+                .default_value(&"1")
+                .takes_value(true),
+        )
         .get_matches();
     let reads = matches
         .value_of("reads")
@@ -107,6 +117,14 @@ fn main() -> std::io::Result<()> {
     let cluster_num: usize = matches
         .value_of("cluster_num")
         .and_then(|num| num.parse().ok())
+        .unwrap();
+    let threads: usize = matches
+        .value_of("threads")
+        .and_then(|num| num.parse().ok())
+        .unwrap();
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build_global()
         .unwrap();
     debug!("Profiled Error Rates:{}", config);
     let contigs = last_tiling::contig::Contigs::new(reference);

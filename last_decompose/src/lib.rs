@@ -71,23 +71,6 @@ pub fn decompose(
     answer: &HashMap<String, u8>,
     cluster_num: usize,
 ) -> Vec<(String, u8)> {
-    const DEBUG: bool = true;
-    if DEBUG {
-        return encoded_reads
-            .iter()
-            .map(|read| {
-                match critical_regions
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, cr)| cr.along_with(read))
-                    .nth(0)
-                {
-                    Some((idx, _)) => (read.id().to_string(), idx as u8 + 1),
-                    None => (read.id().to_string(), 0),
-                }
-            })
-            .collect();
-    }
     let datasize = encoded_reads.len();
     let mut unassigned_reads: Vec<_> = vec![];
     let mut assigned_reads: Vec<_> = vec![];
@@ -610,7 +593,7 @@ pub fn clustering(
     assert_eq!(forbidden.len(), data.len());
     assert_eq!(label.len() + answer.len(), data.len());
     use poa_clustering::DEFAULT_ALN;
-    let weights = soft_clustering_poa(data, label, forbidden, cluster_num, answer, c, &DEFAULT_ALN);
+    let weights = soft_clustering_poa(data, label, forbidden, cluster_num, answer, c, &DEFAULT_ALN);  
     //let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
     debug!("WEIGHTS\tPrediction. Dump weights");
     assert_eq!(weights.len(), label.len() + answer.len());
@@ -761,6 +744,7 @@ pub fn soft_clustering(
         .map(|i| weights_of_reads.iter().map(|g| g[i]).sum::<f64>() / datasize)
         .collect();
     updates_flags(&mut updates, &weights_of_reads, &mut rng, pick_prob, border);
+    let mut count = 0;
     'outer: loop {
         for _ in 0..pick_up_len {
             let before_soe = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
@@ -779,6 +763,9 @@ pub fn soft_clustering(
                 break 'outer;
             }
         }
+        let lk = likelihood_of_models(&models, &data, &ws, config);
+        debug!("DUMP\t{}\t{}\t{}", id, count, lk);
+        count += 1;
         let wr = &weights_of_reads;
         report(id, wr, border, answer, &ws, &models, &data, beta, config);
         beta = (beta * beta_step).min(1.);
