@@ -156,3 +156,58 @@ fn forward_150(b: &mut Bencher) {
     eprintln!("{}", model);
     b.iter(|| model.forward(&query, &DEFAULT_CONFIG));
 }
+
+#[bench]
+fn align_150_simd(b: &mut Bencher) {
+    let bases = b"ACTG";
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(1212132);
+    let template: Vec<_> = (0..150)
+        .filter_map(|_| bases.choose(&mut rng))
+        .copied()
+        .collect();
+    let model1: Vec<Vec<_>> = (0..50)
+        .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
+        .collect();
+    let model = POA::generate_vec(&model1);
+    b.iter(|| {
+        let mut m = model.clone();
+        m.align_simd(&model1[0], -1, -1, |x, y| if x == y { 1 } else { -1 })
+    });
+}
+
+#[bench]
+fn add_150_simd(b: &mut Bencher) {
+    let bases = b"ACTG";
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(1212132);
+    let template: Vec<_> = (0..150)
+        .filter_map(|_| bases.choose(&mut rng))
+        .copied()
+        .collect();
+    let model1: Vec<Vec<_>> = (0..50)
+        .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
+        .collect();
+    let model = POA::generate_vec(&model1);
+    let score = |x, y| if x == y { 1 } else { -1 };
+    b.iter(|| {
+        model
+            .clone()
+            .add_w_param_simd(&model1[0], 1., -2, -2, &score)
+    });
+}
+
+#[bench]
+fn create_150_simd(b: &mut Bencher) {
+    let bases = b"ACTG";
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(1212132);
+    let template: Vec<_> = (0..150)
+        .filter_map(|_| bases.choose(&mut rng))
+        .copied()
+        .collect();
+    let model1: Vec<Vec<_>> = (0..50)
+        .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
+        .collect();
+    let model1: Vec<_> = model1.iter().map(|e| e.as_slice()).collect();
+    let ws = vec![1.; 50];
+    let score = |x, y| if x == y { 1 } else { -1 };
+    b.iter(|| POA::generate_w_param_simd(&model1, &ws, -2, -2, &score));
+}

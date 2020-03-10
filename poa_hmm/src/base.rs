@@ -235,6 +235,11 @@ impl fmt::Debug for Base {
         for (w, to) in self.weights.iter().zip(self.edges.iter()) {
             writeln!(f, "E\t{}\t{:.3}", to, w)?;
         }
+        // if !self.ties.is_empty() {
+        //     for to in self.ties.iter() {
+        //         writeln!(f, "T\t{}", to)?;
+        //     }
+        // }
         for &b in b"ATGC" {
             let count = self.base_count[BASE_TABLE[b as usize]];
             if count > 0.001 {

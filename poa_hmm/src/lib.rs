@@ -24,9 +24,8 @@ mod remove_nodes;
 const SMALL: f64 = 0.000_000_001;
 const LAMBDA_INS: f64 = 0.05;
 const LAMBDA_MATCH: f64 = 0.1;
-// const LAMBDA_INS: f64 = 0.0;
-// const LAMBDA_MATCH: f64 = 0.;
 const THR: f64 = 0.4;
+const MIN: i32 = -100000;
 pub mod generate;
 #[cfg(test)]
 mod tests;
@@ -54,45 +53,68 @@ pub type POA = PartialOrderAlignment;
 pub struct PartialOrderAlignment {
     nodes: Vec<Base>,
     weight: f64,
+    dp: Vec<Vec<i32>>,
+    route_weight: Vec<Vec<f32>>,
+    last_elements: Vec<i32>,
 }
 
 type TraceBack = Vec<EditOp>;
 
 impl PartialOrderAlignment {
+    pub fn nodes(&self) -> &[Base] {
+        &self.nodes
+    }
     pub fn num_nodes(&self) -> usize {
         self.nodes.len()
     }
     pub fn num_edges(&self) -> usize {
         self.nodes.iter().map(|n| n.edges.len()).sum::<usize>()
     }
-    pub fn generate(seqs: &[&[u8]], ws: &[f64], _config: &Config) -> POA {
+    pub fn view(&self, seq: &[u8], traceback: &[EditOp]) -> (String, String) {
+        let mut q_pos = 0;
+        let (mut q, mut g) = (String::new(), String::new());
+        for &op in traceback {
+            match op {
+                EditOp::Deletion(g_pos) => {
+                    q.push('-');
+                    g.push(self.nodes()[g_pos].base() as char);
+                }
+                EditOp::Insertion(_) => {
+                    g.push('-');
+                    q.push(seq[q_pos] as char);
+                    q_pos += 1;
+                }
+                EditOp::Match(g_pos) => {
+                    g.push(self.nodes()[g_pos].base() as char);
+                    q.push(seq[q_pos] as char);
+                    q_pos += 1;
+                }
+                EditOp::Stop => {}
+            }
+        }
+        (q, g)
+    }
+    pub fn generate(seqs: &[&[u8]], ws: &[f64], config: &Config) -> POA {
         if seqs.is_empty() {
             panic!("Empty string.")
         }
-        let seed = (100000. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
-        let choises: Vec<_> = (0..seqs.len()).collect();
+        let seed = (10432940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
-        // let mut rng = rand::thread_rng();
-        let picked = *choises.choose_weighted(&mut rng, |&i| ws[i]).unwrap();
-        let (seed, seed_weight) = (&seqs[picked], ws[picked]);
         let max_len = seqs
             .iter()
             .zip(ws.iter())
             .map(|(xs, &w)| if w > 0.001 { xs.len() } else { 0 })
             .max()
-            .unwrap_or(0);
-        let (ins, del, mat, mism) = (-6, -6, 3, -4);
-        let score = |x, y| if x == y { mat } else { mism };
-        seqs.iter()
-            .zip(ws.iter())
-            .enumerate()
-            .filter(|&(idx, (_, &w))| w > 0.001 && idx != picked)
-            .map(|(_, x)| x)
-            .fold(POA::new(seed, seed_weight), |x, (y, &w)| {
+            .unwrap_or_else(|| panic!("Empty string."));
+        rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
+            .into_iter()
+            .map(|idx| (&seqs[idx], ws[idx]))
+            .filter(|&(_, w)| w > 0.001)
+            .fold(POA::default(), |x, (y, w)| {
                 if x.nodes.len() > 3 * max_len / 2 {
-                    x.add_w_param(y, w, ins, del, score).remove_node()
+                    x.add_with(y, w, config).remove_node()
                 } else {
-                    x.add_w_param(y, w, ins, del, score)
+                    x.add_with(y, w, config)
                 }
             })
             .remove_node()
@@ -120,6 +142,39 @@ impl PartialOrderAlignment {
                     x.add_w_param(y, w, ins, del, score).remove_node()
                 } else {
                     x.add_w_param(y, w, ins, del, score)
+                }
+            })
+            .remove_node()
+            .clean_up()
+            .finalize()
+    }
+    pub fn generate_w_param_simd<F>(
+        seqs: &[&[u8]],
+        ws: &[f64],
+        ins: i32,
+        del: i32,
+        score: &F,
+    ) -> POA
+    where
+        F: Fn(u8, u8) -> i32,
+    {
+        let seed = (10432940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
+        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
+        let max_len = seqs
+            .iter()
+            .zip(ws.iter())
+            .map(|(xs, &w)| if w > 0.001 { xs.len() } else { 0 })
+            .max()
+            .unwrap_or_else(|| panic!("Empty string."));
+        rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
+            .into_iter()
+            .map(|idx| (&seqs[idx], ws[idx]))
+            .filter(|&(_, w)| w > 0.001)
+            .fold(POA::default(), |x, (y, w)| {
+                if x.nodes.len() > 3 * max_len / 2 {
+                    x.add_w_param_simd(y, w, ins, del, score).remove_node()
+                } else {
+                    x.add_w_param_simd(y, w, ins, del, score)
                 }
             })
             .remove_node()
@@ -155,7 +210,208 @@ impl PartialOrderAlignment {
         nodes.push(last);
         nodes.iter_mut().for_each(|n| n.add_weight(w));
         assert!(nodes.iter().all(|n| n.weight() > 0.));
-        Self { weight, nodes }
+        let dp = vec![vec![]];
+        let route_weight = vec![vec![]];
+        let last_elements = vec![];
+        Self {
+            weight,
+            nodes,
+            dp,
+            route_weight,
+            last_elements,
+        }
+    }
+    fn initialize(&mut self, row: usize, column: usize, column_s: i32) {
+        let rowvec = std::iter::repeat(MIN).take(column);
+        self.dp.iter_mut().for_each(|e| {
+            e.clear();
+            e.extend(rowvec.clone())
+        });
+        if self.dp.len() < row {
+            for _ in 0..row - self.dp.len() {
+                self.dp.push(rowvec.clone().collect());
+            }
+        }
+        for j in 0..column {
+            self.dp[0][j] = column_s * j as i32;
+        }
+        self.route_weight.iter_mut().for_each(|e| e.clear());
+        if self.route_weight.len() < row {
+            for _ in 0..row - self.route_weight.len() {
+                self.route_weight.push(Vec::with_capacity(column));
+            }
+        }
+        let rowvec = std::iter::repeat(0.).take(column);
+        for row_vec in self.route_weight.iter_mut() {
+            row_vec.extend(rowvec.clone());
+        }
+        self.last_elements.clear();
+        self.last_elements.push(MIN);
+    }
+    pub fn align_simd<F>(&mut self, seq: &[u8], ins: i32, del: i32, score: F) -> (i32, TraceBack)
+    where
+        F: Fn(u8, u8) -> i32,
+    {
+        use packed_simd::f32x8 as f32s;
+        use packed_simd::i32x8 as i32s;
+        const LANE: usize = 8;
+        let profile: Vec<Vec<_>> = b"ACGT"
+            .iter()
+            .map(|&base| seq.iter().map(|&b| score(base, b)).collect())
+            .collect();
+        let edges: Vec<Vec<_>> = self
+            .reverse_edges()
+            .iter()
+            .map(|edges| {
+                if !edges.is_empty() {
+                    edges.iter().map(|&p| p + 1).collect()
+                } else {
+                    vec![0]
+                }
+            })
+            .collect();
+        let deletions = i32s::splat(del);
+        // -----> query position ---->
+        // 0 8 8 8 88 8 8 8 88
+        // 0
+        // 0
+        // |
+        // |
+        // Graph position
+        // |
+        // v
+        let (row, column) = (self.nodes.len() + 1, seq.len() + 1);
+        // Initialazation.
+        // self.initialize(row, column, ins);
+        // let mut dp = &mut self.dp;
+        // let mut last_elements = &mut self.last_elements;
+        // let mut route_weight = &mut self.route_weight;
+        let mut dp = vec![vec![MIN; column]; row];
+        // The last elements in each row. Used at the beggining of the trace-back.
+        let mut last_elements = vec![MIN];
+        // Weight to break tie. [i][j] is the total weight to (i,j) element.
+        let mut route_weight = vec![vec![0.; column]; row];
+        for j in 0..column {
+            dp[0][j] = ins * j as i32;
+            route_weight[0][j] = j as f32;
+        }
+        for i in 0..row {
+            dp[i][0] = 0;
+        }
+        // The leftmost element used in the match transition.
+        for i in 1..row {
+            let bs = base_table::BASE_TABLE[self.nodes[i - 1].base() as usize];
+            let nw = self.nodes[i - 1].weight() as f32;
+            let node_weight = f32s::splat(nw);
+            for &p in &edges[i - 1] {
+                // Update by SIMD instructions.
+                for j in 0..seq.len() / LANE {
+                    let (start, end) = (LANE * j + 1, LANE * (j + 1) + 1);
+                    // Location to be updated.
+                    let current = i32s::from_slice_unaligned(&dp[i][start..end]);
+                    let current_weight = f32s::from_slice_unaligned(&route_weight[i][start..end]);
+                    // Update for deletion state.
+                    let deletion = i32s::from_slice_unaligned(&dp[p][start..end]) + deletions;
+                    let deletion_weight = f32s::from_slice_unaligned(&route_weight[p][start..end]);
+                    let mask = deletion.gt(current)
+                        | (deletion.eq(current) & deletion_weight.gt(current_weight));
+                    let current = deletion.max(current);
+                    let current_weight = mask.select(deletion_weight, current_weight);
+                    // Update for match state.
+                    let match_s = i32s::from_slice_unaligned(&profile[bs][start - 1..end - 1])
+                        + i32s::from_slice_unaligned(&dp[p][start - 1..end - 1]);
+                    let match_weight = node_weight
+                        + f32s::from_slice_unaligned(&route_weight[p][start - 1..end - 1]);
+                    let mask = match_s.gt(current)
+                        | (match_s.eq(current) & match_weight.gt(current_weight));
+                    let current = match_s.max(current);
+                    let current_weight = mask.select(match_weight, current_weight);
+                    current.write_to_slice_unaligned(&mut dp[i][start..end]);
+                    current_weight.write_to_slice_unaligned(&mut route_weight[i][start..end]);
+                }
+                // Update by usual updates.
+                for j in (seq.len() / LANE) * LANE..seq.len() {
+                    let pos = j + 1;
+                    let (del, del_weight) = (dp[p][pos] + del, route_weight[p][pos]);
+                    let (current, current_weight) = (dp[i][pos], route_weight[i][pos]);
+                    if del > current || (del == current && del_weight > current_weight) {
+                        dp[i][pos] = del;
+                        route_weight[i][pos] = del_weight;
+                    }
+                    let mat = dp[p][j] + profile[bs][j];
+                    let mat_weight = route_weight[p][j] + nw;
+                    let (current, current_weight) = (dp[i][pos], route_weight[i][pos]);
+                    if mat > current || (mat == current && mat_weight > current_weight) {
+                        dp[i][pos] = mat;
+                        route_weight[i][pos] = mat_weight;
+                    }
+                }
+            }
+            // Insertions would be updated by usual updates due to dependencies.
+            for j in 1..column {
+                let (ins, ins_weight) = (dp[i][j - 1] + ins, route_weight[i][j - 1] + 1.);
+                let (current, current_weight) = (dp[i][j], route_weight[i][j]);
+                if ins > current || (ins == current && ins_weight > current_weight) {
+                    dp[i][j] = ins;
+                    route_weight[i][j] = ins_weight;
+                }
+            }
+            last_elements.push(dp[i][column - 1]);
+        }
+        // Traceback.
+        let mut q_pos = seq.len();
+        let (mut g_pos, &score) = last_elements
+            .iter()
+            .enumerate()
+            .max_by(|(a_i, a), (b_i, b)| match a.partial_cmp(&b) {
+                Some(std::cmp::Ordering::Equal) => a_i.cmp(&b_i),
+                Some(x) => x,
+                None => panic!("{}", line!()),
+            })
+            .unwrap_or_else(|| panic!("{}", line!()));
+        let mut operations = vec![];
+        'outer: while q_pos > 0 && g_pos > 0 {
+            // Determine where dp[g_pos][q_pos] comes from.
+            let w = self.nodes[g_pos - 1].weight() as f32;
+            let score = dp[g_pos][q_pos];
+            let weight = route_weight[g_pos][q_pos];
+            // Deletion.
+            for &p in &edges[g_pos - 1] {
+                let (del, del_w) = (dp[p][q_pos] + del, route_weight[p][q_pos]);
+                if del == score && del_w == weight {
+                    operations.push(EditOp::Deletion(g_pos - 1));
+                    g_pos = p;
+                    continue 'outer;
+                }
+            }
+            // Insertion
+            let ins = dp[g_pos][q_pos - 1] + ins;
+            let ins_w = route_weight[g_pos][q_pos - 1] + 1.;
+            if ins == score && ins_w == weight {
+                q_pos -= 1;
+                operations.push(EditOp::Insertion(0));
+                continue 'outer;
+            }
+            // Match/Mismatch
+            let bs = base_table::BASE_TABLE[self.nodes[g_pos - 1].base() as usize];
+            for &p in &edges[g_pos - 1] {
+                let mat = dp[p][q_pos - 1] + profile[bs][q_pos - 1];
+                let mat_w = route_weight[p][q_pos - 1] + w;
+                if mat == score && mat_w == weight {
+                    operations.push(EditOp::Match(g_pos - 1));
+                    g_pos = p;
+                    q_pos -= 1;
+                    continue 'outer;
+                }
+            }
+            panic!("error. none of choices match the current trace table.");
+        }
+        while q_pos > 0 {
+            operations.push(EditOp::Insertion(0));
+            q_pos -= 1;
+        }
+        operations.reverse();
+        (score, operations)
     }
     //  ----> Graph position ----->
     // 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
@@ -178,9 +434,10 @@ impl PartialOrderAlignment {
         let mut updated = vec![];
         let mut updated_weight = vec![];
         let min = -100_000;
+        use std::cmp::Ordering::*;
         for (i, &b) in seq.iter().enumerate() {
             updated.push(ins * (i + 1) as i32);
-            updated_weight.push(0.);
+            updated_weight.push((i + 1) as f64);
             let mut tb: Vec<_> = Vec::with_capacity(self.nodes.len() + 1);
             tb.push(EditOp::Insertion(0));
             for (j, (n, edges)) in self.nodes.iter().zip(edges.iter()).enumerate() {
@@ -188,7 +445,6 @@ impl PartialOrderAlignment {
                 let (m_argmax, m_max, d_argmax, d_max) = if edges.is_empty() {
                     (0, prev[0] + ms, 0, updated[0] + del)
                 } else {
-                    use std::cmp::Ordering::*;
                     edges
                         .iter()
                         .map(|&from| from + 1)
@@ -197,30 +453,36 @@ impl PartialOrderAlignment {
                             let (m_ax, m_x) = match m_x.cmp(&m) {
                                 Greater => (m_ax, m_x),
                                 Less => (i, m),
-                                Equal if p_weight[m_ax] > p_weight[i] => (m_ax, m_x),
+                                Equal if p_weight[m_ax] >= p_weight[i] => (m_ax, m_x),
                                 Equal => (i, m),
                             };
                             let (d_ax, d_x) = match d_x.cmp(&d) {
                                 Greater => (d_ax, d_x),
                                 Less => (i, d),
-                                Equal if p_weight[m_ax] > p_weight[i] => (d_ax, d_x),
+                                Equal if p_weight[m_ax] >= p_weight[i] => (d_ax, d_x),
                                 Equal => (i, d),
                             };
                             (m_ax, m_x, d_ax, d_x)
                         })
                 };
-                let i_max = prev[j + 1] + ins;
-                let max = d_max.max(m_max).max(i_max);
-                let (max_weight, argmax) = match max {
-                    x if x == d_max => (updated_weight[d_argmax], EditOp::Deletion(d_argmax)),
-                    x if x == i_max => (p_weight[j + 1] + 1., EditOp::Insertion(j + 1)),
-                    x if x == m_max => (
-                        p_weight[m_argmax] + self.nodes[j].weight(),
-                        EditOp::Match(m_argmax),
-                    ),
-                    _ => unreachable!(),
+                let (i_max, i_weight) = (prev[j + 1] + ins, p_weight[j + 1] + 1.);
+                let d_weight = updated_weight[d_argmax];
+                let m_weight = p_weight[m_argmax] + self.nodes[j].weight();
+                use EditOp::*;
+                let (max_weight, argmax, max_score) = match d_max.cmp(&i_max) {
+                    Greater => (d_weight, Deletion(d_argmax), d_max),
+                    Less => (i_weight, Insertion(0), i_max),
+                    Equal if d_weight >= i_weight => (d_weight, Deletion(d_argmax), d_max),
+                    Equal => (i_weight, Insertion(0), i_max),
                 };
-                updated.push(max);
+                let (max_weight, argmax, max_score) = match max_score.cmp(&m_max) {
+                    Greater => (max_weight, argmax, max_score),
+                    Less => (m_weight, Match(m_argmax), m_max),
+                    Equal if max_weight >= m_weight => (max_weight, argmax, max_score),
+                    Equal => (m_weight, Match(m_argmax), m_max),
+                };
+                assert_eq!(max_score, d_max.max(m_max).max(i_max));
+                updated.push(max_score);
                 updated_weight.push(max_weight);
                 tb.push(argmax)
             }
@@ -244,7 +506,6 @@ impl PartialOrderAlignment {
             })
             .unwrap_or_else(|| panic!("{}", line!()));
         while traceback[q_pos][g_pos] != EditOp::Stop {
-            //eprintln!("{},{},{:?}", q_pos, g_pos, traceback[q_pos][g_pos]);
             match traceback[q_pos][g_pos] {
                 EditOp::Match(from) => {
                     operations.push(EditOp::Match(g_pos - 1));
@@ -256,13 +517,12 @@ impl PartialOrderAlignment {
                     g_pos = from;
                 }
                 EditOp::Insertion(_) => {
-                    operations.push(EditOp::Insertion(g_pos));
+                    operations.push(EditOp::Insertion(0));
                     q_pos -= 1;
                 }
                 EditOp::Stop => break,
             }
         }
-        // eprintln!("{},{:?}", poa_score, operations);
         operations.reverse();
         (poa_score, operations)
     }
@@ -285,6 +545,21 @@ impl PartialOrderAlignment {
         }
         // Alignment
         let (_, traceback) = self.align(seq, ins, del, score);
+        self.integrate_alignment(seq, w, traceback)
+    }
+    pub fn add_w_param_simd<F>(mut self, seq: &[u8], w: f64, ins: i32, del: i32, score: F) -> Self
+    where
+        F: Fn(u8, u8) -> i32,
+    {
+        if self.weight < SMALL || self.nodes.is_empty() {
+            return Self::new(seq, w);
+        }
+        // Alignment
+        let (_, traceback) = self.align_simd(seq, ins, del, &score);
+        self.integrate_alignment(seq, w, traceback)
+    }
+
+    fn integrate_alignment(mut self, seq: &[u8], w: f64, traceback: TraceBack) -> Self {
         let mut q_pos = 0;
         let mut previous: Option<usize> = None;
         for operation in traceback {
@@ -387,7 +662,9 @@ impl PartialOrderAlignment {
             }
             for &tied in n.ties.iter() {
                 for &to in self.nodes[tied].edges.iter() {
-                    edges[from].push(to);
+                    if !edges[from].contains(&to) {
+                        edges[from].push(to);
+                    }
                 }
             }
         }
@@ -401,7 +678,9 @@ impl PartialOrderAlignment {
             }
             for &tied in n.ties.iter() {
                 for &to in self.nodes[tied].edges.iter() {
-                    edges[to].push(from);
+                    if !edges[to].contains(&from) {
+                        edges[to].push(from);
+                    }
                 }
             }
         }

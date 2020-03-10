@@ -79,7 +79,7 @@ impl<'a> ModelFactory<'a> {
             .chunks
             .par_iter()
             .zip(self.weights.par_iter())
-            .map(|(chunks, ws)| POA::generate_w_param(chunks, ws, ins, del, score))
+            .map(|(chunks, ws)| POA::generate_w_param_simd(chunks, ws, ins, del, score))
             .collect();
         self.weights.iter_mut().for_each(|ws| ws.clear());
         res
@@ -153,9 +153,11 @@ where
         crate::construct_initial_weights(label, forbidden, cluster_num, data.len(), seed);
     debug!("Chain length is {}", chain_len);
     let mut mf = ModelFactory::new(chain_len, &data);
+    debug!("Model factory is built");
     let mut models: Vec<Vec<POA>> = (0..cluster_num)
         .map(|cl| mf.generate_model(&weights_of_reads, &data, cl, aln))
         .collect();
+    debug!("Models have been created");
     let (border, datasize) = (label.len(), data.len() as f64);
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(data.len() as u64 * 23);
     let pick_prob = (PICK_PROB * datasize / 50.).min(0.10).max(0.5);
@@ -168,6 +170,7 @@ where
     // let (weights, mut previous_lk) = variant_call_poa(&models, &data, config, &ws, true);
     let (mut variants, mut previous_lk) =
         variant_calling::variant_calling_all_pairs(&models, &data, config, &ws);
+    debug!("Initial variants called");
     // let mut variants: Vec<_> = weights.iter().map(|&b| b * b).collect();
     variants.iter_mut().for_each(|bss| {
         bss.iter_mut()

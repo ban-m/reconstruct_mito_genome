@@ -1,6 +1,7 @@
 use super::gen_sample::*;
 use super::rayon::prelude::*;
 use super::*;
+use rand::seq::SliceRandom;
 #[test]
 fn it_works() {
     assert_eq!(2 + 2, 4);
@@ -223,14 +224,188 @@ where
                 .max(dp[i][j + 1] + ins);
         }
     }
-    for line in &dp {
-        let line: Vec<_> = line.iter().map(|x| format!("{:4.0}", x)).collect();
-        eprintln!("{}", line.join(" "));
-    }
+    // for line in &dp {
+    //     let line: Vec<_> = line.iter().map(|x| format!("{:4.0}", x)).collect();
+    // eprintln!("{}", line.join(" "));
+    //}
     *dp[xs.len()]
         .iter()
         .max_by(|a, b| a.partial_cmp(&b).unwrap())
         .unwrap()
+}
+
+#[test]
+fn alignment_check_simd_short() {
+    let x: Vec<_> = b"ACGTGTCA".to_vec();
+    let y: Vec<_> = b"ACGTGTCA".to_vec();
+    let score = |x, y| if x == y { 1. } else { -2. };
+    let opt = alignment(&y, &x, -2., -2., score.clone());
+    eprintln!("OPT:{}", opt);
+    let score = |x, y| if x == y { 1 } else { -2 };
+    let (poa_score, _) = POA::new(&x, 1.).align_simd(&y, -2, -2, score);
+    let poa_score = poa_score as f64;
+    eprintln!("POA:{}", poa_score);
+    assert!((opt - poa_score).abs() < 0.001, "{},{}", opt, poa_score);
+}
+
+#[test]
+fn alignment_check_simd_short_mism() {
+    let x: Vec<_> = b"ACGTGTCA".to_vec();
+    let y: Vec<_> = b"ACGTGCCA".to_vec();
+    let score = |x, y| if x == y { 1. } else { -2. };
+    let opt = alignment(&y, &x, -2., -2., score.clone());
+    eprintln!("OPT:{}", opt);
+    let score = |x, y| if x == y { 1 } else { -2 };
+    let (poa_score, _) = POA::new(&x, 1.).align_simd(&y, -2, -2, score);
+    let poa_score = poa_score as f64;
+    eprintln!("POA:{}", poa_score);
+    assert!((opt - poa_score).abs() < 0.001, "{},{}", opt, poa_score);
+}
+
+#[test]
+fn alignment_check_simd_short_insertion() {
+    let x: Vec<_> = b"ACGTGTCA".to_vec();
+    let y: Vec<_> = b"ACGTGTTCA".to_vec();
+    let score = |x, y| if x == y { 1. } else { -2. };
+    let opt = alignment(&y, &x, -2., -2., score.clone());
+    eprintln!("OPT:{}", opt);
+    let score = |x, y| if x == y { 1 } else { -2 };
+    let (poa_score, _) = POA::new(&x, 1.).align_simd(&y, -2, -2, score);
+    let poa_score = poa_score as f64;
+    eprintln!("POA:{}", poa_score);
+    assert!((opt - poa_score).abs() < 0.001, "{},{}", opt, poa_score);
+}
+
+#[test]
+fn alignment_check_simd_short_deletion() {
+    let x: Vec<_> = b"ACGTTCA".to_vec();
+    let y: Vec<_> = b"ACGTGTCA".to_vec();
+    let score = |x, y| if x == y { 1. } else { -2. };
+    let opt = alignment(&y, &x, -2., -2., score.clone());
+    eprintln!("OPT:{}", opt);
+    let score = |x, y| if x == y { 1 } else { -2 };
+    let (poa_score, _) = POA::new(&x, 1.).align_simd(&y, -2, -2, score);
+    let poa_score = poa_score as f64;
+    eprintln!("POA:{}", poa_score);
+    assert!((opt - poa_score).abs() < 0.001, "{},{}", opt, poa_score);
+}
+
+#[test]
+fn alignment_check_simd() {
+    let bases = b"ACTG";
+    use rand::Rng;
+    for i in 0..100 {
+        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(i as u64);
+        eprintln!("i:{}", i);
+        let x: Vec<_> = (0..(rng.gen_range(100, 150)))
+            .filter_map(|_| bases.choose(&mut rng))
+            .copied()
+            .collect();
+        let y: Vec<_> = (0..(rng.gen_range(100, 150)))
+            .filter_map(|_| bases.choose(&mut rng))
+            .copied()
+            .collect();
+        let score = |x, y| if x == y { 1. } else { -2. };
+        let opt = alignment(&y, &x, -2., -2., score.clone());
+        eprintln!("OPT:{}", opt);
+        let score = |x, y| if x == y { 1 } else { -2 };
+        let (poa_score, _) = POA::new(&x, 1.).align_simd(&y, -2, -2, score);
+        let poa_score = poa_score as f64;
+        eprintln!("POA:{}", poa_score);
+        assert!((opt - poa_score).abs() < 0.001, "{},{}", opt, poa_score);
+    }
+}
+
+#[test]
+fn alignment_check_simd_2() {
+    let bases = b"ACTG";
+    use rand::Rng;
+    for i in 0..100 {
+        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(i as u64);
+        eprintln!("i:{}", i);
+        let x: Vec<_> = (0..(rng.gen_range(100, 150)))
+            .filter_map(|_| bases.choose(&mut rng))
+            .copied()
+            .collect();
+        let y: Vec<_> = (0..(rng.gen_range(100, 150)))
+            .filter_map(|_| bases.choose(&mut rng))
+            .copied()
+            .collect();
+        let score = |x, y| if x == y { 3. } else { -4. };
+        let opt = alignment(&y, &x, -6., -6., score.clone());
+        eprintln!("OPT:{}", opt);
+        let score = |x, y| if x == y { 3 } else { -4 };
+        let (poa_score, _) = POA::new(&x, 1.).align_simd(&y, -6, -6, score);
+        let poa_score = poa_score as f64;
+        eprintln!("POA:{}", poa_score);
+        assert!((opt - poa_score).abs() < 0.001, "{},{}", opt, poa_score);
+    }
+}
+
+#[test]
+fn alignment_check_simd_normal() {
+    let bases = b"ACTG";
+    use rand::Rng;
+    let score = |x, y| if x == y { 1 } else { -2 };
+    for i in 0..200 {
+        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(i as u64);
+        eprintln!("i:{}", i);
+        let x: Vec<_> = (0..(rng.gen_range(100, 150)))
+            .filter_map(|_| bases.choose(&mut rng))
+            .copied()
+            .collect();
+        let y: Vec<_> = (0..(rng.gen_range(100, 150)))
+            .filter_map(|_| bases.choose(&mut rng))
+            .copied()
+            .collect();
+        let mut simd = POA::new(&x, 1.);
+        let (simd_score, simd_ops) = simd.align_simd(&y, -2, -2, score);
+        let mut normal = POA::new(&x, 1.);
+        let (normal_score, ops) = normal.align(&y, -2, -2, score);
+        assert_eq!(simd_score, normal_score);
+        if simd_ops.len() != ops.len() {
+            let (q, g) = simd.view(&y, &simd_ops);
+            eprintln!("SIMD\n{}\n{}", q, g);
+            let (q, g) = normal.view(&y, &ops);
+            eprintln!("Normal\n{}\n{}", q, g);
+            assert!(false);
+        }
+        for (simd_op, op) in simd_ops.iter().zip(ops.iter()) {
+            assert_eq!(simd_op, op, "{:?},{:?}", simd_op, op);
+        }
+        assert_eq!(simd_ops, ops);
+    }
+    for i in 100..200 {
+        eprintln!("i:{}", i);
+        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(i as u64);
+        let template = generate_seq(&mut rng, 150);
+        let coverage = 20;
+        let tests: Vec<_> = (0..coverage)
+            .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
+            .collect();
+        let tests: Vec<_> = tests.iter().map(|e| e.as_slice()).collect();
+        let ws = vec![1.; coverage];
+        let mut poa = POA::generate_w_param(&tests, &ws, -6, -6, &score);
+        // let mut poa_simd = POA::generate_w_param_simd(&tests, &ws, -6, -6, &score);
+        let test = introduce_randomness(&template, &mut rng, &PROFILE);
+        let (s1, ops) = poa.align(&test, -6, -6, &score);
+        // eprintln!();
+        let (s2, ops_simd) = poa.align_simd(&test, -6, -6, &score);
+        assert_eq!(s1, s2);
+        // assert_eq!(ops, ops_simd);
+        if ops != ops_simd {
+            // eprintln!("{:?}", poa);
+            let (q, g) = poa.view(&test, &ops);
+            eprintln!("NORMAL\nQ:{}\nG:{}", q, g);
+            let (q, g) = poa.view(&test, &ops_simd);
+            eprintln!("SIMD\nQ:{}\nG:{}", q, g);
+            eprintln!("Normal\tSIMD");
+            for (idx, (op, op2)) in ops.into_iter().zip(ops_simd).enumerate() {
+                eprintln!("{}\t{:?}\t{:?}", idx, op, op2);
+            }
+            assert!(false);
+        }
+    }
 }
 
 #[test]
@@ -250,7 +425,7 @@ fn alignment_check() {
         let score = |x, y| if x == y { -1. } else { -2. };
         let opt = alignment(&y, &x, -2., -2., score.clone());
         eprintln!("OPT:{}", opt);
-                let score = |x, y| if x == y { -1 } else { -2 };
+        let score = |x, y| if x == y { -1 } else { -2 };
         let (poa_score, _) = POA::new(&x, 1.).align(&y, -2, -2, score);
         let poa_score = poa_score as f64;
         eprintln!("POA:{}", poa_score);
@@ -274,6 +449,7 @@ fn forward_check() {
     eprintln!("{:?}", m);
     assert!(lk < 0., "{}", lk)
 }
+
 #[test]
 fn random_check() {
     let bases = b"ACTG";
@@ -494,6 +670,7 @@ fn single_error_test() {
     eprintln!("Sub:{},Del:{},Ins:{}", sub, del, ins);
     assert!(false);
 }
+
 fn check<R: rand::Rng>(t1: &[u8], t2: &[u8], rng: &mut R, cov: usize) -> usize {
     let model1: Vec<_> = (0..cov)
         .map(|_| introduce_randomness(&t1, rng, &PROFILE))
@@ -508,8 +685,9 @@ fn check<R: rand::Rng>(t1: &[u8], t2: &[u8], rng: &mut R, cov: usize) -> usize {
         .collect();
     let weight1 = vec![vec![1.; cov], vec![0.; cov]].concat();
     let weight2 = vec![vec![0.; cov], vec![1.; cov]].concat();
-    let m1 = POA::generate(&seqs, &weight1, &DEFAULT_CONFIG);
-    let m2 = POA::generate(&seqs, &weight2, &DEFAULT_CONFIG);
+    let score = |x, y| if x == y { 3 } else { -4 };
+    let m1 = POA::generate_w_param(&seqs, &weight1, -6, -6, &score);
+    let m2 = POA::generate_w_param(&seqs, &weight2, -6, -6, &score);
     eprintln!("{}\t{}\t{}", cov, m1, m2);
     let tests: Vec<_> = (0..100)
         .map(|e| {
@@ -532,6 +710,86 @@ fn check<R: rand::Rng>(t1: &[u8], t2: &[u8], rng: &mut R, cov: usize) -> usize {
         .count();
     correct
 }
+
+#[test]
+fn single_error_test_simd() {
+    let bases = b"ACTG";
+    let coverage = 150;
+    let start = 20;
+    let step = 3;
+    let len = 150;
+    let results: Vec<_> = (start..coverage)
+        .step_by(step)
+        .map(|cov| {
+            let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(1_234_567);
+            let seed = rng.gen_range(0, 100_000);
+            let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
+            let template1: Vec<_> = (0..len)
+                .filter_map(|_| bases.choose(&mut rng))
+                .copied()
+                .collect();
+            let template2 = introduce_errors(&template1, &mut rng, 1, 0, 0);
+            let sub = check_simd(&template1, &template2, &mut rng, cov);
+            let template2 = introduce_errors(&template1, &mut rng, 0, 1, 0);
+            let del = check_simd(&template1, &template2, &mut rng, cov);
+            let template2 = introduce_errors(&template1, &mut rng, 0, 0, 1);
+            let ins = check_simd(&template1, &template2, &mut rng, cov);
+            (cov, (sub, del, ins))
+        })
+        .collect();
+    let (sub, del, ins) = results
+        .iter()
+        .fold((0, 0, 0), |(x, y, z), &(_, (a, b, c))| {
+            (x + a, y + b, z + c)
+        });
+    for (cov, res) in results {
+        eprintln!("Cov:{},Sub:{},Del:{},Ins:{}", cov, res.0, res.1, res.2);
+    }
+    eprintln!("Tot:{}", (start..coverage).step_by(step).count() * 100);
+    eprintln!("Sub:{},Del:{},Ins:{}", sub, del, ins);
+    assert!(false);
+}
+
+fn check_simd<R: rand::Rng>(t1: &[u8], t2: &[u8], rng: &mut R, cov: usize) -> usize {
+    let model1: Vec<_> = (0..cov)
+        .map(|_| introduce_randomness(&t1, rng, &PROFILE))
+        .collect();
+    let model2: Vec<_> = (0..cov)
+        .map(|_| introduce_randomness(&t2, rng, &PROFILE))
+        .collect();
+    let seqs: Vec<_> = model1
+        .iter()
+        .chain(model2.iter())
+        .map(|e| e.as_slice())
+        .collect();
+    let weight1 = vec![vec![1.; cov], vec![0.; cov]].concat();
+    let weight2 = vec![vec![0.; cov], vec![1.; cov]].concat();
+    let score = |x, y| if x == y { 3 } else { -4 };
+    let m1 = POA::generate_w_param_simd(&seqs, &weight1, -6, -6, &score);
+    let m2 = POA::generate_w_param_simd(&seqs, &weight2, -6, -6, &score);
+    eprintln!("{}\t{}\t{}", cov, m1, m2);
+    let tests: Vec<_> = (0..100)
+        .map(|e| {
+            if e % 2 == 0 {
+                (e, introduce_randomness(&t1, rng, &PROFILE))
+            } else {
+                (e, introduce_randomness(&t2, rng, &PROFILE))
+            }
+        })
+        .collect();
+    let correct = tests
+        .par_iter()
+        .filter(|(e, q)| {
+            if e % 2 == 0 {
+                m1.forward(&q, &DEFAULT_CONFIG) > m2.forward(&q, &DEFAULT_CONFIG)
+            } else {
+                m1.forward(&q, &DEFAULT_CONFIG) < m2.forward(&q, &DEFAULT_CONFIG)
+            }
+        })
+        .count();
+    correct
+}
+
 #[test]
 fn low_coverage_test() {
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(121212);
