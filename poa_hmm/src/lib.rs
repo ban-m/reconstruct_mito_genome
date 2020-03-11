@@ -7,7 +7,6 @@ extern crate rand_xoshiro;
 extern crate rayon;
 #[cfg(test)]
 extern crate test;
-use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 mod config;
@@ -147,6 +146,29 @@ impl PartialOrderAlignment {
             .remove_node()
             .clean_up()
             .finalize()
+
+        // let seed = (10432940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
+        // let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
+        // let max_len = seqs
+        //     .iter()
+        //     .zip(ws.iter())
+        //     .map(|(xs, &w)| if w > 0.001 { xs.len() } else { 0 })
+        //     .max()
+        //     .unwrap_or_else(|| panic!("Empty string."));
+        // rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
+        //     .into_iter()
+        //     .map(|idx| (&seqs[idx], ws[idx]))
+        //     .filter(|&(_, w)| w > 0.001)
+        //     .fold(POA::default(), |x, (y, w)| {
+        //         if x.nodes.len() > 3 * max_len / 2 {
+        //             x.add_w_param(y, w, ins, del, score).remove_node()
+        //         } else {
+        //             x.add_w_param(y, w, ins, del, score)
+        //         }
+        //     })
+        //     .remove_node()
+        //     .clean_up()
+        //     .finalize()
     }
     pub fn generate_w_param_simd<F>(
         seqs: &[&[u8]],
@@ -166,6 +188,10 @@ impl PartialOrderAlignment {
             .map(|(xs, &w)| if w > 0.001 { xs.len() } else { 0 })
             .max()
             .unwrap_or_else(|| panic!("Empty string."));
+        if ws.iter().all(|&w| w < 0.001) {
+            use rand::seq::SliceRandom;
+            POA::new(seqs.choose(&mut rng).unwrap(), 1.);
+        }
         rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
             .into_iter()
             .map(|idx| (&seqs[idx], ws[idx]))
@@ -221,7 +247,7 @@ impl PartialOrderAlignment {
             last_elements,
         }
     }
-    fn initialize(&mut self, row: usize, column: usize, column_s: i32) {
+    fn initialize(&mut self, row: usize, column: usize) {
         let rowvec = std::iter::repeat(MIN).take(column);
         self.dp.iter_mut().for_each(|e| {
             e.clear();
@@ -231,9 +257,6 @@ impl PartialOrderAlignment {
             for _ in 0..row - self.dp.len() {
                 self.dp.push(rowvec.clone().collect());
             }
-        }
-        for j in 0..column {
-            self.dp[0][j] = column_s * j as i32;
         }
         self.route_weight.iter_mut().for_each(|e| e.clear());
         if self.route_weight.len() < row {
@@ -246,7 +269,6 @@ impl PartialOrderAlignment {
             row_vec.extend(rowvec.clone());
         }
         self.last_elements.clear();
-        self.last_elements.push(MIN);
     }
     pub fn align_simd<F>(&mut self, seq: &[u8], ins: i32, del: i32, score: F) -> (i32, TraceBack)
     where
@@ -282,10 +304,11 @@ impl PartialOrderAlignment {
         // v
         let (row, column) = (self.nodes.len() + 1, seq.len() + 1);
         // Initialazation.
-        // self.initialize(row, column, ins);
-        // let mut dp = &mut self.dp;
-        // let mut last_elements = &mut self.last_elements;
-        // let mut route_weight = &mut self.route_weight;
+        // self.initialize(row, column);
+        // self.last_elements.push(MIN);
+        // let dp = &mut self.dp;
+        // let last_elements = &mut self.last_elements;
+        // let route_weight = &mut self.route_weight;
         let mut dp = vec![vec![MIN; column]; row];
         // The last elements in each row. Used at the beggining of the trace-back.
         let mut last_elements = vec![MIN];
@@ -482,6 +505,12 @@ impl PartialOrderAlignment {
                     Equal => (m_weight, Match(m_argmax), m_max),
                 };
                 assert_eq!(max_score, d_max.max(m_max).max(i_max));
+                // let max_score = d_max.max(m_max).max(i_max);
+                // let (max_weight, argmax) = match max_score {
+                //     x if x == d_max => (d_weight, Deletion(d_argmax)),
+                //     x if x == i_max => (i_weight, Insertion(0)),
+                //     _ => (m_weight, Match(m_argmax)),
+                // };
                 updated.push(max_score);
                 updated_weight.push(max_weight);
                 tb.push(argmax)
@@ -556,6 +585,14 @@ impl PartialOrderAlignment {
         }
         // Alignment
         let (_, traceback) = self.align_simd(seq, ins, del, &score);
+        let (_, t) = self.align(seq, ins, del, &score);
+        if traceback != t {
+            let (q, g) = self.view(&seq, &traceback);
+            eprintln!("SIMD\nQ:{}\nG:{}", q, g);
+            let (q, g) = self.view(&seq, &t);
+            eprintln!("NORMAL\nQ:{}\nG:{}", q, g);
+            assert!(false);
+        }
         self.integrate_alignment(seq, w, traceback)
     }
 

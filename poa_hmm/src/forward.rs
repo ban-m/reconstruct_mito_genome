@@ -69,7 +69,6 @@ impl PartialOrderAlignment {
         Self::mul(updates, c);
         (c, d)
     }
-    #[cfg(target_feature = "sse")]
     pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
         // eprintln!("{}", String::from_utf8_lossy(obs));
         // Alignemnts: [mat, ins, del,  mat, ins, del,  ....]

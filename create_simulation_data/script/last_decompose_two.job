@@ -17,8 +17,8 @@ echo "-----start-----" >> ${OUTPUT}
 for seed in `seq 100 110`
 do
     ./target/release/test_last_decompose_multiple \
-        60 0 ${seed} 0.5 0.5 >> ./result/test_lks_dbg.tsv \
-        2>> ./logfiles/two_test_lks_dbg.log
+        60 0 ${seed} 0.5 0.5 >> ./result/test_poa.tsv \
+        2>> ./logfiles/two_test_poa.log
 done
 exit 0;
 

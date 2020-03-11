@@ -379,7 +379,7 @@ fn alignment_check_simd_normal() {
         eprintln!("i:{}", i);
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(i as u64);
         let template = generate_seq(&mut rng, 150);
-        let coverage = 20;
+        let coverage = 50;
         let tests: Vec<_> = (0..coverage)
             .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
             .collect();
