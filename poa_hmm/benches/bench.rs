@@ -1,4 +1,5 @@
 #![feature(test)]
+extern crate packed_simd;
 extern crate poa_hmm;
 extern crate rand;
 extern crate rand_xoshiro;
@@ -209,4 +210,34 @@ fn create_150_simd(b: &mut Bencher) {
 #[bench]
 fn allocate_150_150(b: &mut Bencher) {
     b.iter(|| test::black_box(vec![vec![0.; 150]; 150]));
+}
+
+use packed_simd::i32x8 as i32s;
+#[bench]
+fn simd_max(b: &mut Bencher) {
+    let x = i32s::new(1, 2, 3, 7, 4, 4, 5, 6);
+    let y = i32s::new(2, 4, 5, 0, 6, 6, 7, 12);
+    let len = 10000;
+    b.iter(|| {
+        let mut n = i32s::splat(0);
+        for _ in 0..len {
+            n += x.max(y);
+        }
+        test::black_box(n);
+    })
+}
+
+#[bench]
+fn simd_select(b: &mut Bencher) {
+    let x = i32s::new(1, 2, 3, 7, 4, 4, 5, 6);
+    let y = i32s::new(2, 4, 5, 0, 6, 6, 7, 12);
+    let m = x.gt(y);
+    let len = 10000;
+    b.iter(|| {
+        let mut n = i32s::splat(0);
+        for _ in 0..len {
+            n += m.select(x, y);
+        }
+        test::black_box(n);
+    });
 }

@@ -79,13 +79,14 @@ impl<'a> ModelFactory<'a> {
             .chunks
             .par_iter()
             .zip(self.weights.par_iter())
-            .map(|(chunks, ws)| POA::generate_w_param(chunks, ws, ins, del, score))
+            .map(|(chunks, ws)| POA::generate_w_param_simd(chunks, ws, ins, del, score))
             .collect();
         self.weights.iter_mut().for_each(|ws| ws.clear());
         res
     }
     fn update_model<F>(
         &mut self,
+        mut ms: Vec<POA>,
         updates: &[bool],
         ws: &[Vec<f64>],
         reads: &[Read],
@@ -107,14 +108,14 @@ impl<'a> ModelFactory<'a> {
             }
         }
         assert_eq!(self.weights.len(), self.chunks.len());
-        let res: Vec<_> = self
-            .chunks
-            .par_iter()
+        ms = ms
+            .into_par_iter()
+            .zip(self.chunks.par_iter())
             .zip(self.weights.par_iter())
-            .map(|(chunks, ws)| POA::generate_w_param(chunks, ws, ins, del, score))
+            .map(|((m, chunks), ws)| m.update_w_param(chunks, ws, ins, del, score))
             .collect();
         self.weights.iter_mut().for_each(|ws| ws.clear());
-        res
+        ms
     }
 }
 
@@ -176,6 +177,7 @@ where
     let mut saved = weights_of_reads.clone();
     let correct = report(id, &saved, border, answer, cluster_num);
     info!("LK\t{}\t{}\t{}\t{}", id, 0, previous_lk, correct);
+    use std::time::Instant;
     for loop_num in 1.. {
         let betas = normalize_weights(&variants);
         while !picks.is_empty() {
@@ -188,16 +190,16 @@ where
             let w = &mut weights_of_reads;
             update_weights(w, &mut ws, border, &data, &models, &updates, &betas, config);
             let wor = &weights_of_reads;
-            models
-                .iter_mut()
+            models = models
+                .into_iter()
                 .enumerate()
-                .for_each(|(cl, m)| *m = mf.update_model(&updates, wor, &data, cl, aln));
+                .map(|(cl, m)| mf.update_model(m, &updates, wor, &data, cl, aln))
+                .collect();
         }
-        let wor = &weights_of_reads;
-        let correct = report(id, wor, border, answer, cluster_num);
+        let correct = report(id, &weights_of_reads, border, answer, cluster_num);
         let (weights, lk) = variant_calling::variant_calling_all_pairs(&models, &data, config, &ws);
         info!("LK\t{}\t{}\t{}\t{}", id, loop_num, lk, correct);
-        let soe = wor.iter().map(|e| entropy(e)).sum::<f64>();
+        let soe = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
         if lk <= previous_lk && soe / datasize / (cluster_num as f64).ln() < ENTROPY_THR {
             break;
         }

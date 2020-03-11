@@ -185,6 +185,46 @@ impl PartialOrderAlignment {
             .clean_up()
             .finalize()
     }
+    pub fn update_w_param<F>(
+        mut self,
+        seqs: &[&[u8]],
+        ws: &[f64],
+        ins: i32,
+        del: i32,
+        score: &F,
+    ) -> POA
+    where
+        F: Fn(u8, u8) -> i32,
+    {
+        let seed = (10432940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
+        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
+        let max_len = seqs
+            .iter()
+            .zip(ws.iter())
+            .map(|(xs, &w)| if w > 0.001 { xs.len() } else { 0 })
+            .max()
+            .unwrap_or_else(|| panic!("Empty string."));
+        if ws.iter().all(|&w| w < 0.001) {
+            use rand::seq::SliceRandom;
+            POA::new(seqs.choose(&mut rng).unwrap(), 1.);
+        }
+        self.nodes.clear();
+        self.weight = 0.;
+        rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
+            .into_iter()
+            .map(|idx| (&seqs[idx], ws[idx]))
+            .filter(|&(_, w)| w > 0.001)
+            .fold(self, |x, (y, w)| {
+                if x.nodes.len() > 3 * max_len / 2 {
+                    x.add_w_param_simd(y, w, ins, del, score).remove_node()
+                } else {
+                    x.add_w_param_simd(y, w, ins, del, score)
+                }
+            })
+            .remove_node()
+            .clean_up()
+            .finalize()
+    }
     pub fn generate_uniform(seqs: &[&[u8]]) -> POA {
         let ws = vec![1.; seqs.len()];
         POA::generate(seqs, &ws, &DEFAULT_CONFIG)
@@ -270,17 +310,19 @@ impl PartialOrderAlignment {
             // Update by SIMD instructions.
             for &p in &edges[i - 1] {
                 for j in 0..seq.len() / LANE {
-                    let (start, end) = (LANE * j + 1, LANE * (j + 1) + 1);
+                    let start = LANE * j + 1;
+                    let end = start + LANE;
                     // Location to be updated.
-                    let current = i32s::from_slice_unaligned(&dp[i][start..end]);
-                    let current_weight = f32s::from_slice_unaligned(&route_weight[i][start..end]);
+                    let mut current = i32s::from_slice_unaligned(&dp[i][start..end]);
+                    let mut current_weight =
+                        f32s::from_slice_unaligned(&route_weight[i][start..end]);
                     // Update for deletion state.
                     let deletion = i32s::from_slice_unaligned(&dp[p][start..end]) + deletions;
                     let deletion_weight = f32s::from_slice_unaligned(&route_weight[p][start..end]);
                     let mask = deletion.gt(current)
                         | (deletion.eq(current) & deletion_weight.gt(current_weight));
-                    let current = deletion.max(current);
-                    let current_weight = mask.select(deletion_weight, current_weight);
+                    current = deletion.max(current);
+                    current_weight = mask.select(deletion_weight, current_weight);
                     // Update for match state.
                     let match_s = i32s::from_slice_unaligned(&profile[bs][start - 1..end - 1])
                         + i32s::from_slice_unaligned(&dp[p][start - 1..end - 1]);
@@ -288,32 +330,35 @@ impl PartialOrderAlignment {
                         + f32s::from_slice_unaligned(&route_weight[p][start - 1..end - 1]);
                     let mask = match_s.gt(current)
                         | (match_s.eq(current) & match_weight.gt(current_weight));
-                    let current = match_s.max(current);
-                    let current_weight = mask.select(match_weight, current_weight);
+                    current = match_s.max(current);
+                    current_weight = mask.select(match_weight, current_weight);
                     current.write_to_slice_unaligned(&mut dp[i][start..end]);
                     current_weight.write_to_slice_unaligned(&mut route_weight[i][start..end]);
                 }
                 // Update by usual updates.
                 for j in (seq.len() / LANE) * LANE..seq.len() {
                     let pos = j + 1;
+                    let mut current = dp[i][pos];
+                    let mut current_weight = route_weight[i][pos];
                     let (del, del_weight) = (dp[p][pos] + del, route_weight[p][pos]);
-                    let (current, current_weight) = (dp[i][pos], route_weight[i][pos]);
                     if del > current || (del == current && del_weight > current_weight) {
-                        dp[i][pos] = del;
-                        route_weight[i][pos] = del_weight;
+                        current = del;
+                        current_weight = del_weight;
                     }
                     let mat = dp[p][j] + profile[bs][j];
                     let mat_weight = route_weight[p][j] + nw;
-                    let (current, current_weight) = (dp[i][pos], route_weight[i][pos]);
                     if mat > current || (mat == current && mat_weight > current_weight) {
-                        dp[i][pos] = mat;
-                        route_weight[i][pos] = mat_weight;
+                        current = mat;
+                        current_weight = mat_weight;
                     }
+                    dp[i][pos] = current;
+                    route_weight[i][pos] = current_weight;
                 }
             }
             // Insertions would be updated by usual updates due to dependencies.
             for j in 1..column {
-                let (ins, current) = (dp[i][j - 1] + ins, dp[i][j]);
+                let ins = dp[i][j - 1] + ins;
+                let current = dp[i][j];
                 if ins > current
                     || (ins == current && route_weight[i][j - 1] + 1. > route_weight[i][j])
                 {
@@ -586,43 +631,6 @@ impl PartialOrderAlignment {
         assert!(self.nodes.iter().all(|node| node.weight() > 0.));
         self.topological_sort()
     }
-    // Return the minimum distance from root node to each node.
-    // Done by BFS.
-    // pub fn min_dist(&self) -> Vec<(usize, usize)> {
-    //     let mut dist = vec![(0, 0); self.nodes.len()];
-    //     let mut queue: Vec<_> = {
-    //         let mut is_head = vec![true; self.nodes.len()];
-    //         for &to in self.nodes.iter().flat_map(|n| n.edges.iter()) {
-    //             is_head[to] = false;
-    //         }
-    //         is_head
-    //             .iter()
-    //             .enumerate()
-    //             .filter_map(|(idx, &e)| if e { Some(idx) } else { None })
-    //             .collect()
-    //     };
-    //     let mut flag: Vec<_> = vec![false; self.nodes.len()];
-    //     let mut depth = 0;
-    //     let mut update = vec![];
-    //     while !queue.is_empty() {
-    //         while let Some(from) = queue.pop() {
-    //             if flag[from] {
-    //                 continue;
-    //             }
-    //             flag[from] = true;
-    //             dist[from].0 = depth;
-    //             for &to in self.nodes[from].edges.iter() {
-    //                 if !flag[to] {
-    //                     dist[to].1 = from;
-    //                 }
-    //                 update.push(to);
-    //             }
-    //         }
-    //         std::mem::swap(&mut queue, &mut update);
-    //         depth += 1;
-    //     }
-    //     dist
-    // }
     pub fn edges(&self) -> Vec<Vec<usize>> {
         let mut edges = vec![vec![]; self.nodes.len()];
         for (from, n) in self.nodes.iter().enumerate() {
