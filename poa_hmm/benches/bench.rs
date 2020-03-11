@@ -105,10 +105,7 @@ fn align_150(b: &mut Bencher) {
         .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
         .collect();
     let model = POA::generate_vec(&model1);
-    b.iter(|| {
-        let mut m = model.clone();
-        m.align(&model1[0], -1, -1, |x, y| if x == y { 1 } else { -1 })
-    });
+    b.iter(|| model.align(&model1[0], -1, -1, |x, y| if x == y { 1 } else { -1 }));
 }
 
 #[bench]
@@ -169,10 +166,7 @@ fn align_150_simd(b: &mut Bencher) {
         .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
         .collect();
     let model = POA::generate_vec(&model1);
-    b.iter(|| {
-        let mut m = model.clone();
-        m.align_simd(&model1[0], -1, -1, |x, y| if x == y { 1 } else { -1 })
-    });
+    b.iter(|| model.align_simd(&model1[0], -1, -1, |x, y| if x == y { 1 } else { -1 }));
 }
 
 #[bench]
@@ -210,4 +204,9 @@ fn create_150_simd(b: &mut Bencher) {
     let ws = vec![1.; 50];
     let score = |x, y| if x == y { 1 } else { -1 };
     b.iter(|| POA::generate_w_param_simd(&model1, &ws, -2, -2, &score));
+}
+
+#[bench]
+fn allocate_150_150(b: &mut Bencher) {
+    b.iter(|| test::black_box(vec![vec![0.; 150]; 150]));
 }

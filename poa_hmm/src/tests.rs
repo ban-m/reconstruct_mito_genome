@@ -358,9 +358,9 @@ fn alignment_check_simd_normal() {
             .filter_map(|_| bases.choose(&mut rng))
             .copied()
             .collect();
-        let mut simd = POA::new(&x, 1.);
+        let simd = POA::new(&x, 1.);
         let (simd_score, simd_ops) = simd.align_simd(&y, -2, -2, score);
-        let mut normal = POA::new(&x, 1.);
+        let normal = POA::new(&x, 1.);
         let (normal_score, ops) = normal.align(&y, -2, -2, score);
         assert_eq!(simd_score, normal_score);
         if simd_ops.len() != ops.len() {
@@ -385,7 +385,7 @@ fn alignment_check_simd_normal() {
             .collect();
         let tests: Vec<_> = tests.iter().map(|e| e.as_slice()).collect();
         let ws = vec![1.; coverage];
-        let mut poa = POA::generate_w_param(&tests, &ws, -6, -6, &score);
+        let poa = POA::generate_w_param(&tests, &ws, -6, -6, &score);
         // let mut poa_simd = POA::generate_w_param_simd(&tests, &ws, -6, -6, &score);
         let test = introduce_randomness(&template, &mut rng, &PROFILE);
         let (s1, ops) = poa.align(&test, -6, -6, &score);

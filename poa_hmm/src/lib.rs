@@ -52,9 +52,6 @@ pub type POA = PartialOrderAlignment;
 pub struct PartialOrderAlignment {
     nodes: Vec<Base>,
     weight: f64,
-    dp: Vec<Vec<i32>>,
-    route_weight: Vec<Vec<f32>>,
-    last_elements: Vec<i32>,
 }
 
 type TraceBack = Vec<EditOp>;
@@ -132,6 +129,10 @@ impl PartialOrderAlignment {
             .map(|(xs, &w)| if w > 0.001 { xs.len() } else { 0 })
             .max()
             .unwrap_or_else(|| panic!("Empty string."));
+        if ws.iter().all(|&w| w < 0.001) {
+            use rand::seq::SliceRandom;
+            POA::new(seqs.choose(&mut rng).unwrap(), 1.);
+        }
         rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
             .into_iter()
             .map(|idx| (&seqs[idx], ws[idx]))
@@ -146,29 +147,6 @@ impl PartialOrderAlignment {
             .remove_node()
             .clean_up()
             .finalize()
-
-        // let seed = (10432940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
-        // let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
-        // let max_len = seqs
-        //     .iter()
-        //     .zip(ws.iter())
-        //     .map(|(xs, &w)| if w > 0.001 { xs.len() } else { 0 })
-        //     .max()
-        //     .unwrap_or_else(|| panic!("Empty string."));
-        // rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
-        //     .into_iter()
-        //     .map(|idx| (&seqs[idx], ws[idx]))
-        //     .filter(|&(_, w)| w > 0.001)
-        //     .fold(POA::default(), |x, (y, w)| {
-        //         if x.nodes.len() > 3 * max_len / 2 {
-        //             x.add_w_param(y, w, ins, del, score).remove_node()
-        //         } else {
-        //             x.add_w_param(y, w, ins, del, score)
-        //         }
-        //     })
-        //     .remove_node()
-        //     .clean_up()
-        //     .finalize()
     }
     pub fn generate_w_param_simd<F>(
         seqs: &[&[u8]],
@@ -236,44 +214,21 @@ impl PartialOrderAlignment {
         nodes.push(last);
         nodes.iter_mut().for_each(|n| n.add_weight(w));
         assert!(nodes.iter().all(|n| n.weight() > 0.));
-        let dp = vec![vec![]];
-        let route_weight = vec![vec![]];
-        let last_elements = vec![];
-        Self {
-            weight,
-            nodes,
-            dp,
-            route_weight,
-            last_elements,
-        }
+        Self { weight, nodes }
     }
-    fn initialize(&mut self, row: usize, column: usize) {
-        let rowvec = std::iter::repeat(MIN).take(column);
-        self.dp.iter_mut().for_each(|e| {
-            e.clear();
-            e.extend(rowvec.clone())
-        });
-        if self.dp.len() < row {
-            for _ in 0..row - self.dp.len() {
-                self.dp.push(rowvec.clone().collect());
-            }
-        }
-        self.route_weight.iter_mut().for_each(|e| e.clear());
-        if self.route_weight.len() < row {
-            for _ in 0..row - self.route_weight.len() {
-                self.route_weight.push(Vec::with_capacity(column));
-            }
-        }
-        let rowvec = std::iter::repeat(0.).take(column);
-        for row_vec in self.route_weight.iter_mut() {
-            row_vec.extend(rowvec.clone());
-        }
-        self.last_elements.clear();
-    }
-    pub fn align_simd<F>(&mut self, seq: &[u8], ins: i32, del: i32, score: F) -> (i32, TraceBack)
+    pub fn align_simd<F>(&self, seq: &[u8], ins: i32, del: i32, score: F) -> (i32, TraceBack)
     where
         F: Fn(u8, u8) -> i32,
     {
+        // -----> query position ---->
+        // 0 8 8 8 88 8 8 8 88
+        // 0
+        // 0
+        // |
+        // |
+        // Graph position
+        // |
+        // v
         use packed_simd::f32x8 as f32s;
         use packed_simd::i32x8 as i32s;
         const LANE: usize = 8;
@@ -293,22 +248,8 @@ impl PartialOrderAlignment {
             })
             .collect();
         let deletions = i32s::splat(del);
-        // -----> query position ---->
-        // 0 8 8 8 88 8 8 8 88
-        // 0
-        // 0
-        // |
-        // |
-        // Graph position
-        // |
-        // v
         let (row, column) = (self.nodes.len() + 1, seq.len() + 1);
         // Initialazation.
-        // self.initialize(row, column);
-        // self.last_elements.push(MIN);
-        // let dp = &mut self.dp;
-        // let last_elements = &mut self.last_elements;
-        // let route_weight = &mut self.route_weight;
         let mut dp = vec![vec![MIN; column]; row];
         // The last elements in each row. Used at the beggining of the trace-back.
         let mut last_elements = vec![MIN];
@@ -326,8 +267,8 @@ impl PartialOrderAlignment {
             let bs = base_table::BASE_TABLE[self.nodes[i - 1].base() as usize];
             let nw = self.nodes[i - 1].weight() as f32;
             let node_weight = f32s::splat(nw);
+            // Update by SIMD instructions.
             for &p in &edges[i - 1] {
-                // Update by SIMD instructions.
                 for j in 0..seq.len() / LANE {
                     let (start, end) = (LANE * j + 1, LANE * (j + 1) + 1);
                     // Location to be updated.
@@ -372,11 +313,12 @@ impl PartialOrderAlignment {
             }
             // Insertions would be updated by usual updates due to dependencies.
             for j in 1..column {
-                let (ins, ins_weight) = (dp[i][j - 1] + ins, route_weight[i][j - 1] + 1.);
-                let (current, current_weight) = (dp[i][j], route_weight[i][j]);
-                if ins > current || (ins == current && ins_weight > current_weight) {
+                let (ins, current) = (dp[i][j - 1] + ins, dp[i][j]);
+                if ins > current
+                    || (ins == current && route_weight[i][j - 1] + 1. > route_weight[i][j])
+                {
                     dp[i][j] = ins;
-                    route_weight[i][j] = ins_weight;
+                    route_weight[i][j] = route_weight[i][j - 1] + 1.;
                 }
             }
             last_elements.push(dp[i][column - 1]);
@@ -444,7 +386,7 @@ impl PartialOrderAlignment {
     //  |
     //  v
     // Semi-Global alignment containing query sequence.
-    pub fn align<F>(&mut self, seq: &[u8], ins: i32, del: i32, score: F) -> (i32, TraceBack)
+    pub fn align<F>(&self, seq: &[u8], ins: i32, del: i32, score: F) -> (i32, TraceBack)
     where
         F: Fn(u8, u8) -> i32,
     {
@@ -565,34 +507,24 @@ impl PartialOrderAlignment {
     pub fn add(self, seq: &[u8], w: f64) -> Self {
         self.add_w_param(seq, w, -2, -2, |x, y| if x == y { 1 } else { -1 })
     }
-    pub fn add_w_param<F>(mut self, seq: &[u8], w: f64, ins: i32, del: i32, score: F) -> Self
+    pub fn add_w_param<F>(self, seq: &[u8], w: f64, ins: i32, del: i32, score: F) -> Self
     where
         F: Fn(u8, u8) -> i32,
     {
         if self.weight < SMALL || self.nodes.is_empty() {
             return Self::new(seq, w);
         }
-        // Alignment
         let (_, traceback) = self.align(seq, ins, del, score);
         self.integrate_alignment(seq, w, traceback)
     }
-    pub fn add_w_param_simd<F>(mut self, seq: &[u8], w: f64, ins: i32, del: i32, score: F) -> Self
+    pub fn add_w_param_simd<F>(self, seq: &[u8], w: f64, ins: i32, del: i32, score: F) -> Self
     where
         F: Fn(u8, u8) -> i32,
     {
         if self.weight < SMALL || self.nodes.is_empty() {
             return Self::new(seq, w);
         }
-        // Alignment
         let (_, traceback) = self.align_simd(seq, ins, del, &score);
-        let (_, t) = self.align(seq, ins, del, &score);
-        if traceback != t {
-            let (q, g) = self.view(&seq, &traceback);
-            eprintln!("SIMD\nQ:{}\nG:{}", q, g);
-            let (q, g) = self.view(&seq, &t);
-            eprintln!("NORMAL\nQ:{}\nG:{}", q, g);
-            assert!(false);
-        }
         self.integrate_alignment(seq, w, traceback)
     }
 
