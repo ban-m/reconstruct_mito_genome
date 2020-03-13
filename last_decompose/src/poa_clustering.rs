@@ -12,8 +12,9 @@ use poa_hmm::*;
 use rand::{thread_rng, Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
-const ENTROPY_THR: f64 = 0.2;
+const ENTROPY_THR: f64 = 0.25;
 const PICK_PROB: f64 = 0.02;
+const MAX_PICK: usize = 8;
 
 pub struct AlnParam<F>
 where
@@ -161,7 +162,7 @@ where
     debug!("Models have been created");
     let (border, datasize) = (label.len(), data.len() as f64);
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(data.len() as u64 * 23);
-    let pick_num = (datasize * PICK_PROB).floor() as usize;
+    let pick_num = ((datasize * PICK_PROB).floor() as usize).min(MAX_PICK);
     let mut picks: Vec<_> = (0..data.len()).skip(border).collect();
     picks.shuffle(&mut rng);
     let mut ws: Vec<f64> = (0..cluster_num)
@@ -177,7 +178,6 @@ where
     let mut saved = weights_of_reads.clone();
     let correct = report(id, &saved, border, answer, cluster_num);
     info!("LK\t{}\t{}\t{}\t{}", id, 0, previous_lk, correct);
-    use std::time::Instant;
     for loop_num in 1.. {
         let betas = normalize_weights(&variants);
         while !picks.is_empty() {

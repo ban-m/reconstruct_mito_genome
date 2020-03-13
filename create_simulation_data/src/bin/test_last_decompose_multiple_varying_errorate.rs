@@ -30,7 +30,6 @@ fn main() {
     debug!("Seed:{}", seed);
     let coverage = 0;
     let chain_len = 60;
-    let k = 6;
     let len = 150;
     let prob: Vec<_> = (1..=10).collect();
     let test_nums: Vec<_> = (50..150).step_by(10).collect();
@@ -48,7 +47,7 @@ fn main() {
             println!("TestNum:{}\tLabeled:{}", test_num, coverage);
             let s = Instant::now();
             let (hmm, dists) = benchmark(
-                seed, p, coverage, test_num, chain_len, k, len, &probs, clusters,
+                seed, p, coverage, test_num, chain_len, len, &probs, clusters,
             );
             debug!("Elapsed {:?}", Instant::now() - s);
             let mut line = "RESULT".to_string();
@@ -89,7 +88,6 @@ fn benchmark(
     coverage: usize,
     test_num: usize,
     chain_len: usize,
-    k: usize,
     len: usize,
     probs: &[f64],
     clusters: usize,
@@ -138,12 +136,8 @@ fn benchmark(
             })
         })
         .collect();
-    // for (idx, b) in ok_chunk.iter().enumerate() {
-    //     debug!("{}\t{}", idx, b);
-    // }
     let (dataset, label, answer, _border) =
         create_simulation_data::generate_mul_data(&templates, coverage, test_num, &mut rng, probs);
-    let contigs = vec![chain_len];
     let c = &dbg_hmm::DEFAULT_CONFIG;
     {
         let probs: Vec<_> = probs.iter().map(|e| format!("{:3}", e)).collect();
@@ -155,19 +149,11 @@ fn benchmark(
         .map(|(idx, e)| {
             let id = format!("{}", idx);
             let read = ERead::new_with_lowseq(e, &id);
-            // *read.seq_mut() = read
-            //     .seq()
-            //     .iter()
-            //     .zip(ok_chunk.iter())
-            //     .filter(|&(_, &b)| b)
-            //     .map(|(q, _)| q)
-            //     .cloned()
-            //     .collect();
             read
         })
         .collect();
     let forbidden = vec![vec![]; data.len()];
-    let em_pred = clustering(&data, &label, &forbidden, k, clusters, &contigs, &answer, c);
+    let em_pred = clustering(&data, &label, &forbidden, clusters, &answer, c);
     let mut result = vec![vec![0; clusters]; clusters];
     for (pred, ans) in em_pred.into_iter().zip(answer) {
         result[pred as usize][ans as usize] += 1;

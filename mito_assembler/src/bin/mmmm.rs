@@ -67,7 +67,7 @@ fn main() -> std::io::Result<()> {
                 .long("cluster_num")
                 .required(false)
                 .value_name("CLUSTER_NUM")
-                .help("Output directory")
+                .help("Minimum cluster number.")
                 .default_value(&"2")
                 .takes_value(true),
         )
@@ -81,7 +81,16 @@ fn main() -> std::io::Result<()> {
                 .default_value(&"1")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("verbose")
+                .short("v")
+                .long("verbose")
+                .required(false)
+                .value_name("VERBOSE")
+                .help("Output debug to the standard error."),
+        )
         .get_matches();
+    debug!("MMMM started. Debug mode.");
     let reads = matches
         .value_of("reads")
         .map(|file| match bio_utils::fasta::parse_into_vec(file) {
@@ -113,6 +122,7 @@ fn main() -> std::io::Result<()> {
     let output_dir = matches
         .value_of("outdir")
         .expect("please specify output directry.");
+    debug!("All files opened.");
     let config = last_decompose::error_profile::summarize_tab(&alignments, &reads, &reference);
     let cluster_num: usize = matches
         .value_of("cluster_num")

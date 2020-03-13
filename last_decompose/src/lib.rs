@@ -56,6 +56,7 @@ const INIT_PICK_PROB: f64 = 0.05;
 const ENTROPY_THR: f64 = 0.05;
 const MIN_WEIGHT: f64 = 0.20;
 const K: usize = 6;
+
 type Read = Vec<(usize, Vec<u8>)>;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
@@ -491,7 +492,7 @@ pub fn clustering_chunking(
     data: &[ERead],
     label: &[u8],
     forbidden: &[Vec<u8>],
-    k: usize,
+    _k: usize,
     cluster_num: usize,
     contigs: &[usize],
     answer: &[u8],
@@ -511,12 +512,12 @@ pub fn clustering_chunking(
             }
             let (data, label, forbidden, answer) =
                 select_within(region, data, label, forbidden, answer);
-            debug!("Read:{}", data.len());
+            debug!("Number of Reads:{}", data.len());
             assert_eq!(data.len(), forbidden.len());
             assert_eq!(data.len(), label.len() + answer.len());
             let predictions = {
                 let (da, la, fo, an) = (&data, &label, &forbidden, &answer);
-                clustering(da, la, fo, k, cluster_num, contigs, an, c)
+                clustering(da, la, fo, cluster_num, an, c)
             };
             assert_eq!(predictions.len(), data.len());
             (0..cluster_num)
@@ -584,25 +585,27 @@ pub fn clustering(
     data: &[ERead],
     label: &[u8],
     forbidden: &[Vec<u8>],
-    _k: usize,
     cluster_num: usize,
-    _contigs: &[usize],
     answer: &[u8],
     c: &Config,
 ) -> Vec<u8> {
     assert_eq!(forbidden.len(), data.len());
     assert_eq!(label.len() + answer.len(), data.len());
     use poa_clustering::DEFAULT_ALN;
-    let weights = soft_clustering_poa(data, label, forbidden, cluster_num, answer, c, &DEFAULT_ALN);  
+    let weights = soft_clustering_poa(data, label, forbidden, cluster_num, answer, c, &DEFAULT_ALN);
     //let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
     debug!("WEIGHTS\tPrediction. Dump weights");
     assert_eq!(weights.len(), label.len() + answer.len());
-    for (weight, ans) in weights.iter().zip(label.iter().chain(answer.iter())) {
+    for ((read, weight), ans) in data
+        .iter()
+        .zip(weights.iter())
+        .zip(label.iter().chain(answer.iter()))
+    {
         let weights: String = weight
             .iter()
-            .map(|e| format!("{:.3},", e))
+            .map(|e| format!("{:.1},", e))
             .fold(String::new(), |x, y| x + &y);
-        debug!("WEIGHTS\t{}\t{}", weights, ans);
+        debug!("WEIGHTS\t{}\t{}\t{}", weights, ans, read.id());
     }
     weights
         .iter()

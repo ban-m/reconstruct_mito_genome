@@ -1,25 +1,20 @@
-#![allow(dead_code)]
 use super::ERead;
 use last_tiling::repeat::RepeatPairs;
 use last_tiling::{Contigs, LastTAB};
 use serde::{Deserialize, Serialize};
 use std::cmp::{Ord, Ordering, PartialOrd};
 use std::collections::HashSet;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 const MERGE_THR: usize = 500;
 const COVERAGE_THR: usize = 25;
 const WINDOW: usize = 3;
 use std::collections::HashMap;
 
-// The threshould used to determine whether two regions would be regarded as pairs.
-const fn factor(x: usize) -> usize {
-    x * 3 / 2
-}
 /// How many reads are needed to construct a separate class.
 /// Note that it should be more than 1, since there is a
 /// danger of chimeric reads.
 const CHECK_THR: u16 = 2;
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CriticalRegion {
     CP(ContigPair),
     CR(ConfluentRegion),
@@ -145,22 +140,21 @@ impl Position {
             r.does_touch(self.contig, s_thr, s) && r.does_touch(self.contig, 0, CHECK_THR)
         }
     }
-    fn along_with(&self, r: &ERead) -> bool {
-        let s = self.start_unit;
-        let t = self.end_unit;
-        let (s_thr, t_thr) = (s.max(CHECK_THR) - CHECK_THR, t + CHECK_THR);
-        let c = self.contig;
-        match self.direction {
-            Direction::UpStream => r.does_touch(c, s_thr, s) && !r.does_touch(c, t, t_thr),
-            Direction::DownStream => !r.does_touch(c, s_thr, s) && r.does_touch(c, t, t_thr),
-        }
-    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ContigPair {
     contig1: Position,
     contig2: Position,
+    reads: HashSet<String>,
+}
+
+impl Debug for ContigPair {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        writeln!(f, "contig1:{:?}", self.contig1)?;
+        writeln!(f, "contig2:{:?}", self.contig2)?;
+        writeln!(f, "Number of reads:{}", self.reads.len())
+    }
 }
 
 impl Display for ContigPair {
@@ -237,13 +231,17 @@ impl ReadClassify for ContigPair {
     // Check wether this read is along with self.
     // Note that this method is direction-sensitive.
     fn along_with(&self, r: &ERead) -> bool {
-        self.contig1.along_with(r) && self.contig2.along_with(r)
+        self.reads.contains(r.id())
     }
 }
 
 impl ContigPair {
-    pub fn new(contig1: Position, contig2: Position) -> Self {
-        Self { contig1, contig2 }
+    pub fn new(contig1: Position, contig2: Position, reads: HashSet<String>) -> Self {
+        Self {
+            contig1,
+            contig2,
+            reads,
+        }
     }
     pub fn contig1(&self) -> &Position {
         &self.contig1
@@ -253,10 +251,18 @@ impl ContigPair {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ConfluentRegion {
     // Contains start and end position.
     pos: Position,
+    reads: HashSet<String>,
+}
+
+impl Debug for ConfluentRegion {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        writeln!(f, "pos:{:?}", self.pos)?;
+        writeln!(f, "Number of reads:{}", self.reads.len())
+    }
 }
 
 impl Display for ConfluentRegion {
@@ -277,8 +283,8 @@ impl PartialOrd for ConfluentRegion {
 }
 
 impl ConfluentRegion {
-    fn new(pos: Position) -> Self {
-        Self { pos }
+    fn new(pos: Position, reads: HashSet<String>) -> Self {
+        Self { pos, reads }
     }
     pub fn contig(&self) -> &Position {
         &self.pos
@@ -299,7 +305,7 @@ impl ReadClassify for ConfluentRegion {
         start < min && max < end
     }
     fn along_with(&self, r: &ERead) -> bool {
-        self.pos.along_with(r)
+        self.reads.contains(r.id())
     }
 }
 
@@ -347,9 +353,9 @@ pub fn contigpair_position(reads: &[ERead], contigs: &Contigs) -> Vec<ContigPair
                 continue;
             }
             // If w[0] < w[1], it is to upstream.
-            let former_from_up = is_from_up(&w[..2]);
-            // If w[2] < w[3], it is to downstream.
-            let latter_from_up = !is_from_up(&w[2..]);
+            let former_from_up = w[0].unit < w[1].unit;
+            // If w[2] > w[3], it is to upstream.
+            let latter_from_up = w[2].unit > w[3].unit;
             match (start < end, former_from_up, latter_from_up) {
                 (true, true, x) => from_up_counts[c1][start].push((c2 as u16, end, x)),
                 (true, false, x) => to_down_counts[c1][start].push((c2 as u16, end, x)),
@@ -358,38 +364,24 @@ pub fn contigpair_position(reads: &[ERead], contigs: &Contigs) -> Vec<ContigPair
             }
         }
     }
-    for contig in from_up_counts.iter() {
-        for (idx, jumps) in contig.iter().enumerate() {
-            if jumps.len() > 2 {
-                debug!("U\t{}\t{}", idx, jumps.len());
-            }
-        }
-    }
-    for contig in to_down_counts.iter() {
-        for (idx, jumps) in contig.iter().enumerate() {
-            if jumps.len() > 2 {
-                debug!("D\t{}\t{}", idx, jumps.len());
-            }
-        }
-    }
     let mut contigpairs = vec![];
-    //debug!("start call peak");
-    let pairs = peak_call_contigpair(from_up_counts, true, contigs);
+    let pairs = peak_call_contigpair(reads, from_up_counts, true, contigs);
     contigpairs.extend(pairs);
-    //debug!("start call peak");
-    let pairs = peak_call_contigpair(to_down_counts, false, contigs);
+    let pairs = peak_call_contigpair(reads, to_down_counts, false, contigs);
     contigpairs.extend(pairs);
     contigpairs
 }
 
 fn peak_call_contigpair(
+    reads: &[ERead],
     mut counts: Vec<Vec<Vec<(u16, usize, bool)>>>,
     from_upstream: bool,
     contigs: &Contigs,
 ) -> Vec<ContigPair> {
     let mut contigpairs = vec![];
     for (contig, jumps) in counts.iter_mut().enumerate() {
-        let from_max = contigs.get_last_unit(contig as u16).unwrap();
+        let contig = contig as u16;
+        let from_max = contigs.get_last_unit(contig).unwrap();
         let mut start_idx = 0;
         while start_idx < jumps.len() {
             // Search a heviest edge from this contig.
@@ -397,22 +389,26 @@ fn peak_call_contigpair(
                 Some(res) => res,
                 None => break,
             };
-            //debug!("{}:{}->{}:{}({})", contig, from, to_c, to, direction);
             // Determine the range of the start position ad the range of
             // the end position.
             let (from_start, from_end, to_start, to_end) =
                 search_jump_area(jumps, from, to_c, to, direction);
-            // debug!("{}-{} -> {}-{}", from_start, from_end, to_start, to_end);
             // Collect the edges from (start,end) to (start_dst, end_dst)
+
             let counts = collect_edges_in(
                 jumps, from_start, from_end, to_c, to_start, to_end, direction,
             );
-            // debug!("having {} reads", counts);
             // and remove them from counts.
             if counts > COVERAGE_THR {
                 remove_edges(
                     jumps, from_start, from_end, to_c, to_start, to_end, direction,
                 );
+                let belong_reads = get_belong_reads(
+                    reads,
+                    (contig, from_start, from_end, from_upstream),
+                    (to_c, to_start, to_end, direction),
+                );
+                debug!("{},{}", belong_reads.len(), counts);
                 use Direction::*;
                 let from_direction = if from_upstream { UpStream } else { DownStream };
                 let to_direction = if direction { UpStream } else { DownStream };
@@ -422,7 +418,7 @@ fn peak_call_contigpair(
                 let pos1 = Position::new(contig, from_start, from_end, from_direction, from_max);
                 let (to_start, to_end) = (to_start as u16, to_end as u16);
                 let pos2 = Position::new(to_c, to_start, to_end, to_direction, to_max);
-                contigpairs.push(ContigPair::new(pos1, pos2));
+                contigpairs.push(ContigPair::new(pos1, pos2, belong_reads));
             }
             start_idx = from_end;
         }
@@ -533,6 +529,41 @@ fn collect_edges_in(
         .sum::<usize>()
 }
 
+fn get_belong_reads(
+    reads: &[ERead],
+    (f_c, f_start, f_end, f_dir): (u16, usize, usize, bool),
+    (t_c, t_start, t_end, t_dir): (u16, usize, usize, bool),
+) -> HashSet<String> {
+    let is_along_with = |read: &&ERead| -> bool {
+        let jumps = read.seq().windows(4).filter(is_jumping);
+        for w in jumps {
+            let (start, end) = (w[1].unit as usize, w[2].unit as usize);
+            let (c1, c2) = (w[1].contig, w[2].contig);
+            let former_direction = w[0].unit < w[1].unit;
+            let latter_direction = w[2].unit > w[3].unit;
+            if start < end {
+                // former <=> from, latter <=> to
+                let direction = former_direction == f_dir && latter_direction == t_dir;
+                let contig = f_c == c1 && t_c == c2;
+                let range = f_start <= start && start < f_end && t_start <= end && end < t_end;
+                return direction & contig & range;
+            } else {
+                // former <=> to, latter <=> from.
+                let direction = former_direction == t_dir && latter_direction == f_dir;
+                let contig = t_c == c1 && f_c == c2;
+                let range = f_start <= end && end < f_end && t_start <= start && start < t_end;
+                return direction & contig & range;
+            }
+        }
+        false
+    };
+    reads
+        .iter()
+        .filter(is_along_with)
+        .map(|r| r.id().to_string())
+        .collect()
+}
+
 fn remove_edges(
     jumps: &mut [Vec<(u16, usize, bool)>],
     f_start: usize,
@@ -562,159 +593,6 @@ fn is_jumping(w: &&[super::CUnit]) -> bool {
     is_cont && (w[1].contig != w[2].contig || diff(&w[1], &w[2]) > ACCEPTED_GAP)
 }
 
-fn is_from_up(w: &[super::CUnit]) -> bool {
-    w[0].unit < w[1].unit
-}
-
-// Return all critical region within a given contig.
-// Note that the confluent region would not be captured.
-fn critical_region_within(
-    contig: u16,
-    reads: &[ERead],
-    contigs: &Contigs,
-    repeats: &[RepeatPairs],
-) -> Option<Vec<ContigPair>> {
-    let last_unit = contigs.get_last_unit(contig)? as usize;
-    let mut inner_count: Vec<Vec<&ERead>> = vec![vec![]; last_unit + 1];
-    const ACCEPTED_GAP: u16 = 10;
-    for read in reads.iter().filter(|r| r.has(contig)) {
-        for w in read.seq().windows(2) {
-            if w[0].contig == contig && w[1].contig == contig {
-                let gapsize = w[1].unit.max(w[0].unit) - w[1].unit.min(w[0].unit);
-                let is_circled = last_unit as u16 - w[1].unit.max(w[0].unit) < ACCEPTED_GAP
-                    && w[1].unit.min(w[0].unit) < ACCEPTED_GAP;
-                if gapsize > ACCEPTED_GAP && !is_circled {
-                    inner_count[w[0].unit as usize].push(read);
-                    inner_count[w[1].unit as usize].push(read);
-                }
-            }
-        }
-    }
-    let ave = reads.len() / last_unit;
-    let inner_region = {
-        let inner_counts = inner_count.iter().map(|e| e.len()).collect::<Vec<_>>();
-        let inner_region: Vec<_> = peak_detection(&inner_counts, factor(ave))
-            .into_iter()
-            .chain(repeats.iter().flat_map(|repeats| {
-                (repeats
-                    .inner()
-                    .iter()
-                    .map(|r| (r.start_in_unit() as usize, r.end_in_unit() as usize)))
-            }))
-            .collect();
-        merge_overlap_and_remove_contained(inner_region)
-    };
-    let mut result = vec![];
-    for i in 0..inner_region.len() {
-        for j in (i + 1)..inner_region.len() {
-            let &(s, t) = &inner_region[i];
-            let &(x, y) = &inner_region[j];
-            let is_ordered = 0 < t && t <= x && x <= y;
-            if !is_ordered || x - t < 100 {
-                // (s,t) contains (x,y) or vise versa.
-                // Or, Too near.
-                continue;
-            }
-            // Let's move on to case exhaution.
-            // ----s||||t-----
-            // ----x||||y-----
-            // Case1: --->s(jumps)y---> : (s,t):UpStream, (x,y):Downstream
-            // Case2: --->x(jumps)t---> : (s,t):DownStream, (x,y):UpStream
-            // Case3: --->s(jumps)x---> : (s,t):UpStream, (x,y):UpStream,
-            // Case4: --->t(jumps)y---> : (s,t):DownStream, (x,y):DownStream
-            // To this end, first create each gadget.
-            // Note that all the read innner_count should be mapped to the
-            // 'contig' contig. However, to treat chimera reads correctly,
-            // we double check it.
-            let (s_thr, t_thr) = (s.max(CHECK_THR) - CHECK_THR, t + CHECK_THR);
-            let st_upstream: HashSet<_> = reads
-                .iter()
-                .filter(|read| {
-                    read.does_touch(contig, s_thr, s) && !read.does_touch(contig, t, t_thr)
-                })
-                .collect();
-            let st_downstream: HashSet<_> = reads
-                .iter()
-                .filter(|read| {
-                    !read.does_touch(contig, s_thr, s) && read.does_touch(contig, t, t_thr)
-                })
-                .collect();
-            let (x_thr, y_thr) = (x.max(CHECK_THR) - CHECK_THR, y + CHECK_THR);
-            let xy_upstream: HashSet<_> = reads
-                .iter()
-                .filter(|read| {
-                    read.does_touch(contig, x_thr, x) && !read.does_touch(contig, y, y_thr)
-                })
-                .collect();
-            let xy_downstream: HashSet<_> = reads
-                .iter()
-                .filter(|read| {
-                    !read.does_touch(contig, x, x_thr) && read.does_touch(contig, y, y_thr)
-                })
-                .collect();
-            assert!(st_upstream.intersection(&st_downstream).count() == 0);
-            assert!(xy_upstream.intersection(&xy_downstream).count() == 0);
-            let width = (t - s).max(y - x) as usize;
-            let thr = factor(width * ave);
-            // Case1.
-            let last_unit = last_unit as u16;
-            if st_upstream.intersection(&xy_downstream).count() >= thr {
-                let c1 = Position::new(contig, s, t, Direction::UpStream, last_unit);
-                let c2 = Position::new(contig, x, y, Direction::DownStream, last_unit);
-                result.push(ContigPair::new(c1, c2));
-            }
-            // Case2
-            if st_downstream.intersection(&xy_upstream).count() >= thr {
-                // debug!(
-                //     "Down-Up:{}",
-                //     st_downstream.intersection(&xy_upstream).count()
-                // );
-                let c1 = Position::new(contig, s, t, Direction::DownStream, last_unit);
-                let c2 = Position::new(contig, x, y, Direction::UpStream, last_unit);
-                result.push(ContigPair::new(c1, c2));
-            }
-            // Case3
-            if st_upstream.intersection(&xy_upstream).count() >= thr {
-                let c1 = Position::new(contig, s, t, Direction::UpStream, last_unit);
-                let c2 = Position::new(contig, x, y, Direction::UpStream, last_unit);
-                result.push(ContigPair::new(c1, c2));
-            }
-            // Case4
-            if st_downstream.intersection(&xy_downstream).count() >= thr {
-                let c1 = Position::new(contig, s, t, Direction::DownStream, last_unit);
-                let c2 = Position::new(contig, x, y, Direction::DownStream, last_unit);
-                result.push(ContigPair::new(c1, c2));
-            }
-        }
-    }
-    Some(result)
-}
-
-fn merge_overlap_and_remove_contained(mut regions: Vec<(usize, usize)>) -> Vec<(u16, u16)> {
-    if regions.is_empty() {
-        return vec![];
-    }
-    regions.sort();
-    let (mut start, mut end) = regions[0];
-    let mut result = vec![];
-    for &(s, e) in &regions[1..] {
-        if end + 10 < s {
-            // No overlap.
-            result.push((start, end));
-            start = s;
-            end = e;
-        } else {
-            // Overlap.
-            end = e.max(end);
-        }
-    }
-    result.push((start, end));
-    result
-        .into_iter()
-        .map(|(s, t)| (s as u16, t as u16))
-        .collect()
-}
-
 /// Enumerate confluent region in the references.
 pub fn confluent_position(
     alignments: &[LastTAB],
@@ -741,7 +619,7 @@ pub fn confluent_position(
             .or_insert_with(Vec::new)
             .push(tab);
     }
-    for (_id, tabs) in reads.into_iter() {
+    for (_, tabs) in reads.iter() {
         if let Some((ref_name, position)) = get_first_alignment(&tabs) {
             if let Some(res) = start_stop_count.get_mut(ref_name) {
                 res[position].0 += 1;
@@ -758,17 +636,20 @@ pub fn confluent_position(
         let downstream: Vec<_> = counts.iter().map(|x| x.0).collect();
         let chunks = peak_call(&downstream)
             .into_iter()
+            .inspect(|&(s, e)| debug!("{}-{}:{}", s, e, downstream[s..e].iter().sum::<usize>()))
             .map(|(s, e)| (id.clone(), s, e, true));
         result.extend(chunks);
         let upstream: Vec<_> = counts.iter().map(|x| x.1).collect();
         let chunks = peak_call(&upstream)
             .into_iter()
+            .inspect(|&(s, e)| debug!("{}-{}:{}", s, e, upstream[s..e].iter().sum::<usize>()))
             .map(|(s, e)| (id.clone(), s, e, false));
         result.extend(chunks);
     }
     result
         .iter()
         .filter_map(|&(ref id, start, end, to_downstream)| {
+            let reads = get_confluent_reads(&reads, (id, start, end, to_downstream));
             let id = contigs.get_id(id).unwrap();
             let (start, end) = (start / unit_size, end / unit_size);
             let (start, end) = (start as u16, end as u16);
@@ -780,9 +661,34 @@ pub fn confluent_position(
             if is_edge {
                 None
             } else {
-                Some(ConfluentRegion::new(Position::new(id, start, end, di, max)))
+                let cr = ConfluentRegion::new(Position::new(id, start, end, di, max), reads);
+                Some(cr)
             }
         })
+        .collect()
+}
+fn get_confluent_reads(
+    reads: &HashMap<String, Vec<&LastTAB>>,
+    (id, start, end, to_down): (&String, usize, usize, bool),
+) -> HashSet<String> {
+    let is_match = |&(_, tabs): &(&String, &Vec<&LastTAB>)| {
+        if to_down {
+            match get_first_alignment(tabs) {
+                Some((ref_name, pos)) => ref_name == id && start <= pos && pos < end,
+                None => false,
+            }
+        } else {
+            match get_last_alignment(tabs) {
+                Some((ref_name, pos)) => ref_name == id && start <= pos && pos < end,
+                None => false,
+            }
+        }
+    };
+    reads
+        .iter()
+        .filter(is_match)
+        .map(|x| x.0)
+        .cloned()
         .collect()
 }
 
@@ -815,32 +721,15 @@ fn merge(positions: Vec<usize>, thr: usize) -> Vec<(usize, usize)> {
     let mut start = 0;
     while start < positions.len() {
         let mut current = positions[start];
-        let mut end = start + 1;
+        let mut end = start;
         while end < positions.len() && positions[end] < current + thr {
             current = positions[end];
             end += 1;
         }
-        result.push((positions[start], positions[end - 1] + 1));
+        let start_pos = positions[start];
+        let end_pos = positions[end - 1] + WINDOW;
+        result.push((start_pos, end_pos));
         start = end;
     }
     result
-}
-
-fn peak_detection(counts: &[usize], threshold: usize) -> Vec<(usize, usize)> {
-    let (mut res, is_in_peak, start) = counts.iter().enumerate().fold(
-        (vec![], false, 0),
-        |(mut res, is_in_peak, start), (idx, &count)| match (is_in_peak, count < threshold) {
-            (true, true) => {
-                res.push((start, idx));
-                (res, false, idx)
-            }
-            (true, false) => (res, true, start),
-            (false, true) => (res, false, idx),
-            (false, false) => (res, true, idx),
-        },
-    );
-    if is_in_peak {
-        res.push((start, counts.len()));
-    }
-    res
 }

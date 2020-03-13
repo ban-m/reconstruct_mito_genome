@@ -31,7 +31,6 @@ fn main() {
     } else {
         (200, 0, vec![2f64.recip(); 2], 2, 11920981)
     };
-    let k = 6;
     let len = 150;
     let chain_len = 40;
     let p = &gen_sample::Profile {
@@ -46,7 +45,7 @@ fn main() {
     println!("TestNum:{}\tLabeled:{}", test_num, coverage);
     let s = Instant::now();
     let (hmm, dists) = benchmark(
-        seed, p, coverage, test_num, chain_len, k, len, &probs, clusters,
+        seed, p, coverage, test_num, chain_len, len, &probs, clusters,
     );
     debug!("Elapsed\t{}\t{}", (Instant::now() - s).as_secs(), test_num);
     for (idx, preds) in hmm.into_iter().enumerate() {
@@ -73,7 +72,6 @@ fn benchmark(
     coverage: usize,
     test_num: usize,
     chain_len: usize,
-    k: usize,
     len: usize,
     probs: &[f64],
     clusters: usize,
@@ -117,7 +115,7 @@ fn benchmark(
         .collect();
     let (dataset, label, answer, _border) =
         create_simulation_data::generate_mul_data(&templates, coverage, test_num, &mut rng, probs);
-    let contigs = vec![chain_len];
+    //let contigs = vec![chain_len];
     let c = &dbg_hmm::DEFAULT_CONFIG;
     let data: Vec<_> = dataset
         .into_iter()
@@ -132,7 +130,7 @@ fn benchmark(
         debug!("Probs:[{}]", probs.join(","));
     };
     let forbidden = vec![vec![]; data.len()];
-    let em_pred = clustering(&data, &label, &forbidden, k, clusters, &contigs, &answer, c);
+    let em_pred = clustering(&data, &label, &forbidden, clusters, &answer, c);
     assert_eq!(em_pred.len(), label.len() + answer.len());
     let mut result = vec![vec![0; clusters]; clusters];
     for i in 0..clusters {

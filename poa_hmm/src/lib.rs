@@ -24,7 +24,7 @@ const SMALL: f64 = 0.000_000_001;
 const LAMBDA_INS: f64 = 0.05;
 const LAMBDA_MATCH: f64 = 0.1;
 const THR: f64 = 0.4;
-const MIN: i32 = -100000;
+const MIN: i32 = -100_000;
 pub mod generate;
 #[cfg(test)]
 mod tests;
@@ -94,7 +94,7 @@ impl PartialOrderAlignment {
         if seqs.is_empty() {
             panic!("Empty string.")
         }
-        let seed = (10432940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
+        let seed = (10_432_940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
         let max_len = seqs
             .iter()
@@ -121,7 +121,7 @@ impl PartialOrderAlignment {
     where
         F: Fn(u8, u8) -> i32,
     {
-        let seed = (10432940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
+        let seed = (10_432_940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
         let max_len = seqs
             .iter()
@@ -130,8 +130,7 @@ impl PartialOrderAlignment {
             .max()
             .unwrap_or_else(|| panic!("Empty string."));
         if ws.iter().all(|&w| w < 0.001) {
-            use rand::seq::SliceRandom;
-            POA::new(seqs.choose(&mut rng).unwrap(), 1.);
+            return Self::generate_w_param_simd(seqs, &vec![0.05; seqs.len()], ins, del, score);
         }
         rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
             .into_iter()
@@ -158,7 +157,7 @@ impl PartialOrderAlignment {
     where
         F: Fn(u8, u8) -> i32,
     {
-        let seed = (10432940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
+        let seed = (10_432_940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
         let max_len = seqs
             .iter()
@@ -167,8 +166,7 @@ impl PartialOrderAlignment {
             .max()
             .unwrap_or_else(|| panic!("Empty string."));
         if ws.iter().all(|&w| w < 0.001) {
-            use rand::seq::SliceRandom;
-            POA::new(seqs.choose(&mut rng).unwrap(), 1.);
+            return Self::generate_w_param_simd(seqs, &vec![0.05; seqs.len()], ins, del, score);
         }
         rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
             .into_iter()
@@ -196,7 +194,7 @@ impl PartialOrderAlignment {
     where
         F: Fn(u8, u8) -> i32,
     {
-        let seed = (10432940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
+        let seed = (10_432_940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
         let max_len = seqs
             .iter()
@@ -204,12 +202,12 @@ impl PartialOrderAlignment {
             .map(|(xs, &w)| if w > 0.001 { xs.len() } else { 0 })
             .max()
             .unwrap_or_else(|| panic!("Empty string."));
-        if ws.iter().all(|&w| w < 0.001) {
+        if ws.iter().all(|&w| w <= 0.001) {
             use rand::seq::SliceRandom;
-            POA::new(seqs.choose(&mut rng).unwrap(), 1.);
+            return POA::new(seqs.choose(&mut rng).unwrap(), 1.);
         }
         self.nodes.clear();
-        self.weight = 0.;
+        self.weight = -1.;
         rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
             .into_iter()
             .map(|idx| (&seqs[idx], ws[idx]))
@@ -299,8 +297,8 @@ impl PartialOrderAlignment {
             dp[0][j] = ins * j as i32;
             route_weight[0][j] = j as f32;
         }
-        for i in 0..row {
-            dp[i][0] = 0;
+        for row_vec in dp.iter_mut().take(row) {
+            row_vec[0] = 0;
         }
         // The leftmost element used in the match transition.
         for i in 1..row {
@@ -313,16 +311,15 @@ impl PartialOrderAlignment {
                     let start = LANE * j + 1;
                     let end = start + LANE;
                     // Location to be updated.
-                    let mut current = i32s::from_slice_unaligned(&dp[i][start..end]);
-                    let mut current_weight =
-                        f32s::from_slice_unaligned(&route_weight[i][start..end]);
+                    let current = i32s::from_slice_unaligned(&dp[i][start..end]);
+                    let current_weight = f32s::from_slice_unaligned(&route_weight[i][start..end]);
                     // Update for deletion state.
                     let deletion = i32s::from_slice_unaligned(&dp[p][start..end]) + deletions;
                     let deletion_weight = f32s::from_slice_unaligned(&route_weight[p][start..end]);
                     let mask = deletion.gt(current)
                         | (deletion.eq(current) & deletion_weight.gt(current_weight));
-                    current = deletion.max(current);
-                    current_weight = mask.select(deletion_weight, current_weight);
+                    let current = deletion.max(current);
+                    let current_weight = mask.select(deletion_weight, current_weight);
                     // Update for match state.
                     let match_s = i32s::from_slice_unaligned(&profile[bs][start - 1..end - 1])
                         + i32s::from_slice_unaligned(&dp[p][start - 1..end - 1]);
@@ -330,8 +327,8 @@ impl PartialOrderAlignment {
                         + f32s::from_slice_unaligned(&route_weight[p][start - 1..end - 1]);
                     let mask = match_s.gt(current)
                         | (match_s.eq(current) & match_weight.gt(current_weight));
-                    current = match_s.max(current);
-                    current_weight = mask.select(match_weight, current_weight);
+                    let current = match_s.max(current);
+                    let current_weight = mask.select(match_weight, current_weight);
                     current.write_to_slice_unaligned(&mut dp[i][start..end]);
                     current_weight.write_to_slice_unaligned(&mut route_weight[i][start..end]);
                 }
@@ -359,11 +356,11 @@ impl PartialOrderAlignment {
             for j in 1..column {
                 let ins = dp[i][j - 1] + ins;
                 let current = dp[i][j];
-                if ins > current
-                    || (ins == current && route_weight[i][j - 1] + 1. > route_weight[i][j])
-                {
+                let ins_weight = route_weight[i][j - 1] + 1.;
+                let current_weight = route_weight[i][j];
+                if ins > current || (ins == current && ins_weight > current_weight) {
                     dp[i][j] = ins;
-                    route_weight[i][j] = route_weight[i][j - 1] + 1.;
+                    route_weight[i][j] = ins_weight;
                 }
             }
             last_elements.push(dp[i][column - 1]);

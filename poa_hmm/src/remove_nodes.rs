@@ -2,35 +2,42 @@
 use super::THR;
 impl crate::PartialOrderAlignment {
     pub fn remove_node(mut self) -> Self {
+        if self.nodes.len() < 2 {
+            panic!("Invalid input:{}", self);
+        }
+        let saved = self.clone();
         let len = self.nodes.len();
-        self = self.nodewise_remove();
-        self = self.edgewise_remove();
+        self = self
+            .nodewise_remove()
+            .unwrap_or_else(|| panic!("N:{}", saved));
+        self = self
+            .edgewise_remove()
+            .unwrap_or_else(|| panic!("E:{}", saved));
         self.trim_unreachable_nodes();
         if self.nodes.len() < len / 10 {
-            eprintln!("PLEASE PANIC! SOMETHING HAPPENED IN GRAPH CLEANING.");
-            self
+            saved
         } else {
             self
         }
     }
-    fn nodewise_remove(mut self) -> Self {
-        let (_start, arrived, _) = self.traverse();
+    fn nodewise_remove(mut self) -> Option<Self> {
+        let (_start, arrived, _) = self.traverse()?;
         let to_remove: Vec<_> = arrived
             .into_iter()
             .zip(self.nodes.iter())
             .map(|(b, _)| !b)
             .collect();
-        self.remove(&to_remove)
+        Some(self.remove(&to_remove))
     }
-    fn edgewise_remove(mut self) -> Self {
-        let (_, _, used_edges) = self.traverse();
+    fn edgewise_remove(mut self) -> Option<Self> {
+        let (_, _, used_edges) = self.traverse()?;
         self.nodes
             .iter_mut()
             .zip(used_edges)
             .for_each(|(n, e)| n.remove_edges(100., &e));
-        self
+        Some(self)
     }
-    fn traverse(&mut self) -> (usize, Vec<bool>, Vec<Vec<bool>>) {
+    fn traverse(&mut self) -> Option<(usize, Vec<bool>, Vec<Vec<bool>>)> {
         let mut arrived = vec![false; self.nodes.len()];
         let mut used_edges: Vec<_> = self
             .nodes
@@ -42,8 +49,7 @@ impl crate::PartialOrderAlignment {
             .iter()
             .enumerate()
             .filter(|(_, e)| e.is_head)
-            .max_by(|&(_, a), &(_, b)| a.head_weight().partial_cmp(&b.head_weight()).unwrap())
-            .expect(&format!("{}:{}", line!(), self));
+            .max_by(|&(_, a), &(_, b)| a.head_weight().partial_cmp(&b.head_weight()).unwrap())?;
         let mut queue = std::collections::VecDeque::new();
         queue.push_back(start);
         arrived[start] = true;
@@ -79,7 +85,7 @@ impl crate::PartialOrderAlignment {
                 }
             }
         }
-        (start, arrived, used_edges)
+        Some((start, arrived, used_edges))
     }
     fn remove(mut self, to_remove: &[bool]) -> Self {
         let (num, mapping) = to_remove
