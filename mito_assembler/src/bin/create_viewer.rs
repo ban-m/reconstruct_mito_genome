@@ -38,10 +38,10 @@ fn main() -> std::io::Result<()> {
         .into_iter()
         .map(ERead::new_no_gapfill)
         .collect();
-    let critical_regions =
-        last_decompose::critical_regions(&encoded_reads, &contigs, &repeats, &alignments);
+    let initial_clusters =
+        last_decompose::initial_clusters(&encoded_reads, &contigs, &repeats, &alignments);
     let encoded_reads = last_tiling::encoding(&reads, &contigs, &alignments);
-    let res = dump_viewer(&results, &encoded_reads, &critical_regions, &contigs)?;
+    let res = dump_viewer(&results, &encoded_reads, &initial_clusters, &contigs)?;
     let dir = format!("{}/viwer", output_dir);
     if let Err(why) = std::fs::create_dir_all(&dir) {
         error!("Error Occured while outputing reads.");

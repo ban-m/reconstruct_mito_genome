@@ -6,9 +6,110 @@ use std::cmp::{Ord, Ordering, PartialOrd};
 use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 const MERGE_THR: usize = 500;
-const COVERAGE_THR: usize = 25;
+pub const COVERAGE_THR: usize = 25;
 const WINDOW: usize = 3;
 use std::collections::HashMap;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Cluster {
+    pub id: usize,
+    pub members: Vec<Member>,
+}
+
+impl Cluster {
+    pub fn ids(&self) -> HashSet<String> {
+        self.members.iter().fold(HashSet::new(), |mut x, y| {
+            x.extend(y.cr.reads().iter().cloned());
+            x
+        })
+    }
+    pub fn ranges(&self) -> Vec<(u16, (i32, i32))> {
+        self.members
+            .iter()
+            .flat_map(|mem| match mem.cr {
+                CriticalRegion::CP(ref cp) => vec![
+                    (cp.contig1().contig(), cp.contig1().range()),
+                    (cp.contig2().contig(), cp.contig2().range()),
+                ],
+                CriticalRegion::CR(ref cr) => vec![(cr.contig().contig(), cr.contig().range())],
+            })
+            .collect()
+    }
+}
+
+impl ReadClassify for Cluster {
+    fn is_spanned_by(&self, r: &ERead) -> bool {
+        self.members.iter().any(|m| m.cr.is_spanned_by(r))
+    }
+    fn contains(&self, r: &ERead) -> bool {
+        self.members.iter().any(|m| m.cr.contains(r))
+    }
+    fn along_with(&self, r: &ERead) -> bool {
+        self.members.iter().any(|m| m.cr.along_with(r))
+    }
+    fn has(&self, id: &str) -> bool {
+        self.members.iter().any(|m| m.cr.has(id))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Member {
+    pub cr: CriticalRegion,
+    pub cluster: usize,
+}
+
+pub fn initial_clusters(
+    reads: &[ERead],
+    contigs: &Contigs,
+    repeats: &[RepeatPairs],
+    alignments: &[LastTAB],
+) -> Vec<Cluster> {
+    let mut crs: Vec<_> = critical_regions(reads, contigs, repeats, alignments)
+        .into_iter()
+        .map(|e| vec![e])
+        .collect();
+    let union_of = |xs: &[CriticalRegion], ys: &[CriticalRegion]| {
+        let xs = xs
+            .iter()
+            .map(|cr| cr.reads())
+            .fold(HashSet::new(), |x, y| x.union(y).cloned().collect());
+        let ys = ys
+            .iter()
+            .map(|cr| cr.reads())
+            .fold(HashSet::new(), |x, y| x.union(y).cloned().collect());
+        xs.intersection(&ys).count()
+    };
+    let merge = |crs: &mut Vec<Vec<CriticalRegion>>, i: usize, j: usize| {
+        let from = crs.remove(j);
+        crs[i].extend(from);
+    };
+    'merge: loop {
+        let len = crs.len();
+        debug!("Current Cluster:{}", len);
+        for i in 0..len {
+            for j in (i + 1)..len {
+                let union = union_of(&crs[i], &crs[j]);
+                if union > COVERAGE_THR {
+                    debug!("Cluster {} and {} share {} reads. Merging.", i, j, union);
+                    merge(&mut crs, i, j);
+                    continue 'merge;
+                }
+            }
+        }
+        break;
+    }
+    debug!("Resulting in {} clusters.", crs.len());
+    crs.into_iter()
+        .enumerate()
+        .map(|(id, members)| {
+            let members = members
+                .into_iter()
+                .map(|cr| Member { cr, cluster: id })
+                .collect();
+            Cluster { id, members }
+        })
+        .collect()
+}
 
 /// How many reads are needed to construct a separate class.
 /// Note that it should be more than 1, since there is a
@@ -40,6 +141,7 @@ pub trait ReadClassify {
     fn contains(&self, r: &ERead) -> bool;
     /// If r is along with this critical region, return true.
     fn along_with(&self, r: &ERead) -> bool;
+    fn has(&self, id: &str) -> bool;
 }
 
 impl ReadClassify for CriticalRegion {
@@ -59,6 +161,20 @@ impl ReadClassify for CriticalRegion {
         match self {
             CriticalRegion::CP(ref cp) => cp.along_with(r),
             CriticalRegion::CR(ref cr) => cr.along_with(r),
+        }
+    }
+    fn has(&self, r: &str) -> bool {
+        match self {
+            CriticalRegion::CP(ref cp) => cp.has(r),
+            CriticalRegion::CR(ref cr) => cr.has(r),
+        }
+    }
+}
+impl CriticalRegion {
+    pub fn reads(&self) -> &HashSet<String> {
+        match self {
+            CriticalRegion::CP(ref cp) => &cp.reads,
+            CriticalRegion::CR(ref cr) => &cr.reads,
         }
     }
 }
@@ -233,6 +349,9 @@ impl ReadClassify for ContigPair {
     fn along_with(&self, r: &ERead) -> bool {
         self.reads.contains(r.id())
     }
+    fn has(&self, id: &str) -> bool {
+        self.reads.contains(id)
+    }
 }
 
 impl ContigPair {
@@ -306,6 +425,9 @@ impl ReadClassify for ConfluentRegion {
     }
     fn along_with(&self, r: &ERead) -> bool {
         self.reads.contains(r.id())
+    }
+    fn has(&self, id: &str) -> bool {
+        self.reads.contains(id)
     }
 }
 
@@ -403,12 +525,12 @@ fn peak_call_contigpair(
                 remove_edges(
                     jumps, from_start, from_end, to_c, to_start, to_end, direction,
                 );
-                let belong_reads = get_belong_reads(
+                let (belong_reads, total) = get_belong_reads(
                     reads,
                     (contig, from_start, from_end, from_upstream),
                     (to_c, to_start, to_end, direction),
                 );
-                debug!("{},{}", belong_reads.len(), counts);
+                assert_eq!(total, counts);
                 use Direction::*;
                 let from_direction = if from_upstream { UpStream } else { DownStream };
                 let to_direction = if direction { UpStream } else { DownStream };
@@ -533,35 +655,48 @@ fn get_belong_reads(
     reads: &[ERead],
     (f_c, f_start, f_end, f_dir): (u16, usize, usize, bool),
     (t_c, t_start, t_end, t_dir): (u16, usize, usize, bool),
-) -> HashSet<String> {
+) -> (HashSet<String>, usize) {
+    // debug!(
+    //     "{}:{}-{}=>{}:{}-{}",
+    //     f_c, f_start, f_end, t_c, t_start, t_end
+    // );
+    let mut total = 0;
     let is_along_with = |read: &&ERead| -> bool {
         let jumps = read.seq().windows(4).filter(is_jumping);
-        for w in jumps {
-            let (start, end) = (w[1].unit as usize, w[2].unit as usize);
-            let (c1, c2) = (w[1].contig, w[2].contig);
-            let former_direction = w[0].unit < w[1].unit;
-            let latter_direction = w[2].unit > w[3].unit;
-            if start < end {
-                // former <=> from, latter <=> to
-                let direction = former_direction == f_dir && latter_direction == t_dir;
-                let contig = f_c == c1 && t_c == c2;
-                let range = f_start <= start && start < f_end && t_start <= end && end < t_end;
-                return direction & contig & range;
-            } else {
-                // former <=> to, latter <=> from.
-                let direction = former_direction == t_dir && latter_direction == f_dir;
-                let contig = t_c == c1 && f_c == c2;
-                let range = f_start <= end && end < f_end && t_start <= start && start < t_end;
-                return direction & contig & range;
-            }
+        let count = jumps
+            .filter(|w| {
+                let (start, end) = (w[1].unit as usize, w[2].unit as usize);
+                let (c1, c2) = (w[1].contig, w[2].contig);
+                let former_direction = w[0].unit < w[1].unit;
+                let latter_direction = w[2].unit > w[3].unit;
+                if start < end {
+                    // former <=> from, latter <=> to
+                    let direction = former_direction == f_dir && latter_direction == t_dir;
+                    let contig = f_c == c1 && t_c == c2;
+                    let range = f_start <= start && start < f_end && t_start <= end && end < t_end;
+                    direction & contig & range
+                } else {
+                    // former <=> to, latter <=> from.
+                    let direction = former_direction == t_dir && latter_direction == f_dir;
+                    let contig = t_c == c1 && f_c == c2;
+                    let range = f_start <= end && end < f_end && t_start <= start && start < t_end;
+                    direction & contig & range
+                }
+            })
+            .count();
+        if count > 2 {
+            let line: Vec<_> = read.seq().iter().map(|e| format!("{}", e.unit)).collect();
+            debug!("{}", line.join(","));
         }
-        false
+        total += count;
+        count != 0
     };
-    reads
+    let result: HashSet<_> = reads
         .iter()
         .filter(is_along_with)
         .map(|r| r.id().to_string())
-        .collect()
+        .collect();
+    (result, total)
 }
 
 fn remove_edges(
@@ -634,22 +769,23 @@ pub fn confluent_position(
     let mut result = vec![];
     for (id, counts) in start_stop_count {
         let downstream: Vec<_> = counts.iter().map(|x| x.0).collect();
-        let chunks = peak_call(&downstream)
-            .into_iter()
-            .inspect(|&(s, e)| debug!("{}-{}:{}", s, e, downstream[s..e].iter().sum::<usize>()))
-            .map(|(s, e)| (id.clone(), s, e, true));
+        let chunks = peak_call(&downstream).into_iter().map(|(s, e)| {
+            let count = downstream[s..e].iter().sum::<usize>();
+            (id.clone(), s, e, true, count)
+        });
         result.extend(chunks);
         let upstream: Vec<_> = counts.iter().map(|x| x.1).collect();
-        let chunks = peak_call(&upstream)
-            .into_iter()
-            .inspect(|&(s, e)| debug!("{}-{}:{}", s, e, upstream[s..e].iter().sum::<usize>()))
-            .map(|(s, e)| (id.clone(), s, e, false));
+        let chunks = peak_call(&upstream).into_iter().map(|(s, e)| {
+            let count = upstream[s..e].iter().sum::<usize>();
+            (id.clone(), s, e, false, count)
+        });
         result.extend(chunks);
     }
     result
         .iter()
-        .filter_map(|&(ref id, start, end, to_downstream)| {
+        .filter_map(|&(ref id, start, end, to_downstream, count)| {
             let reads = get_confluent_reads(&reads, (id, start, end, to_downstream));
+            assert_eq!(count, reads.len());
             let id = contigs.get_id(id).unwrap();
             let (start, end) = (start / unit_size, end / unit_size);
             let (start, end) = (start as u16, end as u16);

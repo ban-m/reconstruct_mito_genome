@@ -1,3 +1,83 @@
+// This is a tiny library to visualize multipartite structure of mitochondrial genome of plant.
+// There is only one function exposed as a public API, namely `plotData`.
+// It takes three arguments and autoamtically plot the data to a DOM(default:<div id="plot"></div>).  The size of the canvas is 1000x1000 and some other DOM elements would be overwritten(<div id="info"></div>).
+
+// The the API is two URIs to serialized JSON objects, `dataset` and `repeats`, and one integer value named `unit_length`.
+
+// The `dataset` value should consist of three JSON objects named `contigs`, `reads`, and `clusters`. Below I explain how these objects should be structured:
+
+// - `contigs`: contigs is an array of contig object. A contig object is a JSON-object having elements as follows:
+// ```json
+// {
+// name:String,
+// id: Integer,
+// length: Integer,
+// coverages:Array<Integer>,
+// start_stop<Integer>,
+// }
+// ```
+// - `reads`: reads is an array of read. Each read is a JSON-object as follwos:
+// ```json
+// {
+// name:String,
+// units:Array<Unit>,
+// cluster:Integer,
+// }
+// ```
+// and Unit is either
+// ```json
+// {
+// G:Integer,
+// }
+// ```
+// or
+// ```json
+// {
+// E:[Interger;2]
+// }
+// ```
+
+// - `clusters`: clusters is an array of array of CriticalRegion. Each CriticalRegion is either
+// ```
+// {
+// "CP" -> ContigPair,
+// }
+// ```
+// or
+// ```
+// {
+// "CR" -> ConfluentRegion,
+// }
+// ```
+
+// - ContigPair:
+// ```
+// {
+// contig1:Position,
+// contig2:Position,
+// reads:HashSet<String>,
+// }
+// ```
+// - ConfluentRegion
+// ```
+// {
+// pos:Position,
+// reads:HashSet<String>,
+// }
+// ```
+
+// - Position
+// ```
+// {
+// contig:Integer,
+// start_unit:Integer,
+// end_unit:Integer,
+// length:Integer,
+// direction: Either UpStream or DownStream.
+// }
+// ```
+
+
 const width = 1000;
 const height = 1000;
 // Margin in radian
@@ -26,7 +106,6 @@ const gap_scale = d3.scaleLog()
       .domain([gap_min,gap_max])
       .range([gap_min_radius, gap_max_radius])
       .clamp(true);
-
 
 const selected_region = 17;
 // Circle radius
@@ -371,7 +450,7 @@ const contigToHTML = (contig) =>{
 const criticalpairToHTML = (cp,idx, reads) => {
     const count = reads.length;
     const meangap = calcGap(reads);
-    const header = `<div>CriticalPair:${idx}</div>`;
+    const header = `<div>Cluster:${idx}</div>`;
     const contig1 = contigToHTML(cp["contig1"]);
     const contig2 = contigToHTML(cp["contig2"]);
     const support = `Supporing Reads:${count}<br>`;
@@ -382,22 +461,22 @@ const criticalpairToHTML = (cp,idx, reads) => {
 const confluentregionToHTML = (cr,idx, reads) => {
     const count = reads.length;
     const meangap = calcGap(reads);
-    const header = `<div>ConfluentRegion:${idx}</div>`;
+    const header = `<div>Cluster:${idx}</div>`;
     const contig = contigToHTML(cr["pos"]);
     const support = `Supporing Reads:${count}<br>`;
     const gap = `Mean gap length:${meangap.toFixed(1)}`;
     return header + contig + support + gap;
 };
 
-const crToHTML = (cr,idx, reads) => {
+const crToHTML = (cr, cluster, reads) => {
     // Input: JSON object, Array
     // Output: String
     // Requirements: Critical region object
     // Return the HTML contents corresponds to the given cr.
     if (cr.hasOwnProperty("CP")){
-        return criticalpairToHTML(cr["CP"],idx, reads);
+        return criticalpairToHTML(cr["CP"], cluster, reads);
     }else if (cr.hasOwnProperty("CR")){
-        return confluentregionToHTML(cr["CR"],idx, reads);
+        return confluentregionToHTML(cr["CR"], cluster, reads);
     }else{
         console.log(`Error ${cr}`);
         return "Error";
@@ -447,7 +526,7 @@ const plotData = (dataset, repeats, unit_length) =>
           // Or select reads as you like.
           const reads = values.reads.filter(r => selectRead(r,unit_length));
           // const critical_regions = [values.critical_regions[selected_region]];
-          const critical_regions = values.critical_regions;
+          const clusters = values.clusters;
           // Calculate coordinate.
           const bp_scale = calcScale(contigs);
           const coverage_scale = calcCovScale(contigs);
@@ -542,23 +621,24 @@ const plotData = (dataset, repeats, unit_length) =>
               .attr("opacity",0.3)
               .attr("stroke",read => "black");
           // Draw critical regions.
+          const critical_regions = clusters.flatMap(d => d.members);
           cr_layer
               .selectAll(".cr")
               .data(critical_regions)
               .enter()
               .append("path")
               .attr("class", "cr")
-              .attr("d", cr => crToPath(cr, handle_points, bp_scale, start_pos, unit_length))
-              .attr("stroke", (_,idx) => d3.schemeCategory10[(idx+1)%10])
-              .attr("stroke-width", (cr,idx) => (cr.hasOwnProperty("CP")) ? 5 : 100)
-              .attr("stroke-linecap", (cr,idx) => (cr.hasOwnProperty("CP")) ? "round" : "none")
-              .attr("opacity",cr => (cr.hasOwnProperty("CP")) ? 0.4 : 0.5)
-              .attr("fill",  (_,idx) => d3.schemeCategory10[(idx+1)%10])
-              .on("mouseover", function(d,idx) {
-                  const supporting_reads = reads.filter(r => r['cluster'].includes(idx));
-                  // const supporting_reads = reads.filter(r => r['cluster'].includes(selected_region));
+              .attr("d", d => crToPath(d.cr, handle_points, bp_scale, start_pos, unit_length))
+              .attr("stroke", d => d3.schemeCategory10[(d.cluster+1)%10])
+              .attr("stroke-width", member => (member.cr.hasOwnProperty("CP")) ? 5 : 100)
+              .attr("stroke-linecap", memmer => (memmer.cr.hasOwnProperty("CP")) ? "round" : "none")
+              .attr("opacity",member => (member.cr.hasOwnProperty("CP")) ? 0.4 : 0.5)
+              .attr("fill",  member => d3.schemeCategory10[(member.cluster+1)%10])
+              .on("mouseover", function(member) {
+                  const cluster = member.cluster;
+                  const supporting_reads = reads.filter(r => r.cluster == cluster);
                   tooltip.style("opacity", 0.9);
-                  const contents = crToHTML(d,idx,supporting_reads);
+                  const contents = crToHTML(member.cr, cluster, supporting_reads);
                   tooltip.html(contents)
                       .style("left", (d3.event.pageX + 50) + "px")	
                       .style("top", (d3.event.pageY - 50) + "px");
@@ -579,7 +659,7 @@ const plotData = (dataset, repeats, unit_length) =>
                       .attr("fill","none")
                       .attr("opacity", 0.9)
                       .attr("stroke-width", 1)
-                      .attr("stroke", d3.schemeCategory10[(idx +1)% 10]);
+                      .attr("stroke", d3.schemeCategory10[(cluster +1)% 10]);
               })
               .on("mouseout", d => {
                   temp_coverage_layer

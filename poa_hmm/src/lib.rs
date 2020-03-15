@@ -25,6 +25,7 @@ const LAMBDA_INS: f64 = 0.05;
 const LAMBDA_MATCH: f64 = 0.1;
 const THR: f64 = 0.4;
 const MIN: i32 = -100_000;
+const DEFAULT: f64 = -100.;
 pub mod generate;
 #[cfg(test)]
 mod tests;
@@ -92,7 +93,7 @@ impl PartialOrderAlignment {
     }
     pub fn generate(seqs: &[&[u8]], ws: &[f64], config: &Config) -> POA {
         if seqs.is_empty() {
-            panic!("Empty string.")
+            return Self::default();
         }
         let seed = (10_432_940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
@@ -121,6 +122,9 @@ impl PartialOrderAlignment {
     where
         F: Fn(u8, u8) -> i32,
     {
+        if seqs.is_empty() {
+            return Self::default();
+        }
         let seed = (10_432_940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
         let max_len = seqs
@@ -157,6 +161,9 @@ impl PartialOrderAlignment {
     where
         F: Fn(u8, u8) -> i32,
     {
+        if seqs.is_empty() {
+            return Self::default();
+        }
         let seed = (10_432_940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
         let max_len = seqs
@@ -194,6 +201,9 @@ impl PartialOrderAlignment {
     where
         F: Fn(u8, u8) -> i32,
     {
+        if seqs.is_empty() {
+            return Self::default();
+        }
         let seed = (10_432_940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
         let max_len = seqs

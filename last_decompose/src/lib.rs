@@ -19,7 +19,8 @@ mod find_union;
 pub mod utils;
 use dbg_hmm::{Factory, DBGHMM};
 pub use eread::*;
-pub use find_breakpoint::CriticalRegion;
+pub use find_breakpoint::initial_clusters;
+pub use find_breakpoint::Cluster;
 use find_breakpoint::ReadClassify;
 use last_tiling::repeat::RepeatPairs;
 use rand::seq::SliceRandom;
@@ -27,6 +28,7 @@ use rand::SeedableRng;
 use rand::{thread_rng, Rng};
 use rand_xoshiro::Xoshiro256StarStar;
 use std::collections::{HashMap, HashSet};
+pub mod d3_data;
 pub mod error_profile;
 pub mod poa_clustering;
 use dbg_hmm::Config;
@@ -65,7 +67,7 @@ type Read = Vec<(usize, Vec<u8>)>;
 // it means such read can be safely removed.
 pub fn decompose(
     encoded_reads: Vec<ERead>,
-    critical_regions: &[CriticalRegion],
+    initial_clusters: &[Cluster],
     contigs: &last_tiling::Contigs,
     repeats: &[RepeatPairs],
     config: dbg_hmm::Config,
@@ -77,12 +79,11 @@ pub fn decompose(
     let mut assigned_reads: Vec<_> = vec![];
     let mut labels: Vec<_> = vec![];
     for read in encoded_reads {
-        let matched_cluster = critical_regions
+        let matched_cluster = initial_clusters
             .iter()
-            .enumerate()
-            .filter(|(_, cr)| cr.along_with(&read))
+            .filter_map(|cr| if cr.has(read.id()) { Some(cr.id) } else { None })
             .nth(0);
-        if let Some((idx, _)) = matched_cluster {
+        if let Some(idx) = matched_cluster {
             assigned_reads.push(read);
             labels.push(idx as u8);
         } else {
@@ -91,7 +92,7 @@ pub fn decompose(
     }
     assert_eq!(labels.len(), assigned_reads.len());
     assert_eq!(assigned_reads.len() + unassigned_reads.len(), datasize);
-    let masked_region = get_masked_region(&critical_regions, &contigs, repeats);
+    let masked_region = get_masked_region(&initial_clusters, &contigs, repeats);
     // Remove contained reads.
     let mut forbidden = vec![];
     let assigned_reads: Vec<_> = assigned_reads
@@ -119,16 +120,10 @@ pub fn decompose(
     let unassigned_reads: Vec<_> = unassigned_reads
         .into_iter()
         .filter_map(|mut read| {
-            let crs: Vec<_> = critical_regions
+            let crs: Vec<_> = initial_clusters
                 .iter()
-                .enumerate()
-                .filter_map(|(idx, cr)| {
-                    if cr.is_spanned_by(&read) {
-                        Some(idx as u8)
-                    } else {
-                        None
-                    }
-                })
+                .filter(|c| c.is_spanned_by(&read))
+                .map(|c| c.id as u8)
                 .collect();
             let seq: Vec<_> = read
                 .seq()
@@ -176,7 +171,7 @@ pub fn decompose(
         &labels,
         &forbidden,
         K,
-        critical_regions.len().max(cluster_num - 1) + 1,
+        initial_clusters.len().max(cluster_num - 1) + 1,
         &contigs,
         &answer,
         &config,
@@ -189,7 +184,7 @@ pub fn decompose(
 }
 
 fn get_masked_region(
-    critical_regions: &[CriticalRegion],
+    initial_clusters: &[Cluster],
     contigs: &last_tiling::Contigs,
     repeats: &[RepeatPairs],
 ) -> Vec<Vec<bool>> {
@@ -206,15 +201,9 @@ fn get_masked_region(
             (contig, (s, t))
         })
     });
-    let ranges: Vec<_> = critical_regions
+    let ranges: Vec<_> = initial_clusters
         .iter()
-        .flat_map(|cr| match cr {
-            CriticalRegion::CP(ref cp) => vec![
-                (cp.contig1().contig(), cp.contig1().range()),
-                (cp.contig1().contig(), cp.contig2().range()),
-            ],
-            CriticalRegion::CR(ref cr) => vec![(cr.contig().contig(), cr.contig().range())],
-        })
+        .flat_map(|e| e.ranges())
         .chain(repeats)
         .collect();
     for (c, (s, t)) in ranges {

@@ -9,7 +9,7 @@
 #$ -m e
 
 ## ---- Variables ----
-##
+
 set -ue
 CORES=24
 READ=$1
@@ -19,7 +19,7 @@ CONTIGS=${OUTPATH}/contigs.fasta
 
 
 # ---- Setup ----
-rm -rf ${OUTPATH}
+# rm -rf ${OUTPATH}
 mkdir -p ${OUTPATH}
 ROOT=${PWD}
 

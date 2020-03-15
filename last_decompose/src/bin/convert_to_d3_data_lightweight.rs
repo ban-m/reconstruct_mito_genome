@@ -6,10 +6,9 @@ extern crate last_decompose;
 extern crate log;
 extern crate serde_json;
 use last_decompose::find_breakpoint::ReadClassify;
-use last_decompose::CriticalRegion;
+use last_decompose::Cluster;
 use last_tiling::EncodedRead;
 use std::io::{BufReader, BufWriter};
-// Output a lightweight version of the dataset.
 fn main() -> std::io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let args: Vec<_> = std::env::args().collect();
@@ -19,14 +18,13 @@ fn main() -> std::io::Result<()> {
         serde_json::de::from_reader(std::fs::File::open(&args[2]).map(BufReader::new)?).unwrap();
     let repeats: Vec<last_tiling::repeat::RepeatPairs> = last_tiling::repeat::open(&args[3])?;
     let alns: Vec<_> = last_tiling::parse_tab_file(&args[4])?;
-    let cr = {
+    let clusters = {
         let reads: Vec<_> = reads
             .iter()
             .map(|read| last_decompose::ERead::new(read.clone()))
             .collect();
-        last_decompose::critical_regions(&reads, &contigs, &repeats, &alns)
+        last_decompose::initial_clusters(&reads, &contigs, &repeats, &alns)
     };
-    let clusters: Vec<_> = cr.into_iter().map(|cr| vec![cr]).collect();
     let contigs = summarize_contig(&contigs, &reads);
     let reads = summarize_reads(&reads, &clusters);
     let summary = Summary {
@@ -44,7 +42,7 @@ fn main() -> std::io::Result<()> {
 struct Summary {
     contigs: Vec<Contig>,
     reads: Vec<Read>,
-    clusters: Vec<Vec<last_decompose::CriticalRegion>>,
+    clusters: Vec<Cluster>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,7 +105,7 @@ struct Read {
 }
 
 impl Read {
-    fn from(read: &EncodedRead, cr: &[Vec<CriticalRegion>]) -> Self {
+    fn from(read: &EncodedRead, cr: &[Cluster]) -> Self {
         let name = String::from(read.id());
         let cluster = get_cluster(read, cr);
         let mut units = vec![];
@@ -163,20 +161,15 @@ enum Unit {
     E(u16, u16, u16, u16),
 }
 
-fn summarize_reads(
-    reads: &[last_tiling::EncodedRead],
-    cr: &[Vec<last_decompose::CriticalRegion>],
-) -> Vec<Read> {
-    reads.iter().map(|read| Read::from(read, cr)).collect()
+fn summarize_reads(reads: &[last_tiling::EncodedRead], clusters: &[Cluster]) -> Vec<Read> {
+    reads.iter().map(|r| Read::from(r, clusters)).collect()
 }
 
-fn get_cluster(read: &EncodedRead, clusters: &[Vec<CriticalRegion>]) -> i32 {
-    let read = last_decompose::ERead::new(read.clone());
+fn get_cluster(read: &EncodedRead, clusters: &[Cluster]) -> i32 {
     clusters
         .iter()
-        .enumerate()
-        .filter(|(_, cluster)| cluster.iter().any(|cr| cr.along_with(&read)))
-        .map(|(idx, _)| idx as i32)
+        .filter(|cluster| cluster.has(read.id()))
+        .map(|cluster| cluster.id as i32)
         .nth(0)
         .unwrap_or(-1)
 }

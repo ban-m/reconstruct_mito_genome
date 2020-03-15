@@ -1,6 +1,7 @@
 use crate::Config;
 use crate::PartialOrderAlignment;
 use crate::SMALL;
+use super::DEFAULT;
 use packed_simd::f64x4 as f64s;
 impl PartialOrderAlignment {
     fn sum(xs: &[f64]) -> f64 {
@@ -70,7 +71,9 @@ impl PartialOrderAlignment {
         (c, d)
     }
     pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
-        // eprintln!("{}", String::from_utf8_lossy(obs));
+        if self.nodes.is_empty() {
+            return DEFAULT;
+        }
         // Alignemnts: [mat, ins, del,  mat, ins, del,  ....]
         let mut prev: Vec<f64> = self
             .nodes

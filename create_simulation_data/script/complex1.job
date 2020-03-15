@@ -28,11 +28,3 @@ cd ${ROOT}
 ./target/release/predict_mockdata \
     ${READ} ${REFERENCE} ${OUTPUT}/last_db/alignments.tab random\
     > ${OUTPUT}/predictions_random.tsv
-
-# ./target/release/yellowgate \
-#     ${READ}\
-#     ${REFERENCE} \
-#     ${OUTPUT}/last_db/alignments.tab \
-#     ${OUTPUT}/last_db/self.tab \
-#     ${OUTPUT} > ${OUTPUT}/yg.out 2> ${OUTPUT}/yg.log
-

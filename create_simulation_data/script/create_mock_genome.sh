@@ -2,29 +2,71 @@
 set -ue
 
 LEN=20000
-mkdir -p ./data/easy/
-cargo run --release --bin create_mock_genomes -- ${LEN} > ./data/easy/mock_genome.fa
-badread simulate \
-        --reference ./data/easy/mock_genome.fa \
-        --quantity 100x --error_model pacbio \
-        --qscore_model pacbio --identity 85,95,3 \
-        --junk_reads 0 --random_reads 0 --chimeras 0 \
-        --length 15000,1000 > ./data/easy/mock_genome_read.fq
-cat ./data/easy/mock_genome_read.fq | paste - - - - | cut -f 1,2 |\
-    sed -e 's/@/>/g' | tr '\t' '\n' > ./data/easy/mock_genome_read.fa
-cat ./data/easy/mock_genome.fa | paste - - | head -n1 | tr '\t' '\n' > ./data/easy/mock_genome_ref.fa
 
-LEN=300000
-cargo run --release --bin create_mock_genomes -- ${LEN} > ./data/mock_genome.fa
-badread simulate \
-        --reference ./data/mock_genome.fa \
-        --quantity 100x --error_model pacbio \
-        --qscore_model pacbio --identity 85,95,3 \
-        --junk_reads 0 --random_reads 0 --chimeras 0 \
-        --length 15000,5000 > ./data/mock_genome_read.fq
-cat ./data/mock_genome_read.fq | paste - - - - | cut -f 1,2 |\
-    sed -e 's/@/>/g' | tr '\t' '\n' > ./data/mock_genome_read.fa
-cat ./data/mock_genome.fa | paste - - | head -n1 | tr '\t' '\n' > ./data/mock_genome_ref.fa
+function create_easy(){
+    OUTPATH=$1
+    LEN=$2
+    mkdir -p ${OUTPATH}
+    cargo run --release --bin create_mock_genomes ${LEN} > ${OUTPATH}/mock_genome.fa
+    badread simulate \
+            --reference ${OUTPATH}/mock_genome.fa \
+            --quantity 100x --error_model pacbio \
+            --qscore_model pacbio --identity 85,95,3 \
+            --junk_reads 0 --random_reads 0 --chimeras 0 \
+            --length 15000,1000 > ${OUTPATH}/reads.fq
+    cat ${OUTPATH}/reads.fq | paste - - - - | cut -f 1,2 |\
+        sed -e 's/@/>/g' | tr '\t' '\n' > ${OUTPATH}/reads.fa
+    cat ${OUTPATH}/mock_genome.fa | paste - - | head -n1 | \
+        tr '\t' '\n' > ${OUTPATH}/mock_genome_ref.fa
+}
+
+create_easy ./data/short_easy 20000
+create_easy ./data/middle_easy 200000
+create_easy ./data/long_easy 50000
+
+
+function create_hard() {
+    OUTPATH=$1
+    LEN=$2
+    mkdir -p ${OUTPATH}
+    cargo run --release --bin create_mock_genomes_hard -- ${LEN} > ${OUTPATH}/mock_genome.fa
+    badread simulate \
+            --reference ${OUTPATH}/mock_genome.fa \
+            --quantity 150x --error_model pacbio \
+            --qscore_model pacbio --identity 85,95,3 \
+            --junk_reads 0 --random_reads 0 --chimeras 0 \
+            --length 15000,1000 > ${OUTPATH}/reads.fq
+    cat ${OUTPATH}/reads.fq | paste - - - - | cut -f 1,2 |\
+        sed -e 's/@/>/g' | tr '\t' '\n' > ${OUTPATH}/reads.fa
+    cat ${OUTPATH}/mock_genome.fa | paste - - | head -n1 | \
+        tr '\t' '\n' >  ${OUTPATH}/mock_genome_ref.fa
+}
+
+create_hard ./data/short_hard 20000
+create_hard ./data/middle_hard 200000
+create_hard ./data/long_hard 500000
+
+
+
+function create_extreme() {
+    OUTPATH=$1
+    LEN=$2
+    mkdir -p ${OUTPATH}
+    cargo run --release --bin create_mock_genomes_extreme -- ${LEN} > ${OUTPATH}/mock_genome.fa
+    badread simulate \
+            --reference ${OUTPATH}/mock_genome.fa \
+            --quantity 200x --error_model pacbio \
+            --qscore_model pacbio --identity 85,95,3 \
+            --junk_reads 0 --random_reads 0 --chimeras 0 \
+            --length 15000,1000 > ${OUTPATH}/reads.fq
+    cat ${OUTPATH}/reads.fq | paste - - - - | cut -f 1,2 |\
+        sed -e 's/@/>/g' | tr '\t' '\n' > ${OUTPATH}/reads.fa
+    cat ${OUTPATH}/mock_genome.fa | paste - - | head -n1 | tr '\t' '\n' > ${OUTPATH}/mock_genome_ref.fa
+}
+
+create_mock ./data/short_extreme 20000
+create_mock ./data/middle_extreme 200000
+create_mock ./data/long_extreme 500000
 
 cargo run --release --bin create_complex_structures -- ${LEN} ./data/complex/
 badread simulate \
@@ -44,3 +86,4 @@ badread simulate \
         --length 15000,5000 > ./data/complex/read_complex2.fq
 cat ./data/complex/read_complex2.fq | paste - - - - | cut -f 1,2 |\
     sed -e 's/@/>/g' | tr '\t' '\n' > ./data/complex/read_complex2.fa
+

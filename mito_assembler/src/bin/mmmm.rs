@@ -7,7 +7,6 @@ extern crate log;
 extern crate env_logger;
 extern crate mito_assembler;
 use clap::{App, Arg};
-use last_decompose::find_breakpoint::ReadClassify;
 use last_decompose::ERead;
 use mito_assembler::dump_viewer;
 fn main() -> std::io::Result<()> {
@@ -145,22 +144,18 @@ fn main() -> std::io::Result<()> {
         .into_iter()
         .map(ERead::new_no_gapfill)
         .collect();
-    let critical_regions =
-        last_decompose::critical_regions(&encoded_reads, &contigs, &repeats, &alignments);
-    for c in &critical_regions {
-        let counts = encoded_reads
-            .iter()
-            .filter(|read| c.along_with(read))
-            .count();
+    let initial_clusters =
+        last_decompose::initial_clusters(&encoded_reads, &contigs, &repeats, &alignments);
+    for c in &initial_clusters {
+        let counts = c.ids().len();
         debug!("{:?} having {} reads.", c, counts);
     }
     use std::collections::HashMap;
-    let cr = &critical_regions;
     let mock_ans: HashMap<String, u8> = HashMap::new();
     let cl = cluster_num;
     let results: HashMap<String, u8> = last_decompose::decompose(
         encoded_reads,
-        &cr,
+        &initial_clusters,
         &contigs,
         &repeats,
         config,
@@ -209,7 +204,7 @@ fn main() -> std::io::Result<()> {
         }
     }
     let encoded_reads = last_tiling::encoding(&reads, &contigs, &alignments);
-    let res = dump_viewer(&results, &encoded_reads, &critical_regions, &contigs)?;
+    let res = dump_viewer(&results, &encoded_reads, &initial_clusters, &contigs)?;
     let file = format!("{}/start_stop.tsv", output_dir);
     let mut writer = BufWriter::new(std::fs::File::create(&file)?);
     for (contig, stst) in start_stop {

@@ -1,0 +1,31 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N M4
+#$ -cwd
+#$ -pe smp 22
+#$ -V
+#$ -m e
+set -ue 
+REFERENCE=$1
+READ=$2
+OUTPUT=$3
+CORES=22
+ROOT=${PWD}
+
+mkdir -p ${OUTPUT}
+# ---- Alignment -----
+mkdir -p ${OUTPUT}/last_db
+cd ${OUTPUT}/last_db
+lastdb -R00 -Q0 reference ${REFERENCE}
+last-train -P${CORES} -Q0 reference ${READ} > score.matrix
+lastal -f maf -P${CORES} -R00 -Q0 -p score.matrix reference ${READ} |\
+    last-split | maf-convert tab --join 1000 > alignments.tab
+last-train -P${CORES} -Q0 reference ${REFERENCE} > self.matrix
+lastal -f tab -P${CORES} -R00 -Q0 -p self.matrix reference ${REFERENCE} > self.tab
+cd ${ROOT}
+
+# ----- Prediction ------
+mmmm --alignments ${OUTPUT}/last_db/alignments.tab --output ${OUTPUT} \
+     --reads ${READ} --contigs ${REFERENCE} \
+     --self_alignments ${OUTPUT}/last_db/self.tab \
+     --cluster_num 2 --threads ${CORES}
