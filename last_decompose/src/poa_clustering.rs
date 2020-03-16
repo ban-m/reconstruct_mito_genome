@@ -162,13 +162,13 @@ where
     debug!("Models have been created");
     let (border, datasize) = (label.len(), data.len() as f64);
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(data.len() as u64 * 23);
-    let pick_num = ((datasize * PICK_PROB).floor() as usize).min(MAX_PICK);
+    let mut pick_num = ((datasize * PICK_PROB).floor() as usize).min(MAX_PICK);
     let mut picks: Vec<_> = (0..data.len()).skip(border).collect();
     picks.shuffle(&mut rng);
     let mut ws: Vec<f64> = (0..cluster_num)
         .map(|i| weights_of_reads.iter().map(|g| g[i]).sum::<f64>() / datasize)
         .collect();
-    let (mut variants, mut previous_lk) =
+    let (mut variants, mut max_lk) =
         variant_calling::variant_calling_all_pairs(&models, &data, config, &ws);
     debug!("Initial variants called");
     variants.iter_mut().for_each(|bss| {
@@ -177,7 +177,7 @@ where
     });
     let mut saved = weights_of_reads.clone();
     let correct = report(id, &saved, border, answer, cluster_num);
-    info!("LK\t{}\t{}\t{}\t{}", id, 0, previous_lk, correct);
+    info!("LK\t{}\t{}\t{}\t{}", id, 0, max_lk, correct);
     for loop_num in 1.. {
         let betas = normalize_weights(&variants);
         while !picks.is_empty() {
@@ -200,11 +200,15 @@ where
         let (weights, lk) = variant_calling::variant_calling_all_pairs(&models, &data, config, &ws);
         info!("LK\t{}\t{}\t{}\t{}", id, loop_num, lk, correct);
         let soe = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
-        if lk <= previous_lk && soe / datasize / (cluster_num as f64).ln() < ENTROPY_THR {
+        let entrpy_thr = soe / datasize / (cluster_num as f64).ln() < ENTROPY_THR;
+        if lk <= max_lk && entrpy_thr {
             break;
+        } else if lk <= max_lk {
+            pick_num += 1;
+        } else if lk > max_lk {
+            max_lk = lk;
+            saved = weights_of_reads.clone();
         }
-        previous_lk = lk;
-        saved = weights_of_reads.clone();
         variants.iter_mut().zip(weights).for_each(|(bss, w_bss)| {
             bss.iter_mut().zip(w_bss).for_each(|(bs, ws)| {
                 bs.iter_mut()

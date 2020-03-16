@@ -1,8 +1,6 @@
 #!/bin/bash
 set -ue
 
-LEN=20000
-
 function create_easy(){
     OUTPATH=$1
     LEN=$2
@@ -20,9 +18,9 @@ function create_easy(){
         tr '\t' '\n' > ${OUTPATH}/mock_genome_ref.fa
 }
 
-create_easy ./data/short_easy 20000
-create_easy ./data/middle_easy 200000
-create_easy ./data/long_easy 50000
+# create_easy ./data/short_easy 20000
+# create_easy ./data/middle_easy 200000
+# create_easy ./data/long_easy 50000
 
 
 function create_hard() {
@@ -42,10 +40,9 @@ function create_hard() {
         tr '\t' '\n' >  ${OUTPATH}/mock_genome_ref.fa
 }
 
-create_hard ./data/short_hard 20000
-create_hard ./data/middle_hard 200000
-create_hard ./data/long_hard 500000
-
+# create_hard ./data/short_hard 20000
+# create_hard ./data/middle_hard 200000
+# create_hard ./data/long_hard 500000
 
 
 function create_extreme() {
@@ -64,9 +61,9 @@ function create_extreme() {
     cat ${OUTPATH}/mock_genome.fa | paste - - | head -n1 | tr '\t' '\n' > ${OUTPATH}/mock_genome_ref.fa
 }
 
-create_mock ./data/short_extreme 20000
-create_mock ./data/middle_extreme 200000
-create_mock ./data/long_extreme 500000
+create_extreme ./data/short_extreme 20000
+create_extreme ./data/middle_extreme 200000
+create_extreme ./data/long_extreme 500000
 
 cargo run --release --bin create_complex_structures -- ${LEN} ./data/complex/
 badread simulate \

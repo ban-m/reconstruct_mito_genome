@@ -8,18 +8,9 @@
 #$ -V
 #$ -m e
 set -ue
-OUTPUT=./result/last_decompose_gibbs.txt
-OUTLOG_PREFIX=./logfiles/last_decompose_gibbs
-# RUSTFLAGS="-C target-cpu=native" cargo build --release
-
-echo "-----start-----" >> ${OUTPUT}
-
-for seed in `seq 100 110`
-do
-    ./target/release/test_last_decompose_multiple \
-        60 0 ${seed} 0.5 0.5 >> ./result/test_poa.tsv \
-        2>> ./logfiles/two_test_poa.log
-done
+./target/release/test_last_decompose_multiple \
+    300 0 10 0.1 0.9 >> ./result/test_poa.tsv \
+    2>> ./logfiles/two_test_poa.log
 exit 0;
 
 # ./target/release/test_last_decompose_multiple \
