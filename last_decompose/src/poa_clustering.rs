@@ -110,6 +110,7 @@ impl<'a> ModelFactory<'a> {
         }
         assert_eq!(self.weights.len(), self.chunks.len());
         let parameters = (ins, del, score);
+        //debug!("THR:{}", poa_hmm::get_thr(&self.weights[0]));
         ms = ms
             .into_par_iter()
             .zip(self.chunks.par_iter())

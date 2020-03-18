@@ -36,8 +36,7 @@ mod tests;
 // should return 0.3 or so if the sum of ws is 150.
 // thus, it starts from 0.5 or so and
 // gradually decreases out.
-#[allow(dead_code)]
-fn get_thr(ws: &[f64]) -> f64 {
+pub fn get_thr(ws: &[f64]) -> f64 {
     (ws.iter().sum::<f64>() * -0.005).exp() * 0.21 + 0.2
 }
 
@@ -109,39 +108,13 @@ impl PartialOrderAlignment {
         let mat = (-10. * c.p_match.ln() * 3.).floor() as i32;
         let mism = (c.mismatch.ln() * 3.).floor() as i32;
         let score = |x, y| if x == y { mat } else { mism };
-        Self::generate(seqs, ws, (ins, del, &score))
+        Self::default().update(seqs, ws, (ins, del, &score))
     }
     pub fn generate<F>(seqs: &[&[u8]], ws: &[f64], parameters: (i32, i32, &F)) -> POA
     where
         F: Fn(u8, u8) -> i32,
     {
-        if seqs.is_empty() {
-            return Self::default();
-        }
-        let seed = (10_432_940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
-        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
-        let max_len = seqs
-            .iter()
-            .zip(ws.iter())
-            .map(|(xs, &w)| if w > 0.001 { xs.len() } else { 0 })
-            .max()
-            .unwrap_or_else(|| panic!("Empty string."));
-        if ws.iter().all(|&w| w < 0.001) {
-            return Self::generate(seqs, &vec![0.05; seqs.len()], parameters);
-        }
-        rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
-            .into_iter()
-            .map(|idx| (&seqs[idx], ws[idx]))
-            .filter(|&(_, w)| w > 0.001)
-            .fold(POA::default(), |x, (y, w)| {
-                if x.nodes.len() > 3 * max_len / 2 {
-                    x.add(y, w, parameters).remove_node(THR)
-                } else {
-                    x.add(y, w, parameters)
-                }
-            })
-            .remove_node(THR)
-            .finalize()
+        Self::default().update(seqs, ws, parameters)
     }
     pub fn update<F>(mut self, seqs: &[&[u8]], ws: &[f64], parameters: (i32, i32, &F)) -> POA
     where
@@ -164,18 +137,19 @@ impl PartialOrderAlignment {
         }
         self.nodes.clear();
         self.weight = -1.;
+        let thr = get_thr(ws);
         rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
             .into_iter()
             .map(|idx| (&seqs[idx], ws[idx]))
             .filter(|&(_, w)| w > 0.001)
             .fold(self, |x, (y, w)| {
                 if x.nodes.len() > 3 * max_len / 2 {
-                    x.add(y, w, parameters).remove_node(THR)
+                    x.add(y, w, parameters).remove_node(thr)
                 } else {
                     x.add(y, w, parameters)
                 }
             })
-            .remove_node(THR)
+            .remove_node(thr)
             .finalize()
     }
     pub fn generate_uniform(seqs: &[&[u8]]) -> POA {
