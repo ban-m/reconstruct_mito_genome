@@ -18,39 +18,39 @@ fn init() {
 #[test]
 fn add() {
     let seed = b"ACGTAGCTGATCGTAC";
-    POA::new(seed, 1.).add(seed, 1.);
+    POA::new(seed, 1.).add_default(seed, 1.);
 }
 #[test]
 fn create() {
     let seed = b"ACGTAGCTGATCGTAC";
-    let res = POA::new(seed, 1.).add(seed, 1.).clean_up();
+    let res = POA::new(seed, 1.).add_default(seed, 1.);
     assert_eq!(res.nodes.len(), seed.len());
 }
 #[test]
 fn insertion_test() {
     let seed = b"ACGTAGCTGATCGTAC";
     let seq2 = b"ACGTAGCTGATTTCGTAC";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    let res = POA::new(seed, 1.).add_default(seq2, 1.);
     assert_eq!(res.nodes.len(), seed.len() + 2);
     let seed = b"ACGTAGCTGATCGTAC";
     let seq2 = b"ACGTAGCTGATTTCGTAC";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    let res = POA::new(seed, 1.).add_default(seq2, 1.);
     assert_eq!(res.nodes.len(), seed.len() + 2);
     let seed = b"ACGTAGCTGATCGTAC";
     let seq2 = b"ACGTAGCTGATCGTAC";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    let res = POA::new(seed, 1.).add_default(seq2, 1.);
     assert_eq!(res.nodes.len(), seed.len());
     let seed = b"ACGTAGCTGATCGTAC";
     let seq2 = b"ACGTAGCTGATCGTACG";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    let res = POA::new(seed, 1.).add_default(seq2, 1.);
     assert_eq!(res.nodes.len(), seed.len() + 1);
     let seq2 = b"ACGTAGCTGATCGTAC";
     let seed = b"AACGTAGCTGATCGTAC";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    let res = POA::new(seed, 1.).add_default(seq2, 1.);
     assert_eq!(res.nodes.len(), seed.len());
     let seed = b"ACGTAGCTGATCGTAC";
     let seq2 = b"AAACGTAGCTGATCGTAC";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    let res = POA::new(seed, 1.).add_default(seq2, 1.);
     assert_eq!(res.nodes.len(), seed.len() + 2);
 }
 
@@ -58,50 +58,50 @@ fn insertion_test() {
 fn mismatch_test() {
     let seed = b"ACGTAGCTGATCGTAC";
     let seq2 = b"ACGTAGCTGATCGGAC";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    let res = POA::new(seed, 1.).add_default(seq2, 1.);
     assert_eq!(res.nodes.len(), seed.len() + 1);
     let seed = b"ACGTAGCTGATCGTAC";
     let seq2 = b"ACGTAGCTGATCGTCC";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    let res = POA::new(seed, 1.).add_default(seq2, 1.);
     assert_eq!(res.nodes.len(), seed.len() + 1);
     let seed = b"ACGTAGCTGAGTAC";
     let seq2 = b"ACGAGCTGATCTAC";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    let res = POA::new(seed, 1.).add_default(seq2, 1.);
     assert_eq!(res.nodes.len(), seed.len() + 2);
     let seed = b"ACGTAGCTGATCGTAC";
     let seq2 = b"CCGTAGCTGATCGTAC";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    let res = POA::new(seed, 1.).add_default(seq2, 1.);
     assert_eq!(res.nodes.len(), seed.len() + 1);
     let seed = b"ACGTAGCTGATCGTAC";
     let seq2 = b"ACGTAGCTGATCGTAG";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    let res = POA::new(seed, 1.).add_default(seq2, 1.);
     assert_eq!(res.nodes.len(), seed.len() + 1);
 }
 #[test]
 fn deletion_test() {
     let seed = b"ACGTAGCTGATCGTAC";
     let seq2 = b"ACGTAGCTGTCGTAC";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    let res = POA::new(seed, 1.).add_default(seq2, 1.);
     assert_eq!(res.nodes.len(), seed.len());
     assert_eq!(res.num_edges(), seed.len());
     let seed = b"ACGTAGCTGATCGTAC";
     let seq2 = b"ACGAGCTGATCGTAC";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    let res = POA::new(seed, 1.).add_default(seq2, 1.);
     assert_eq!(res.nodes.len(), seed.len());
     assert_eq!(res.num_edges(), seed.len());
     let seed = b"ACGTAGCTGATCGTAC";
     let seq2 = b"ACGAGCTGATCTAC";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    let res = POA::new(seed, 1.).add_default(seq2, 1.);
     assert_eq!(res.nodes.len(), seed.len());
     assert_eq!(res.num_edges(), seed.len() + 1);
     let seed = b"ACGTAGCTGATCGTAC";
     let seq2 = b"ACGTAGCTGATCGTA";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    let res = POA::new(seed, 1.).add_default(seq2, 1.);
     assert_eq!(res.nodes.len(), seed.len());
     assert_eq!(res.num_edges(), seed.len() - 1);
     let seed = b"ACGTAGCTGATCGTAC";
     let seq2 = b"CGTAGCTGATCGTAC";
-    let res = POA::new(seed, 1.).add(seq2, 1.).clean_up();
+    let res = POA::new(seed, 1.).add_default(seq2, 1.);
     assert_eq!(res.nodes.len(), seed.len());
     assert_eq!(res.num_edges(), seed.len() - 1);
 }
@@ -111,19 +111,27 @@ fn merge_test() {
     let seq1 = b"ACAAT";
     let seq2 = b"ATGCT";
     let seq3 = b"ACACT";
-    let res = POA::new(seq1, 1.).add(seq2, 1.).add(seq3, 1.);
+    let res = POA::new(seq1, 1.)
+        .add_default(seq2, 1.)
+        .add_default(seq3, 1.);
     assert_eq!(res.nodes.len(), 8);
     let seq1 = b"GATC";
     let seq2 = b"GCTC";
     let seq3 = b"GAGTC";
     let seq4 = b"GCGTC";
-    let res = POA::new(seq1, 1.).add(seq2, 1.).add(seq3, 1.).add(seq4, 1.);
+    let res = POA::new(seq1, 1.)
+        .add_default(seq2, 1.)
+        .add_default(seq3, 1.)
+        .add_default(seq4, 1.);
     assert_eq!(res.nodes.len(), 6);
     let seq1 = b"GATC";
     let seq2 = b"GCTC";
     let seq3 = b"GAGTC";
     let seq4 = b"GCGTC";
-    let res = POA::new(seq1, 1.).add(seq2, 1.).add(seq3, 1.).add(seq4, 1.);
+    let res = POA::new(seq1, 1.)
+        .add_default(seq2, 1.)
+        .add_default(seq3, 1.)
+        .add_default(seq4, 1.);
     assert_eq!(res.nodes.len(), 6);
 }
 
@@ -143,8 +151,7 @@ fn initialize() {
         b"CACACACACGTGTACGTGTTGGGGGGCTAAA".to_vec(),
     ];
     test.iter()
-        .fold(POA::default(), |x, y| x.add(y, 1.))
-        .clean_up();
+        .fold(POA::default(), |x, y| x.add_default(y, 1.));
 }
 #[test]
 fn forward() {
@@ -176,7 +183,7 @@ fn connectivity_check() {
         .collect();
     let mut m = POA::default();
     for seq in model1 {
-        m = m.add(&seq, 1.);
+        m = m.add_default(&seq, 1.);
         assert!(is_connected(&m));
     }
 }
@@ -235,180 +242,6 @@ where
 }
 
 #[test]
-fn alignment_check_simd_short() {
-    let x: Vec<_> = b"ACGTGTCA".to_vec();
-    let y: Vec<_> = b"ACGTGTCA".to_vec();
-    let score = |x, y| if x == y { 1. } else { -2. };
-    let opt = alignment(&y, &x, -2., -2., score.clone());
-    eprintln!("OPT:{}", opt);
-    let score = |x, y| if x == y { 1 } else { -2 };
-    let (poa_score, _) = POA::new(&x, 1.).align_simd(&y, -2, -2, score);
-    let poa_score = poa_score as f64;
-    eprintln!("POA:{}", poa_score);
-    assert!((opt - poa_score).abs() < 0.001, "{},{}", opt, poa_score);
-}
-
-#[test]
-fn alignment_check_simd_short_mism() {
-    let x: Vec<_> = b"ACGTGTCA".to_vec();
-    let y: Vec<_> = b"ACGTGCCA".to_vec();
-    let score = |x, y| if x == y { 1. } else { -2. };
-    let opt = alignment(&y, &x, -2., -2., score.clone());
-    eprintln!("OPT:{}", opt);
-    let score = |x, y| if x == y { 1 } else { -2 };
-    let (poa_score, _) = POA::new(&x, 1.).align_simd(&y, -2, -2, score);
-    let poa_score = poa_score as f64;
-    eprintln!("POA:{}", poa_score);
-    assert!((opt - poa_score).abs() < 0.001, "{},{}", opt, poa_score);
-}
-
-#[test]
-fn alignment_check_simd_short_insertion() {
-    let x: Vec<_> = b"ACGTGTCA".to_vec();
-    let y: Vec<_> = b"ACGTGTTCA".to_vec();
-    let score = |x, y| if x == y { 1. } else { -2. };
-    let opt = alignment(&y, &x, -2., -2., score.clone());
-    eprintln!("OPT:{}", opt);
-    let score = |x, y| if x == y { 1 } else { -2 };
-    let (poa_score, _) = POA::new(&x, 1.).align_simd(&y, -2, -2, score);
-    let poa_score = poa_score as f64;
-    eprintln!("POA:{}", poa_score);
-    assert!((opt - poa_score).abs() < 0.001, "{},{}", opt, poa_score);
-}
-
-#[test]
-fn alignment_check_simd_short_deletion() {
-    let x: Vec<_> = b"ACGTTCA".to_vec();
-    let y: Vec<_> = b"ACGTGTCA".to_vec();
-    let score = |x, y| if x == y { 1. } else { -2. };
-    let opt = alignment(&y, &x, -2., -2., score.clone());
-    eprintln!("OPT:{}", opt);
-    let score = |x, y| if x == y { 1 } else { -2 };
-    let (poa_score, _) = POA::new(&x, 1.).align_simd(&y, -2, -2, score);
-    let poa_score = poa_score as f64;
-    eprintln!("POA:{}", poa_score);
-    assert!((opt - poa_score).abs() < 0.001, "{},{}", opt, poa_score);
-}
-
-#[test]
-fn alignment_check_simd() {
-    let bases = b"ACTG";
-    use rand::Rng;
-    for i in 0..100 {
-        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(i as u64);
-        eprintln!("i:{}", i);
-        let x: Vec<_> = (0..(rng.gen_range(100, 150)))
-            .filter_map(|_| bases.choose(&mut rng))
-            .copied()
-            .collect();
-        let y: Vec<_> = (0..(rng.gen_range(100, 150)))
-            .filter_map(|_| bases.choose(&mut rng))
-            .copied()
-            .collect();
-        let score = |x, y| if x == y { 1. } else { -2. };
-        let opt = alignment(&y, &x, -2., -2., score.clone());
-        eprintln!("OPT:{}", opt);
-        let score = |x, y| if x == y { 1 } else { -2 };
-        let (poa_score, _) = POA::new(&x, 1.).align_simd(&y, -2, -2, score);
-        let poa_score = poa_score as f64;
-        eprintln!("POA:{}", poa_score);
-        assert!((opt - poa_score).abs() < 0.001, "{},{}", opt, poa_score);
-    }
-}
-
-#[test]
-fn alignment_check_simd_2() {
-    let bases = b"ACTG";
-    use rand::Rng;
-    for i in 0..100 {
-        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(i as u64);
-        eprintln!("i:{}", i);
-        let x: Vec<_> = (0..(rng.gen_range(100, 150)))
-            .filter_map(|_| bases.choose(&mut rng))
-            .copied()
-            .collect();
-        let y: Vec<_> = (0..(rng.gen_range(100, 150)))
-            .filter_map(|_| bases.choose(&mut rng))
-            .copied()
-            .collect();
-        let score = |x, y| if x == y { 3. } else { -4. };
-        let opt = alignment(&y, &x, -6., -6., score.clone());
-        eprintln!("OPT:{}", opt);
-        let score = |x, y| if x == y { 3 } else { -4 };
-        let (poa_score, _) = POA::new(&x, 1.).align_simd(&y, -6, -6, score);
-        let poa_score = poa_score as f64;
-        eprintln!("POA:{}", poa_score);
-        assert!((opt - poa_score).abs() < 0.001, "{},{}", opt, poa_score);
-    }
-}
-
-#[test]
-fn alignment_check_simd_normal() {
-    let bases = b"ACTG";
-    use rand::Rng;
-    let score = |x, y| if x == y { 1 } else { -2 };
-    for i in 0..200 {
-        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(i as u64);
-        eprintln!("i:{}", i);
-        let x: Vec<_> = (0..(rng.gen_range(100, 150)))
-            .filter_map(|_| bases.choose(&mut rng))
-            .copied()
-            .collect();
-        let y: Vec<_> = (0..(rng.gen_range(100, 150)))
-            .filter_map(|_| bases.choose(&mut rng))
-            .copied()
-            .collect();
-        let simd = POA::new(&x, 1.);
-        let (simd_score, simd_ops) = simd.align_simd(&y, -2, -2, score);
-        let normal = POA::new(&x, 1.);
-        let (normal_score, ops) = normal.align(&y, -2, -2, score);
-        assert_eq!(simd_score, normal_score);
-        if simd_ops.len() != ops.len() {
-            let (q, g) = simd.view(&y, &simd_ops);
-            eprintln!("SIMD\n{}\n{}", q, g);
-            let (q, g) = normal.view(&y, &ops);
-            eprintln!("Normal\n{}\n{}", q, g);
-            assert!(false);
-        }
-        for (simd_op, op) in simd_ops.iter().zip(ops.iter()) {
-            assert_eq!(simd_op, op, "{:?},{:?}", simd_op, op);
-        }
-        assert_eq!(simd_ops, ops);
-    }
-    for i in 100..200 {
-        eprintln!("i:{}", i);
-        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(i as u64);
-        let template = generate_seq(&mut rng, 150);
-        let coverage = 50;
-        let tests: Vec<_> = (0..coverage)
-            .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
-            .collect();
-        let tests: Vec<_> = tests.iter().map(|e| e.as_slice()).collect();
-        let ws = vec![1.; coverage];
-        let poa = POA::generate_w_param(&tests, &ws, -6, -6, &score);
-        // let mut poa_simd = POA::generate_w_param_simd(&tests, &ws, -6, -6, &score);
-        let test = introduce_randomness(&template, &mut rng, &PROFILE);
-        let (s1, ops) = poa.align(&test, -6, -6, &score);
-        // eprintln!();
-        let (s2, ops_simd) = poa.align_simd(&test, -6, -6, &score);
-        assert_eq!(s1, s2);
-        // assert_eq!(ops, ops_simd);
-        if ops != ops_simd {
-            // eprintln!("{:?}", poa);
-            let (q, g) = poa.view(&test, &ops);
-            eprintln!("NORMAL\nQ:{}\nG:{}", q, g);
-            let (q, g) = poa.view(&test, &ops_simd);
-            eprintln!("SIMD\nQ:{}\nG:{}", q, g);
-            eprintln!("Normal\tSIMD");
-            for (idx, (op, op2)) in ops.into_iter().zip(ops_simd).enumerate() {
-                eprintln!("{}\t{:?}\t{:?}", idx, op, op2);
-            }
-            assert!(false);
-        }
-    }
-}
-
-#[test]
 fn alignment_check() {
     let bases = b"ACTG";
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(1212132);
@@ -426,7 +259,7 @@ fn alignment_check() {
         let opt = alignment(&y, &x, -2., -2., score.clone());
         eprintln!("OPT:{}", opt);
         let score = |x, y| if x == y { -1 } else { -2 };
-        let (poa_score, _) = POA::new(&x, 1.).align(&y, -2, -2, score);
+        let (poa_score, _) = POA::new(&x, 1.).align(&y, (-2, -2, score));
         let poa_score = poa_score as f64;
         eprintln!("POA:{}", poa_score);
         assert!((opt - poa_score).abs() < 0.001, "{},{}", opt, poa_score);
@@ -525,6 +358,8 @@ fn mix_test_prior() {
         del: 0.03,
     };
     let cov = 30;
+    let score = |x, y| if x == y { 3 } else { -4 };
+    let parameters = (-6, -6, &score);
     for _ in 0..5 {
         let template2 = introduce_randomness(&template1, &mut rng, &p);
         let model1: Vec<Vec<_>> = (0..cov)
@@ -540,8 +375,8 @@ fn mix_test_prior() {
             .collect();
         let weight1 = vec![vec![0.8; cov], vec![0.2; cov]].concat();
         let weight2 = vec![vec![0.2; cov], vec![0.8; cov]].concat();
-        let model1 = POA::generate(&dataset, &weight1, &DEFAULT_CONFIG);
-        let model2 = POA::generate(&dataset, &weight2, &DEFAULT_CONFIG);
+        let model1 = POA::generate(&dataset, &weight1, parameters);
+        let model2 = POA::generate(&dataset, &weight2, parameters);
         eprintln!("{}\n{}", model1, model2);
         let num = 50;
         let correct = (0..num)
@@ -579,6 +414,8 @@ fn abundance_test_prior() {
     let cov = 20;
     let ratio = 5;
     let errors = PROFILE;
+    let score = |x, y| if x == y { 3 } else { -4 };
+    let parameters = (-6, -6, &score);
     for _ in 0..3 {
         let template1: Vec<_> = (0..len)
             .filter_map(|_| bases.choose(&mut rng))
@@ -597,8 +434,8 @@ fn abundance_test_prior() {
         let data2: Vec<_> = data2.iter().map(|e| e.as_slice()).collect();
         let total = (ratio + 1) * cov;
         let weight = vec![1.; total];
-        let model1 = POA::generate(&data1, &weight, &DEFAULT_CONFIG);
-        let model2 = POA::generate(&data2, &weight, &DEFAULT_CONFIG);
+        let model1 = POA::generate(&data1, &weight, parameters);
+        let model2 = POA::generate(&data2, &weight, parameters);
         eprintln!("{}", model1);
         eprintln!("{}", String::from_utf8_lossy(&template1));
         eprintln!("{}", String::from_utf8_lossy(&model1.consensus().unwrap()));
@@ -683,90 +520,12 @@ fn check<R: rand::Rng>(t1: &[u8], t2: &[u8], rng: &mut R, cov: usize) -> usize {
         .chain(model2.iter())
         .map(|e| e.as_slice())
         .collect();
+    let score = |x, y| if x == y { 3 } else { -4 };
+    let parameters = (-6, -6, &score);
     let weight1 = vec![vec![1.; cov], vec![0.; cov]].concat();
     let weight2 = vec![vec![0.; cov], vec![1.; cov]].concat();
-    let score = |x, y| if x == y { 3 } else { -4 };
-    let m1 = POA::generate_w_param(&seqs, &weight1, -6, -6, &score);
-    let m2 = POA::generate_w_param(&seqs, &weight2, -6, -6, &score);
-    eprintln!("{}\t{}\t{}", cov, m1, m2);
-    let tests: Vec<_> = (0..100)
-        .map(|e| {
-            if e % 2 == 0 {
-                (e, introduce_randomness(&t1, rng, &PROFILE))
-            } else {
-                (e, introduce_randomness(&t2, rng, &PROFILE))
-            }
-        })
-        .collect();
-    let correct = tests
-        .par_iter()
-        .filter(|(e, q)| {
-            if e % 2 == 0 {
-                m1.forward(&q, &DEFAULT_CONFIG) > m2.forward(&q, &DEFAULT_CONFIG)
-            } else {
-                m1.forward(&q, &DEFAULT_CONFIG) < m2.forward(&q, &DEFAULT_CONFIG)
-            }
-        })
-        .count();
-    correct
-}
-
-#[test]
-fn single_error_test_simd() {
-    let bases = b"ACTG";
-    let coverage = 150;
-    let start = 20;
-    let step = 3;
-    let len = 150;
-    let results: Vec<_> = (start..coverage)
-        .step_by(step)
-        .map(|cov| {
-            let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(1_234_567);
-            let seed = rng.gen_range(0, 100_000);
-            let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
-            let template1: Vec<_> = (0..len)
-                .filter_map(|_| bases.choose(&mut rng))
-                .copied()
-                .collect();
-            let template2 = introduce_errors(&template1, &mut rng, 1, 0, 0);
-            let sub = check_simd(&template1, &template2, &mut rng, cov);
-            let template2 = introduce_errors(&template1, &mut rng, 0, 1, 0);
-            let del = check_simd(&template1, &template2, &mut rng, cov);
-            let template2 = introduce_errors(&template1, &mut rng, 0, 0, 1);
-            let ins = check_simd(&template1, &template2, &mut rng, cov);
-            (cov, (sub, del, ins))
-        })
-        .collect();
-    let (sub, del, ins) = results
-        .iter()
-        .fold((0, 0, 0), |(x, y, z), &(_, (a, b, c))| {
-            (x + a, y + b, z + c)
-        });
-    for (cov, res) in results {
-        eprintln!("Cov:{},Sub:{},Del:{},Ins:{}", cov, res.0, res.1, res.2);
-    }
-    eprintln!("Tot:{}", (start..coverage).step_by(step).count() * 100);
-    eprintln!("Sub:{},Del:{},Ins:{}", sub, del, ins);
-    assert!(false);
-}
-
-fn check_simd<R: rand::Rng>(t1: &[u8], t2: &[u8], rng: &mut R, cov: usize) -> usize {
-    let model1: Vec<_> = (0..cov)
-        .map(|_| introduce_randomness(&t1, rng, &PROFILE))
-        .collect();
-    let model2: Vec<_> = (0..cov)
-        .map(|_| introduce_randomness(&t2, rng, &PROFILE))
-        .collect();
-    let seqs: Vec<_> = model1
-        .iter()
-        .chain(model2.iter())
-        .map(|e| e.as_slice())
-        .collect();
-    let weight1 = vec![vec![1.; cov], vec![0.; cov]].concat();
-    let weight2 = vec![vec![0.; cov], vec![1.; cov]].concat();
-    let score = |x, y| if x == y { 3 } else { -4 };
-    let m1 = POA::generate_w_param_simd(&seqs, &weight1, -6, -6, &score);
-    let m2 = POA::generate_w_param_simd(&seqs, &weight2, -6, -6, &score);
+    let m1 = POA::generate(&seqs, &weight1, parameters);
+    let m2 = POA::generate(&seqs, &weight2, parameters);
     eprintln!("{}\t{}\t{}", cov, m1, m2);
     let tests: Vec<_> = (0..100)
         .map(|e| {
@@ -815,43 +574,6 @@ fn low_coverage_test() {
     eprintln!("Model1:\n{:?}", model1);
     let model2 = POA::generate_vec(&model2);
     eprintln!("Model2:\n{:?}", model2);
-    {
-        let likelihood1 = model1.forward(&test1, &DEFAULT_CONFIG);
-        let likelihood2 = model2.forward(&test1, &DEFAULT_CONFIG);
-        assert!(likelihood1 > likelihood2, "{},{}", likelihood1, likelihood2);
-        eprintln!("{:.4}\t{:.4}", likelihood1, likelihood2);
-    }
-    {
-        let likelihood1 = model1.forward(&test2, &DEFAULT_CONFIG);
-        let likelihood2 = model2.forward(&test2, &DEFAULT_CONFIG);
-        assert!(likelihood1 < likelihood2, "{},{}", likelihood1, likelihood2);
-        eprintln!("{:.4}\t{:.4}", likelihood1, likelihood2);
-    }
-}
-#[test]
-fn low_coverage_weighted_test() {
-    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(121212);
-    let template1: Vec<_> = b"CAGTGTCAGTGCTAGCT".to_vec();
-    let template2: Vec<_> = b"CAGTGTCTGTGCTAGCT".to_vec();
-    let model1: Vec<Vec<_>> = (0..10)
-        .map(|_| introduce_randomness(&template1, &mut rng, &PROFILE))
-        .collect();
-    let model2: Vec<Vec<_>> = (0..10)
-        .map(|_| introduce_randomness(&template2, &mut rng, &PROFILE))
-        .collect();
-    let test1 = introduce_randomness(&template1, &mut rng, &PROFILE);
-    let test2 = introduce_randomness(&template2, &mut rng, &PROFILE);
-    let dataset: Vec<_> = model1
-        .iter()
-        .chain(model2.iter())
-        .map(|e| e.as_slice())
-        .collect();
-    let weight1 = vec![vec![1.; 10], vec![0.; 10]].concat();
-    let weight2 = vec![vec![0.; 10], vec![1.; 10]].concat();
-    let model1 = POA::generate(&dataset, &weight1, &DEFAULT_CONFIG);
-    eprintln!("Model1:{}", model1);
-    let model2 = POA::generate(&dataset, &weight2, &DEFAULT_CONFIG);
-    eprintln!("Model2:{}", model2);
     {
         let likelihood1 = model1.forward(&test1, &DEFAULT_CONFIG);
         let likelihood2 = model2.forward(&test1, &DEFAULT_CONFIG);
@@ -923,9 +645,9 @@ fn high_coverage_test() {
         .collect();
     let weight1 = vec![vec![1.; 200], vec![0.; 200]].concat();
     let weight2 = vec![vec![0.; 200], vec![1.; 200]].concat();
-    let model1 = POA::generate(&dataset, &weight1, &DEFAULT_CONFIG);
+    let model1 = POA::generate_by(&dataset, &weight1, &DEFAULT_CONFIG);
     eprintln!("Model1:{:?}", model1);
-    let model2 = POA::generate(&dataset, &weight2, &DEFAULT_CONFIG);
+    let model2 = POA::generate_by(&dataset, &weight2, &DEFAULT_CONFIG);
     eprintln!("Model2:{:?}", model2);
     {
         let likelihood1 = model1.forward(&test1, &DEFAULT_CONFIG);

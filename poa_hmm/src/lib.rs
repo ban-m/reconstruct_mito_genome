@@ -103,34 +103,15 @@ impl PartialOrderAlignment {
         }
         (q, g)
     }
-    pub fn generate(seqs: &[&[u8]], ws: &[f64], config: &Config) -> POA {
-        if seqs.is_empty() {
-            return Self::default();
-        }
-        let seed = (10_432_940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
-        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
-        let max_len = seqs
-            .iter()
-            .zip(ws.iter())
-            .map(|(xs, &w)| if w > 0.001 { xs.len() } else { 0 })
-            .max()
-            .unwrap_or_else(|| panic!("Empty string."));
-        rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
-            .into_iter()
-            .map(|idx| (&seqs[idx], ws[idx]))
-            .filter(|&(_, w)| w > 0.001)
-            .fold(POA::default(), |x, (y, w)| {
-                if x.nodes.len() > 3 * max_len / 2 {
-                    x.add_with(y, w, config).remove_node(THR)
-                } else {
-                    x.add_with(y, w, config)
-                }
-            })
-            .remove_node(THR)
-            .clean_up()
-            .finalize()
+    pub fn generate_by(seqs: &[&[u8]], ws: &[f64], c: &Config) -> POA {
+        let ins = (c.p_ins.ln() * 3.).floor() as i32;
+        let del = (c.p_del.ln() * 3.).floor() as i32;
+        let mat = (-10. * c.p_match.ln() * 3.).floor() as i32;
+        let mism = (c.mismatch.ln() * 3.).floor() as i32;
+        let score = |x, y| if x == y { mat } else { mism };
+        Self::generate(seqs, ws, (ins, del, &score))
     }
-    pub fn generate_w_param<F>(seqs: &[&[u8]], ws: &[f64], ins: i32, del: i32, score: &F) -> POA
+    pub fn generate<F>(seqs: &[&[u8]], ws: &[f64], parameters: (i32, i32, &F)) -> POA
     where
         F: Fn(u8, u8) -> i32,
     {
@@ -146,7 +127,7 @@ impl PartialOrderAlignment {
             .max()
             .unwrap_or_else(|| panic!("Empty string."));
         if ws.iter().all(|&w| w < 0.001) {
-            return Self::generate_w_param(seqs, &vec![0.05; seqs.len()], ins, del, score);
+            return Self::generate(seqs, &vec![0.05; seqs.len()], parameters);
         }
         rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
             .into_iter()
@@ -154,23 +135,15 @@ impl PartialOrderAlignment {
             .filter(|&(_, w)| w > 0.001)
             .fold(POA::default(), |x, (y, w)| {
                 if x.nodes.len() > 3 * max_len / 2 {
-                    x.add_w_param(y, w, ins, del, score).remove_node(THR)
+                    x.add(y, w, parameters).remove_node(THR)
                 } else {
-                    x.add_w_param(y, w, ins, del, score)
+                    x.add(y, w, parameters)
                 }
             })
             .remove_node(THR)
-            .clean_up()
             .finalize()
     }
-    pub fn update_w_param<F>(
-        mut self,
-        seqs: &[&[u8]],
-        ws: &[f64],
-        ins: i32,
-        del: i32,
-        score: &F,
-    ) -> POA
+    pub fn update<F>(mut self, seqs: &[&[u8]], ws: &[f64], parameters: (i32, i32, &F)) -> POA
     where
         F: Fn(u8, u8) -> i32,
     {
@@ -187,7 +160,7 @@ impl PartialOrderAlignment {
             .unwrap_or_else(|| panic!("Empty string."));
         if ws.iter().all(|&w| w <= 0.001) {
             let weights = vec![0.05; seqs.len()];
-            return Self::generate_w_param(seqs, &weights, ins, del, score);
+            return Self::generate(seqs, &weights, parameters);
         }
         self.nodes.clear();
         self.weight = -1.;
@@ -197,23 +170,22 @@ impl PartialOrderAlignment {
             .filter(|&(_, w)| w > 0.001)
             .fold(self, |x, (y, w)| {
                 if x.nodes.len() > 3 * max_len / 2 {
-                    x.add_w_param(y, w, ins, del, score).remove_node(THR)
+                    x.add(y, w, parameters).remove_node(THR)
                 } else {
-                    x.add_w_param(y, w, ins, del, score)
+                    x.add(y, w, parameters)
                 }
             })
             .remove_node(THR)
-            .clean_up()
             .finalize()
     }
     pub fn generate_uniform(seqs: &[&[u8]]) -> POA {
         let ws = vec![1.; seqs.len()];
-        POA::generate(seqs, &ws, &DEFAULT_CONFIG)
+        POA::generate_by(seqs, &ws, &DEFAULT_CONFIG)
     }
     pub fn generate_vec(seqs: &[Vec<u8>]) -> POA {
         let ws = vec![1.; seqs.len()];
         let seqs: Vec<_> = seqs.iter().map(|e| e.as_slice()).collect();
-        POA::generate(&seqs, &ws, &DEFAULT_CONFIG)
+        POA::generate_by(&seqs, &ws, &DEFAULT_CONFIG)
     }
     pub fn new(seq: &[u8], w: f64) -> Self {
         let weight = w;
@@ -237,7 +209,7 @@ impl PartialOrderAlignment {
         assert!(nodes.iter().all(|n| n.weight() > 0.));
         Self { weight, nodes }
     }
-    pub fn align<F>(&self, seq: &[u8], ins: i32, del: i32, score: F) -> (i32, TraceBack)
+    pub fn align<F>(&self, seq: &[u8], (ins, del, score): (i32, i32, F)) -> (i32, TraceBack)
     where
         F: Fn(u8, u8) -> i32,
     {
@@ -403,27 +375,19 @@ impl PartialOrderAlignment {
         operations.reverse();
         (score, operations)
     }
-    pub fn add_with(self, seq: &[u8], w: f64, c: &Config) -> Self {
-        let ins = (c.p_ins.ln() * 3.).floor() as i32;
-        let del = (c.p_del.ln() * 3.).floor() as i32;
-        let mat = (-10. * c.p_match.ln() * 3.).floor() as i32;
-        let mism = (c.mismatch.ln() * 3.).floor() as i32;
-        self.add_w_param(seq, w, ins, del, |x, y| if x == y { mat } else { mism })
+    pub fn add_default(self, seq: &[u8], w: f64) -> Self {
+        self.add(seq, w, (-2, -2, &|x, y| if x == y { 1 } else { -1 }))
     }
-    pub fn add(self, seq: &[u8], w: f64) -> Self {
-        self.add_w_param(seq, w, -2, -2, |x, y| if x == y { 1 } else { -1 })
-    }
-    pub fn add_w_param<F>(self, seq: &[u8], w: f64, ins: i32, del: i32, score: F) -> Self
+    pub fn add<F>(self, seq: &[u8], w: f64, parameters: (i32, i32, &F)) -> Self
     where
         F: Fn(u8, u8) -> i32,
     {
         if self.weight < SMALL || self.nodes.is_empty() {
             return Self::new(seq, w);
         }
-        let (_, traceback) = self.align(seq, ins, del, &score);
+        let (_, traceback) = self.align(seq, parameters);
         self.integrate_alignment(seq, w, traceback)
     }
-
     fn integrate_alignment(mut self, seq: &[u8], w: f64, traceback: TraceBack) -> Self {
         let mut q_pos = 0;
         let mut previous: Option<usize> = None;
@@ -514,10 +478,7 @@ impl PartialOrderAlignment {
         }
         edges
     }
-    pub fn clean_up(self) -> Self {
-        self
-    }
-    pub fn finalize(mut self) -> Self {
+    fn finalize(mut self) -> Self {
         self.nodes.iter_mut().for_each(|e| e.finalize());
         self
     }

@@ -1,4 +1,3 @@
-#[macro_use]
 extern crate log;
 extern crate edlib_sys;
 extern crate env_logger;
@@ -87,7 +86,7 @@ fn main() {
             .map(|ws| {
                 chunks
                     .iter()
-                    .map(|cs| POA::generate_w_param(cs, ws, -6, -6, &score))
+                    .map(|cs| POA::generate(cs, ws, (-6, -6, &score)))
                     .collect()
             })
             .collect()
@@ -136,7 +135,7 @@ fn main() {
             .map(|ws| {
                 chunks
                     .iter()
-                    .map(|cs| POA::generate_w_param(cs, ws, -6, -6, &score))
+                    .map(|cs| POA::generate(cs, ws, (-6, -6, &score)))
                     .collect()
             })
             .collect()

@@ -19,7 +19,7 @@ impl PartialOrderAlignment {
             packed.write_to_slice_unaligned(xs);
         });
     }
-    fn update(
+    fn update_row(
         &self,
         updates: &mut [f64],
         prev: &[f64],
@@ -108,7 +108,7 @@ impl PartialOrderAlignment {
             .skip(1)
             .map(|(idx, &base)| {
                 updated.iter_mut().for_each(|e| *e = 0.);
-                let (c, d) = self.update(&mut updated, &prev, base, config, &edges);
+                let (c, d) = self.update_row(&mut updated, &prev, base, config, &edges);
                 std::mem::swap(&mut prev, &mut updated);
                 assert!(c * d > 1.);
                 if idx < obs.len() - 1 {

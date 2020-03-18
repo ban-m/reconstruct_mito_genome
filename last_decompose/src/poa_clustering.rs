@@ -74,12 +74,13 @@ impl<'a> ModelFactory<'a> {
                 self.weights[pos].push(w[cl]);
             }
         }
+        let param = (ins, del, score);
         assert_eq!(self.weights.len(), self.chunks.len());
         let res: Vec<_> = self
             .chunks
             .par_iter()
             .zip(self.weights.par_iter())
-            .map(|(chunks, ws)| POA::generate_w_param(chunks, ws, ins, del, score))
+            .map(|(chunks, ws)| POA::generate(chunks, ws, param))
             .collect();
         self.weights.iter_mut().for_each(|ws| ws.clear());
         res
@@ -108,11 +109,12 @@ impl<'a> ModelFactory<'a> {
             }
         }
         assert_eq!(self.weights.len(), self.chunks.len());
+        let parameters = (ins, del, score);
         ms = ms
             .into_par_iter()
             .zip(self.chunks.par_iter())
             .zip(self.weights.par_iter())
-            .map(|((m, chunks), ws)| m.update_w_param(chunks, ws, ins, del, score))
+            .map(|((m, chunks), ws)| m.update(chunks, ws, parameters))
             .collect();
         self.weights.iter_mut().for_each(|ws| ws.clear());
         ms
