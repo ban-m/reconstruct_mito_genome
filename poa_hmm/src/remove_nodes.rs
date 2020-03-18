@@ -53,20 +53,20 @@ impl crate::PartialOrderAlignment {
         queue.push_back(start);
         arrived[start] = true;
         let weight_thr = {
-            // let sum = self
-            //     .nodes
-            //     .iter()
-            //     .flat_map(|n| n.weights.iter())
-            //     .sum::<f64>();
-            // let ave = sum / self.nodes.iter().map(|n| n.edges.len()).sum::<usize>() as f64;
-            // ave * thr
-            let max = self
+            let sum = self
                 .nodes
                 .iter()
-                .flat_map(|e| e.weights())
-                .max_by(|a, b| a.partial_cmp(b).unwrap())
-                .unwrap();
-            max * thr
+                .flat_map(|n| n.weights.iter())
+                .sum::<f64>();
+            let ave = sum / self.nodes.iter().map(|n| n.edges.len()).sum::<usize>() as f64;
+            ave * thr
+            // let max = self
+            //     .nodes
+            //     .iter()
+            //     .flat_map(|e| e.weights())
+            //     .max_by(|a, b| a.partial_cmp(b).unwrap())
+            //     .unwrap();
+            // max * thr
         };
         while !queue.is_empty() {
             let idx = queue.pop_front().unwrap();

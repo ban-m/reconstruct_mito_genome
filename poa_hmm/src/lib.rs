@@ -23,17 +23,24 @@ mod remove_nodes;
 const SMALL: f64 = 0.000_000_001;
 const LAMBDA_INS: f64 = 0.05;
 const LAMBDA_MATCH: f64 = 0.1;
-// const LAMBDA_INS: f64 = 0.2;
-// const LAMBDA_MATCH: f64 = 0.2;
 const THR: f64 = 0.4;
-const THR_FINALIZE: f64 = 0.4;
 // const THR: f64 = 0.3;
-// const THR_FINALIZE: f64 = 0.3;
 const MIN: i32 = -100_000;
 const DEFAULT: f64 = -100.;
 pub mod generate;
 #[cfg(test)]
 mod tests;
+
+// Determine the threshold used in the filtering step.
+// It should return 0.4 or so if the sum of ws is 15., and
+// should return 0.3 or so if the sum of ws is 150.
+// thus, it starts from 0.5 or so and
+// gradually decreases out.
+#[allow(dead_code)]
+fn get_thr(ws: &[f64]) -> f64 {
+    (ws.iter().sum::<f64>() * -0.005).exp() * 0.21 + 0.2
+}
+
 // Edit operation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditOp {
@@ -119,7 +126,7 @@ impl PartialOrderAlignment {
                     x.add_with(y, w, config)
                 }
             })
-            .remove_node(THR_FINALIZE)
+            .remove_node(THR)
             .clean_up()
             .finalize()
     }
@@ -152,7 +159,7 @@ impl PartialOrderAlignment {
                     x.add_w_param(y, w, ins, del, score)
                 }
             })
-            .remove_node(THR_FINALIZE)
+            .remove_node(THR)
             .clean_up()
             .finalize()
     }
@@ -191,7 +198,7 @@ impl PartialOrderAlignment {
                     x.add_w_param_simd(y, w, ins, del, score)
                 }
             })
-            .remove_node(THR_FINALIZE)
+            .remove_node(THR)
             .clean_up()
             .finalize()
     }
@@ -234,7 +241,7 @@ impl PartialOrderAlignment {
                     x.add_w_param_simd(y, w, ins, del, score)
                 }
             })
-            .remove_node(THR_FINALIZE)
+            .remove_node(THR)
             .clean_up()
             .finalize()
     }

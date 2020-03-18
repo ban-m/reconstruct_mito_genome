@@ -2,7 +2,7 @@
 #$ -S /bin/bash
 #$ -N DecTwo
 #$ -cwd
-#$ -pe smp 20
+#$ -pe smp 12
 #$ -e ./logfiles/last_decompose_gibbs.log
 #$ -o ./logfiles/last_decompose_gibbs.log
 #$ -V
@@ -13,7 +13,7 @@ echo "-----start-----" >> ./result/two_test_poa.tsv
 ./target/release/test_last_decompose_multiple \
     60 0 0 0.001 0.5 0.5 > ./result/test_poa.tsv \
     2>> ./logfiles/test_batch_poa.log
-
+exit 0;
 ./target/release/test_last_decompose_multiple \
     300 0 10 0.002 0.1 0.9 >> ./result/two_test_poa.tsv \
     2>> ./logfiles/two_test_poa.log

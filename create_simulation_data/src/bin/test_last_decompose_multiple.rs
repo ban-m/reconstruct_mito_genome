@@ -14,7 +14,7 @@ use rand_xoshiro::Xoshiro256StarStar;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     rayon::ThreadPoolBuilder::new()
-        .num_threads(24)
+        .num_threads(12)
         .build_global()
         .unwrap();
     let args: Vec<_> = std::env::args().collect();
