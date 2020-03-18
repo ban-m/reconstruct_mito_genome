@@ -79,7 +79,7 @@ impl<'a> ModelFactory<'a> {
             .chunks
             .par_iter()
             .zip(self.weights.par_iter())
-            .map(|(chunks, ws)| POA::generate_w_param_simd(chunks, ws, ins, del, score))
+            .map(|(chunks, ws)| POA::generate_w_param(chunks, ws, ins, del, score))
             .collect();
         self.weights.iter_mut().for_each(|ws| ws.clear());
         res

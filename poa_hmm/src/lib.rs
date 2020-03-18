@@ -146,7 +146,7 @@ impl PartialOrderAlignment {
             .max()
             .unwrap_or_else(|| panic!("Empty string."));
         if ws.iter().all(|&w| w < 0.001) {
-            return Self::generate_w_param_simd(seqs, &vec![0.05; seqs.len()], ins, del, score);
+            return Self::generate_w_param(seqs, &vec![0.05; seqs.len()], ins, del, score);
         }
         rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
             .into_iter()
@@ -157,45 +157,6 @@ impl PartialOrderAlignment {
                     x.add_w_param(y, w, ins, del, score).remove_node(THR)
                 } else {
                     x.add_w_param(y, w, ins, del, score)
-                }
-            })
-            .remove_node(THR)
-            .clean_up()
-            .finalize()
-    }
-    pub fn generate_w_param_simd<F>(
-        seqs: &[&[u8]],
-        ws: &[f64],
-        ins: i32,
-        del: i32,
-        score: &F,
-    ) -> POA
-    where
-        F: Fn(u8, u8) -> i32,
-    {
-        if seqs.is_empty() {
-            return Self::default();
-        }
-        let seed = (10_432_940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
-        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
-        let max_len = seqs
-            .iter()
-            .zip(ws.iter())
-            .map(|(xs, &w)| if w > 0.001 { xs.len() } else { 0 })
-            .max()
-            .unwrap_or_else(|| panic!("Empty string."));
-        if ws.iter().all(|&w| w < 0.001) {
-            return Self::generate_w_param_simd(seqs, &vec![0.05; seqs.len()], ins, del, score);
-        }
-        rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
-            .into_iter()
-            .map(|idx| (&seqs[idx], ws[idx]))
-            .filter(|&(_, w)| w > 0.001)
-            .fold(POA::default(), |x, (y, w)| {
-                if x.nodes.len() > 3 * max_len / 2 {
-                    x.add_w_param_simd(y, w, ins, del, score).remove_node(THR)
-                } else {
-                    x.add_w_param_simd(y, w, ins, del, score)
                 }
             })
             .remove_node(THR)
@@ -226,7 +187,7 @@ impl PartialOrderAlignment {
             .unwrap_or_else(|| panic!("Empty string."));
         if ws.iter().all(|&w| w <= 0.001) {
             let weights = vec![0.05; seqs.len()];
-            return Self::generate_w_param_simd(seqs, &weights, ins, del, score);
+            return Self::generate_w_param(seqs, &weights, ins, del, score);
         }
         self.nodes.clear();
         self.weight = -1.;
@@ -236,9 +197,9 @@ impl PartialOrderAlignment {
             .filter(|&(_, w)| w > 0.001)
             .fold(self, |x, (y, w)| {
                 if x.nodes.len() > 3 * max_len / 2 {
-                    x.add_w_param_simd(y, w, ins, del, score).remove_node(THR)
+                    x.add_w_param(y, w, ins, del, score).remove_node(THR)
                 } else {
-                    x.add_w_param_simd(y, w, ins, del, score)
+                    x.add_w_param(y, w, ins, del, score)
                 }
             })
             .remove_node(THR)
@@ -276,7 +237,7 @@ impl PartialOrderAlignment {
         assert!(nodes.iter().all(|n| n.weight() > 0.));
         Self { weight, nodes }
     }
-    pub fn align_simd<F>(&self, seq: &[u8], ins: i32, del: i32, score: F) -> (i32, TraceBack)
+    pub fn align<F>(&self, seq: &[u8], ins: i32, del: i32, score: F) -> (i32, TraceBack)
     where
         F: Fn(u8, u8) -> i32,
     {
@@ -442,125 +403,6 @@ impl PartialOrderAlignment {
         operations.reverse();
         (score, operations)
     }
-    //  ----> Graph position ----->
-    // 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
-    //  |
-    //  |
-    //Qeury position
-    //  |
-    //  v
-    // Semi-Global alignment containing query sequence.
-    pub fn align<F>(&self, seq: &[u8], ins: i32, del: i32, score: F) -> (i32, TraceBack)
-    where
-        F: Fn(u8, u8) -> i32,
-    {
-        let mut traceback = Vec::with_capacity(seq.len() + 1);
-        let edges = self.reverse_edges();
-        let mut prev = vec![0; self.nodes.len() + 1];
-        let mut p_weight = vec![0.; self.nodes.len() + 1];
-        let tb = vec![EditOp::Stop; self.nodes.len() + 1];
-        traceback.push(tb);
-        let mut updated = vec![];
-        let mut updated_weight = vec![];
-        let min = -100_000;
-        use std::cmp::Ordering::*;
-        for (i, &b) in seq.iter().enumerate() {
-            updated.push(ins * (i + 1) as i32);
-            updated_weight.push((i + 1) as f64);
-            let mut tb: Vec<_> = Vec::with_capacity(self.nodes.len() + 1);
-            tb.push(EditOp::Insertion(0));
-            for (j, (n, edges)) in self.nodes.iter().zip(edges.iter()).enumerate() {
-                let ms = score(n.base(), b);
-                let (m_argmax, m_max, d_argmax, d_max) = if edges.is_empty() {
-                    (0, prev[0] + ms, 0, updated[0] + del)
-                } else {
-                    edges
-                        .iter()
-                        .map(|&from| from + 1)
-                        .map(|idx| (idx, prev[idx] + ms, updated[idx] + del))
-                        .fold((0, min, 0, min), |(m_ax, m_x, d_ax, d_x), (i, m, d)| {
-                            let (m_ax, m_x) = match m_x.cmp(&m) {
-                                Greater => (m_ax, m_x),
-                                Less => (i, m),
-                                Equal if p_weight[m_ax] >= p_weight[i] => (m_ax, m_x),
-                                Equal => (i, m),
-                            };
-                            let (d_ax, d_x) = match d_x.cmp(&d) {
-                                Greater => (d_ax, d_x),
-                                Less => (i, d),
-                                Equal if p_weight[m_ax] >= p_weight[i] => (d_ax, d_x),
-                                Equal => (i, d),
-                            };
-                            (m_ax, m_x, d_ax, d_x)
-                        })
-                };
-                let (i_max, i_weight) = (prev[j + 1] + ins, p_weight[j + 1] + 1.);
-                let d_weight = updated_weight[d_argmax];
-                let m_weight = p_weight[m_argmax] + self.nodes[j].weight();
-                use EditOp::*;
-                let (max_weight, argmax, max_score) = match d_max.cmp(&i_max) {
-                    Greater => (d_weight, Deletion(d_argmax), d_max),
-                    Less => (i_weight, Insertion(0), i_max),
-                    Equal if d_weight >= i_weight => (d_weight, Deletion(d_argmax), d_max),
-                    Equal => (i_weight, Insertion(0), i_max),
-                };
-                let (max_weight, argmax, max_score) = match max_score.cmp(&m_max) {
-                    Greater => (max_weight, argmax, max_score),
-                    Less => (m_weight, Match(m_argmax), m_max),
-                    Equal if max_weight >= m_weight => (max_weight, argmax, max_score),
-                    Equal => (m_weight, Match(m_argmax), m_max),
-                };
-                assert_eq!(max_score, d_max.max(m_max).max(i_max));
-                // let max_score = d_max.max(m_max).max(i_max);
-                // let (max_weight, argmax) = match max_score {
-                //     x if x == d_max => (d_weight, Deletion(d_argmax)),
-                //     x if x == i_max => (i_weight, Insertion(0)),
-                //     _ => (m_weight, Match(m_argmax)),
-                // };
-                updated.push(max_score);
-                updated_weight.push(max_weight);
-                tb.push(argmax)
-            }
-            traceback.push(tb);
-            std::mem::swap(&mut prev, &mut updated);
-            std::mem::swap(&mut p_weight, &mut updated_weight);
-            updated.clear();
-            updated_weight.clear();
-        }
-        // Traceback
-        // g_pos = position on the graph, q_pos = position on the query
-        let mut q_pos = seq.len();
-        let mut operations = vec![];
-        let (mut g_pos, poa_score) = prev
-            .into_iter()
-            .enumerate()
-            .max_by(|(a_i, a), (b_i, b)| match a.partial_cmp(&b) {
-                Some(std::cmp::Ordering::Equal) => a_i.cmp(&b_i),
-                Some(x) => x,
-                None => panic!("{}", line!()),
-            })
-            .unwrap_or_else(|| panic!("{}", line!()));
-        while traceback[q_pos][g_pos] != EditOp::Stop {
-            match traceback[q_pos][g_pos] {
-                EditOp::Match(from) => {
-                    operations.push(EditOp::Match(g_pos - 1));
-                    g_pos = from;
-                    q_pos -= 1;
-                }
-                EditOp::Deletion(from) => {
-                    operations.push(EditOp::Deletion(g_pos - 1));
-                    g_pos = from;
-                }
-                EditOp::Insertion(_) => {
-                    operations.push(EditOp::Insertion(0));
-                    q_pos -= 1;
-                }
-                EditOp::Stop => break,
-            }
-        }
-        operations.reverse();
-        (poa_score, operations)
-    }
     pub fn add_with(self, seq: &[u8], w: f64, c: &Config) -> Self {
         let ins = (c.p_ins.ln() * 3.).floor() as i32;
         let del = (c.p_del.ln() * 3.).floor() as i32;
@@ -578,17 +420,7 @@ impl PartialOrderAlignment {
         if self.weight < SMALL || self.nodes.is_empty() {
             return Self::new(seq, w);
         }
-        let (_, traceback) = self.align(seq, ins, del, score);
-        self.integrate_alignment(seq, w, traceback)
-    }
-    pub fn add_w_param_simd<F>(self, seq: &[u8], w: f64, ins: i32, del: i32, score: F) -> Self
-    where
-        F: Fn(u8, u8) -> i32,
-    {
-        if self.weight < SMALL || self.nodes.is_empty() {
-            return Self::new(seq, w);
-        }
-        let (_, traceback) = self.align_simd(seq, ins, del, &score);
+        let (_, traceback) = self.align(seq, ins, del, &score);
         self.integrate_alignment(seq, w, traceback)
     }
 
