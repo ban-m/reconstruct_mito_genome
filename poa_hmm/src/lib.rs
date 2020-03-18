@@ -23,7 +23,12 @@ mod remove_nodes;
 const SMALL: f64 = 0.000_000_001;
 const LAMBDA_INS: f64 = 0.05;
 const LAMBDA_MATCH: f64 = 0.1;
+// const LAMBDA_INS: f64 = 0.2;
+// const LAMBDA_MATCH: f64 = 0.2;
 const THR: f64 = 0.4;
+const THR_FINALIZE: f64 = 0.4;
+// const THR: f64 = 0.3;
+// const THR_FINALIZE: f64 = 0.3;
 const MIN: i32 = -100_000;
 const DEFAULT: f64 = -100.;
 pub mod generate;
@@ -109,12 +114,12 @@ impl PartialOrderAlignment {
             .filter(|&(_, w)| w > 0.001)
             .fold(POA::default(), |x, (y, w)| {
                 if x.nodes.len() > 3 * max_len / 2 {
-                    x.add_with(y, w, config).remove_node()
+                    x.add_with(y, w, config).remove_node(THR)
                 } else {
                     x.add_with(y, w, config)
                 }
             })
-            .remove_node()
+            .remove_node(THR_FINALIZE)
             .clean_up()
             .finalize()
     }
@@ -142,12 +147,12 @@ impl PartialOrderAlignment {
             .filter(|&(_, w)| w > 0.001)
             .fold(POA::default(), |x, (y, w)| {
                 if x.nodes.len() > 3 * max_len / 2 {
-                    x.add_w_param(y, w, ins, del, score).remove_node()
+                    x.add_w_param(y, w, ins, del, score).remove_node(THR)
                 } else {
                     x.add_w_param(y, w, ins, del, score)
                 }
             })
-            .remove_node()
+            .remove_node(THR_FINALIZE)
             .clean_up()
             .finalize()
     }
@@ -181,12 +186,12 @@ impl PartialOrderAlignment {
             .filter(|&(_, w)| w > 0.001)
             .fold(POA::default(), |x, (y, w)| {
                 if x.nodes.len() > 3 * max_len / 2 {
-                    x.add_w_param_simd(y, w, ins, del, score).remove_node()
+                    x.add_w_param_simd(y, w, ins, del, score).remove_node(THR)
                 } else {
                     x.add_w_param_simd(y, w, ins, del, score)
                 }
             })
-            .remove_node()
+            .remove_node(THR_FINALIZE)
             .clean_up()
             .finalize()
     }
@@ -213,8 +218,8 @@ impl PartialOrderAlignment {
             .max()
             .unwrap_or_else(|| panic!("Empty string."));
         if ws.iter().all(|&w| w <= 0.001) {
-            use rand::seq::SliceRandom;
-            return POA::new(seqs.choose(&mut rng).unwrap(), 1.);
+            let weights = vec![0.05; seqs.len()];
+            return Self::generate_w_param_simd(seqs, &weights, ins, del, score);
         }
         self.nodes.clear();
         self.weight = -1.;
@@ -224,12 +229,12 @@ impl PartialOrderAlignment {
             .filter(|&(_, w)| w > 0.001)
             .fold(self, |x, (y, w)| {
                 if x.nodes.len() > 3 * max_len / 2 {
-                    x.add_w_param_simd(y, w, ins, del, score).remove_node()
+                    x.add_w_param_simd(y, w, ins, del, score).remove_node(THR)
                 } else {
                     x.add_w_param_simd(y, w, ins, del, score)
                 }
             })
-            .remove_node()
+            .remove_node(THR_FINALIZE)
             .clean_up()
             .finalize()
     }

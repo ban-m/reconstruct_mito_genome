@@ -18,25 +18,26 @@ fn main() {
         .build_global()
         .unwrap();
     let args: Vec<_> = std::env::args().collect();
-    let (test_num, coverage, probs, clusters, seed) = if args.len() > 3 {
+    let (test_num, coverage, probs, clusters, seed, errors) = if args.len() > 4 {
         let tn = args[1].parse::<usize>().unwrap();
         let cov = args[2].parse::<usize>().unwrap();
         let seed = args[3].parse::<u64>().unwrap();
-        let prob: Vec<_> = args[4..]
+        let errors = args[4].parse::<f64>().unwrap();
+        let prob: Vec<_> = args[5..]
             .iter()
             .filter_map(|e| e.parse::<f64>().ok())
             .collect();
         let clusters = prob.len();
-        (tn, cov, prob, clusters, seed)
+        (tn, cov, prob, clusters, seed, errors)
     } else {
-        (200, 0, vec![2f64.recip(); 2], 2, 11920981)
+        (200, 0, vec![2f64.recip(); 2], 2, 11920981, 0.2)
     };
     let len = 150;
     let chain_len = 40;
     let p = &gen_sample::Profile {
-        sub: 0.002 / 6.,
-        ins: 0.002 / 6.,
-        del: 0.002 / 6.,
+        sub: errors / 6.,
+        ins: errors / 6.,
+        del: errors / 6.,
         // sub: 0.001,
         // ins: 0.001,
         // del: 0.001,

@@ -1,17 +1,16 @@
 #![allow(dead_code)]
-use super::THR;
 impl crate::PartialOrderAlignment {
-    pub fn remove_node(mut self) -> Self {
+    pub fn remove_node(mut self, thr: f64) -> Self {
         if self.nodes.len() < 2 {
             panic!("Invalid input:{}", self);
         }
         let saved = self.clone();
         let len = self.nodes.len();
         self = self
-            .nodewise_remove()
+            .nodewise_remove(thr)
             .unwrap_or_else(|| panic!("N:{}", saved));
         self = self
-            .edgewise_remove()
+            .edgewise_remove(thr)
             .unwrap_or_else(|| panic!("E:{}", saved));
         self.trim_unreachable_nodes();
         if self.nodes.len() < len / 10 {
@@ -20,8 +19,8 @@ impl crate::PartialOrderAlignment {
             self
         }
     }
-    fn nodewise_remove(mut self) -> Option<Self> {
-        let (_start, arrived, _) = self.traverse()?;
+    fn nodewise_remove(mut self, thr: f64) -> Option<Self> {
+        let (_start, arrived, _) = self.traverse(thr)?;
         let to_remove: Vec<_> = arrived
             .into_iter()
             .zip(self.nodes.iter())
@@ -29,15 +28,15 @@ impl crate::PartialOrderAlignment {
             .collect();
         Some(self.remove(&to_remove))
     }
-    fn edgewise_remove(mut self) -> Option<Self> {
-        let (_, _, used_edges) = self.traverse()?;
+    fn edgewise_remove(mut self, thr: f64) -> Option<Self> {
+        let (_, _, used_edges) = self.traverse(thr)?;
         self.nodes
             .iter_mut()
             .zip(used_edges)
             .for_each(|(n, e)| n.remove_edges(100., &e));
         Some(self)
     }
-    fn traverse(&mut self) -> Option<(usize, Vec<bool>, Vec<Vec<bool>>)> {
+    fn traverse(&mut self, thr: f64) -> Option<(usize, Vec<bool>, Vec<Vec<bool>>)> {
         let mut arrived = vec![false; self.nodes.len()];
         let mut used_edges: Vec<_> = self
             .nodes
@@ -54,13 +53,20 @@ impl crate::PartialOrderAlignment {
         queue.push_back(start);
         arrived[start] = true;
         let weight_thr = {
-            let sum = self
+            // let sum = self
+            //     .nodes
+            //     .iter()
+            //     .flat_map(|n| n.weights.iter())
+            //     .sum::<f64>();
+            // let ave = sum / self.nodes.iter().map(|n| n.edges.len()).sum::<usize>() as f64;
+            // ave * thr
+            let max = self
                 .nodes
                 .iter()
-                .flat_map(|n| n.weights.iter())
-                .sum::<f64>();
-            let ave = sum / self.nodes.iter().map(|n| n.edges.len()).sum::<usize>() as f64;
-            ave * THR
+                .flat_map(|e| e.weights())
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap();
+            max * thr
         };
         while !queue.is_empty() {
             let idx = queue.pop_front().unwrap();
@@ -208,7 +214,7 @@ where
     // Recursive call.
     if n < small {
         // We can remove elements more than `pivot` from `xs`.
-
+        let xs: Vec<_> = xs.iter().filter(|x| f(&x) < pivot).cloned().collect();
         select_nth_by(&xs, n, f)
     } else if small + same <= n {
         let xs: Vec<_> = xs.iter().filter(|x| f(&x) > pivot).cloned().collect();
