@@ -38,9 +38,9 @@ mod tests;
 // gradually decreases out.
 // These parameters were tuned by hand.
 pub fn get_thr(ws: &[f64]) -> f64 {
-    //THR
-    let sum = ws.len() as f64 / 2.;
-    (sum * -0.005).exp() * 0.21 + 0.2
+    THR
+    // let sum = ws.len() as f64 / 2.;
+    // (sum * -0.005).exp() * 0.21 + 0.2
 }
 
 // Edit operation

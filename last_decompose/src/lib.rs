@@ -505,6 +505,7 @@ pub fn clustering_chunking(
                 .count()
                 .max(cluster_num - 1)
                 + 1;
+            debug!("Number of clusters:{}", cluster_num);
             let (data, label, forbidden, answer) =
                 select_within(region, data, label, forbidden, answer);
             debug!("Number of Reads:{}", data.len());

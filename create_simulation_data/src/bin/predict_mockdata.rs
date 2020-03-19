@@ -15,13 +15,12 @@ use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoroshiro128StarStar;
 use std::collections::HashMap;
 use std::io::{BufWriter, Write};
-const K: usize = 6;
 fn main() -> std::io::Result<()> {
     env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let args: Vec<_> = std::env::args().collect();
     let reads: Vec<_> = bio_utils::fasta::parse_into_vec(&args[1])?
         .into_iter()
-    // .filter(|r| r.desc().unwrap().contains("sample"))
+        // .filter(|r| r.desc().unwrap().contains("sample"))
         .collect();
     debug!("{} reads in total.", reads.len());
     let reference = last_tiling::Contigs::from_file(&args[2])?;
@@ -137,7 +136,16 @@ fn predict(
             .map(|&e| if e { 0 } else { 1 })
             .collect();
         // last_decompose::clustering(&data, &label, &forbid, K, 2, &contigs, &answer, config);
-        last_decompose::clustering_chunking(&data, &label, &forbid, K, 2, &contigs, &answer, config)
+        last_decompose::clustering_chunking(
+            &data,
+            &label,
+            &forbid,
+            &vec![],
+            2,
+            &contigs,
+            &answer,
+            config,
+        )
     };
     let result: Vec<_> = data
         .iter()
