@@ -14,7 +14,7 @@ use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
 const ENTROPY_THR: f64 = 0.35;
 const PICK_PROB: f64 = 0.02;
-const MAX_PICK: usize = 8;
+const MAX_PICK: f64 = 0.30;
 pub struct AlnParam<F>
 where
     F: Fn(u8, u8) -> i32,
@@ -110,7 +110,7 @@ impl<'a> ModelFactory<'a> {
         }
         assert_eq!(self.weights.len(), self.chunks.len());
         let parameters = (ins, del, score);
-        //debug!("THR:{}", poa_hmm::get_thr(&self.weights[0]));
+        debug!("THR:{}", poa_hmm::get_thr(&self.weights[0]));
         ms = ms
             .into_par_iter()
             .zip(self.chunks.par_iter())
@@ -164,24 +164,26 @@ where
     debug!("Models have been created");
     let (border, datasize) = (label.len(), data.len() as f64);
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(data.len() as u64 * 23);
-    let mut pick_num = ((datasize * PICK_PROB).floor() as usize).min(MAX_PICK);
+    //let mut pick_num = ((datasize * PICK_PROB).floor() as usize).min(MAX_PICK);
+    let max_pick = (datasize * MAX_PICK).floor() as usize;
+    let mut pick_num = (datasize * PICK_PROB).floor() as usize;
     let mut picks: Vec<_> = (0..data.len()).skip(border).collect();
     picks.shuffle(&mut rng);
     let mut ws: Vec<f64> = (0..cluster_num)
         .map(|i| weights_of_reads.iter().map(|g| g[i]).sum::<f64>() / datasize)
         .collect();
-    let (mut variants, mut max_lk) =
+    let (mut variants, mut prev_lk) =
         variant_calling::variant_calling_all_pairs(&models, &data, config, &ws);
     debug!("Initial variants called");
     variants.iter_mut().for_each(|bss| {
         bss.iter_mut()
             .for_each(|betas| betas.iter_mut().for_each(|b| *b = *b * *b))
     });
-    // let mut saved = weights_of_reads.clone();
     let correct = report(id, &weights_of_reads, border, answer, cluster_num);
-    info!("LK\t{}\t{}\t{}\t{}", id, 0, max_lk, correct);
+    info!("LK\t{}\t{}\t{}\t{}", id, 0, prev_lk, correct);
     for loop_num in 1.. {
         let betas = normalize_weights(&variants);
+        // let saved = weights_of_reads.clone();
         while !picks.is_empty() {
             let mut updates = vec![false; data.len()];
             for _ in 0..pick_num {
@@ -198,19 +200,23 @@ where
                 .map(|(cl, m)| mf.update_model(m, &updates, wor, &data, cl, aln))
                 .collect();
         }
-        let correct = report(id, &weights_of_reads, border, answer, cluster_num);
+        let _correct = report(id, &weights_of_reads, border, answer, cluster_num);
         let (weights, lk) = variant_calling::variant_calling_all_pairs(&models, &data, config, &ws);
-        info!("LK\t{}\t{}\t{}\t{}", id, loop_num, lk, correct);
+        info!(
+            "LK\t{}\t{}\t{:.3}\t{:.3}\t{}",
+            id, loop_num, lk, prev_lk, pick_num
+        );
         let soe = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
         let entropy_thr = soe / datasize / (cluster_num as f64).ln() < ENTROPY_THR;
-        if lk <= max_lk && entropy_thr {
+        if lk <= prev_lk && entropy_thr {
             break;
-        } else if lk <= max_lk {
-            pick_num += 1;
-        } else if lk > max_lk {
-            max_lk = lk;
-        }
-        //saved = weights_of_reads.clone();
+        } else if lk <= prev_lk {
+            //weights_of_reads = saved;
+            pick_num = (pick_num + 1).min(max_pick);
+        } //  else if lk > max_lk {
+          //     max_lk = lk;
+          // }
+        prev_lk = lk.max(prev_lk);
         variants.iter_mut().zip(weights).for_each(|(bss, w_bss)| {
             bss.iter_mut().zip(w_bss).for_each(|(bs, ws)| {
                 bs.iter_mut()

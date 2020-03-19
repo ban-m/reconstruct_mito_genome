@@ -57,7 +57,6 @@ const LOOP_NUM: usize = 15;
 const INIT_PICK_PROB: f64 = 0.05;
 const ENTROPY_THR: f64 = 0.05;
 const MIN_WEIGHT: f64 = 0.20;
-const K: usize = 6;
 
 type Read = Vec<(usize, Vec<u8>)>;
 /// Main method. Decomposing the reads.
@@ -170,8 +169,8 @@ pub fn decompose(
         &dataset,
         &labels,
         &forbidden,
-        K,
-        initial_clusters.len().max(cluster_num - 1) + 1,
+        initial_clusters,
+        cluster_num,
         &contigs,
         &answer,
         &config,
@@ -402,7 +401,7 @@ impl<'a> ModelFactory<'a> {
     }
 }
 
-fn create_windows(idx: usize, len: usize) -> Vec<(usize, usize, usize)> {
+fn create_windows(idx: usize, len: usize) -> Vec<(u16, u16, u16)> {
     (0..)
         .map(|i| i * (WINDOW_SIZE - OVERLAP))
         .take_while(|&start_pos| start_pos + WINDOW_SIZE / 2 < len || start_pos == 0)
@@ -413,18 +412,18 @@ fn create_windows(idx: usize, len: usize) -> Vec<(usize, usize, usize)> {
                 (idx, start_pos, len)
             }
         })
+        .map(|(x, y, z)| (x as u16, y as u16, z as u16))
         .collect()
 }
 
 fn select_within(
-    (contig, start, end): (usize, usize, usize),
+    (contig, start, end): (u16, u16, u16),
     data: &[ERead],
     label: &[u8],
     forbidden: &[Vec<u8>],
     answer: &[u8],
 ) -> (Vec<ERead>, Vec<u8>, Vec<Vec<u8>>, Vec<u8>) {
     assert_eq!(data.len(), label.len() + answer.len());
-    let (contig, start, end) = (contig as u16, start as u16, end as u16);
     let (mut s_data, mut s_label, mut s_forbid, mut s_answer) = (vec![], vec![], vec![], vec![]);
     debug!("Selecting {}\t{}\t{}...", contig, start, end);
     let border = label.len();
@@ -481,7 +480,7 @@ pub fn clustering_chunking(
     data: &[ERead],
     label: &[u8],
     forbidden: &[Vec<u8>],
-    _k: usize,
+    initial_clusters: &[Cluster],
     cluster_num: usize,
     contigs: &[usize],
     answer: &[u8],
@@ -499,6 +498,13 @@ pub fn clustering_chunking(
                 let (contig, start, end) = region;
                 debug!("{}:{}-{}", contig, start, end);
             }
+            // Determine the number of the cluster.
+            let cluster_num = initial_clusters
+                .iter()
+                .filter(|cl| cl.overlap(region))
+                .count()
+                .max(cluster_num - 1)
+                + 1;
             let (data, label, forbidden, answer) =
                 select_within(region, data, label, forbidden, answer);
             debug!("Number of Reads:{}", data.len());

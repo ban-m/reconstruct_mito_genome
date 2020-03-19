@@ -35,6 +35,9 @@ impl Cluster {
             })
             .collect()
     }
+    pub fn overlap(&self, range: (u16, u16, u16)) -> bool {
+        self.members.iter().any(|m| m.cr.overlap(range))
+    }
 }
 
 impl ReadClassify for Cluster {
@@ -177,6 +180,12 @@ impl CriticalRegion {
             CriticalRegion::CR(ref cr) => &cr.reads,
         }
     }
+    fn overlap(&self, range: (u16, u16, u16)) -> bool {
+        match self {
+            CriticalRegion::CP(ref cp) => cp.overlap(range),
+            CriticalRegion::CR(ref cr) => cr.overlap(range),
+        }
+    }
 }
 
 /// The position at contigs.
@@ -230,6 +239,10 @@ impl Position {
             direction,
             longest: max,
         }
+    }
+    fn overlap(&self, (contig, start, end): (u16, u16, u16)) -> bool {
+        let overlap = !(end as u16 <= self.start_unit || self.end_unit <= start as u16);
+        contig == self.contig && overlap
     }
     pub fn range(&self) -> (i32, i32) {
         (self.start_unit as i32, self.end_unit as i32)
@@ -368,6 +381,9 @@ impl ContigPair {
     pub fn contig2(&self) -> &Position {
         &self.contig2
     }
+    fn overlap(&self, range: (u16, u16, u16)) -> bool {
+        self.contig1.overlap(range) || self.contig2.overlap(range)
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -407,6 +423,9 @@ impl ConfluentRegion {
     }
     pub fn contig(&self) -> &Position {
         &self.pos
+    }
+    fn overlap(&self, range: (u16, u16, u16)) -> bool {
+        self.pos.overlap(range)
     }
 }
 

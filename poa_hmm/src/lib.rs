@@ -23,8 +23,8 @@ mod remove_nodes;
 const SMALL: f64 = 0.000_000_001;
 const LAMBDA_INS: f64 = 0.05;
 const LAMBDA_MATCH: f64 = 0.1;
-const THR: f64 = 0.4;
-// const THR: f64 = 0.3;
+//const THR: f64 = 0.4;
+const THR: f64 = 0.3;
 const MIN: i32 = -100_000;
 const DEFAULT: f64 = -100.;
 pub mod generate;
@@ -36,8 +36,11 @@ mod tests;
 // should return 0.3 or so if the sum of ws is 150.
 // thus, it starts from 0.5 or so and
 // gradually decreases out.
+// These parameters were tuned by hand.
 pub fn get_thr(ws: &[f64]) -> f64 {
-    (ws.iter().sum::<f64>() * -0.005).exp() * 0.21 + 0.2
+    //THR
+    let sum = ws.len() as f64 / 2.;
+    (sum * -0.005).exp() * 0.21 + 0.2
 }
 
 // Edit operation
