@@ -23,9 +23,8 @@ mod remove_nodes;
 const SMALL: f64 = 0.000_000_001;
 const LAMBDA_INS: f64 = 0.05;
 const LAMBDA_MATCH: f64 = 0.1;
-//const THR: f64 = 0.4;
-const THR: f64 = 0.3;
-const MIN: i32 = -100_000;
+const THR: f64 = 0.4;
+//const THR: f64 = 0.3;
 const DEFAULT: f64 = -100.;
 pub mod generate;
 #[cfg(test)]
@@ -38,9 +37,8 @@ mod tests;
 // gradually decreases out.
 // These parameters were tuned by hand.
 pub fn get_thr(ws: &[f64]) -> f64 {
-    THR
-    // let sum = ws.len() as f64 / 2.;
-    // (sum * -0.005).exp() * 0.21 + 0.2
+    let sum: f64 = ws.iter().sum();
+    (sum * -0.005).exp() * 0.21 + 0.2
 }
 
 // Edit operation
@@ -220,9 +218,9 @@ impl PartialOrderAlignment {
         let deletions = i32s::splat(del);
         let (row, column) = (self.nodes.len() + 1, seq.len() + 1);
         // Initialazation.
-        let mut dp = vec![vec![MIN; column]; row];
+        let mut dp = vec![vec![std::i32::MIN; column]; row];
         // The last elements in each row. Used at the beggining of the trace-back.
-        let mut last_elements = vec![MIN];
+        let mut last_elements = vec![std::i32::MIN];
         // Weight to break tie. [i][j] is the total weight to (i,j) element.
         let mut route_weight = vec![vec![0.; column]; row];
         for j in 0..column {

@@ -1,7 +1,7 @@
-extern crate log;
 extern crate edlib_sys;
 extern crate env_logger;
 extern crate last_decompose;
+extern crate log;
 extern crate poa_hmm;
 extern crate rand;
 extern crate rayon;
@@ -14,15 +14,14 @@ fn main() {
         .nth(1)
         .and_then(|e| e.parse().ok())
         .unwrap_or(132980);
-    //let mut rng: StdRng = SeedableRng::seed_from_u64(1219900);
     let mut rng: StdRng = SeedableRng::seed_from_u64(seed);
-    let chain_len = 60;
+    let chain_len = 40;
     let template: Vec<Vec<u8>> = (0..chain_len)
         .map(|_| gen_sample::generate_seq(&mut rng, len))
         .collect();
     let num_cluster = 2;
-    let total_coverage = 50;
-    let ws = vec![0.5, 0.5];
+    let total_coverage = 300;
+    let ws = vec![0.1, 0.9];
     let p = gen_sample::Profile {
         sub: 0.001 / 6.,
         ins: 0.001 / 6.,

@@ -17,7 +17,7 @@ echo "-----start-----" >> ./result/two_test_poa.tsv
     300 0 10 0.002 0.1 0.9 >> ./result/two_test_poa.tsv \
     2>> ./logfiles/two_test_poa.log
 exit 0 ;
-for seed in `seq 0 10`
+for seed in `seq 1 10`
 do
     ./target/release/test_last_decompose_multiple \
         60 0 ${seed} 0.001 0.5 0.5 >> ./result/two_test_poa.tsv \

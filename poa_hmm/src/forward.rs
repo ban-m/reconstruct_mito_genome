@@ -1,7 +1,7 @@
+use super::DEFAULT;
 use crate::Config;
 use crate::PartialOrderAlignment;
 use crate::SMALL;
-use super::DEFAULT;
 use packed_simd::f64x4 as f64s;
 impl PartialOrderAlignment {
     fn sum(xs: &[f64]) -> f64 {
@@ -27,11 +27,11 @@ impl PartialOrderAlignment {
         config: &Config,
         edges: &[Vec<(usize, f64)>],
     ) -> (f64, f64) {
-        debug_assert!((1. - prev.iter().sum::<f64>()).abs() < SMALL);
+        assert!((1. - prev.iter().sum::<f64>()).abs() < SMALL);
         for (dist_idx, (dist, froms)) in self.nodes.iter().zip(edges.iter()).enumerate() {
             let node = 3 * dist_idx;
             let del_to_match = 1. - config.p_extend_del - config.p_del_to_ins;
-            let (match_state, insertion_state) = froms
+            updates[node] = froms
                 .iter()
                 .map(|&(src, weight)| {
                     let src_node = &self.nodes[src];
@@ -39,20 +39,16 @@ impl PartialOrderAlignment {
                     let f_dist = prev[src] * config.p_match
                         + prev[src + 1] * (1. - config.p_extend_ins)
                         + prev[src + 2] * del_to_match;
-                    // let m = f_dist * dist.prob(base, config) * weight;
-                    let m = f_dist * dist.prob_with(base, config, src_node) * weight;
-                    let i = prev[node + 2] * config.p_del_to_ins * weight;
-                    (m, i)
+                    f_dist * dist.prob_with(base, config, src_node) * weight
                 })
-                .fold((0., 0.), |(x, y), (a, b)| (x + a, y + b));
-            updates[node] = match_state;
-            updates[node + 1] = insertion_state;
+                .sum::<f64>();
             updates[node + 1] += if dist.has_edge() {
-                prev[node] * config.p_ins + prev[node + 1] * config.p_extend_ins
+                prev[node] * config.p_ins
+                    + prev[node + 1] * config.p_extend_ins
+                    + prev[node + 2] * config.p_del_to_ins
             } else {
                 prev[node..=node + 2].iter().sum::<f64>()
-            };
-            updates[node + 1] *= dist.insertion(base);
+            } * dist.insertion(base);
         }
         let d = Self::sum(updates).recip();
         Self::mul(updates, d);
