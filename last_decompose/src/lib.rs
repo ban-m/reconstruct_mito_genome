@@ -589,7 +589,6 @@ pub fn clustering(
     assert_eq!(label.len() + answer.len(), data.len());
     use poa_clustering::DEFAULT_ALN;
     let weights = soft_clustering_poa(data, label, forbidden, cluster_num, answer, c, &DEFAULT_ALN);
-    //let weights = soft_clustering(data, label, forbidden, k, cluster_num, contigs, answer, c);
     debug!("WEIGHTS\tPrediction. Dump weights");
     assert_eq!(weights.len(), label.len() + answer.len());
     for ((read, weight), ans) in data
@@ -599,9 +598,9 @@ pub fn clustering(
     {
         let weights: String = weight
             .iter()
-            .map(|e| format!("{:.1},", e))
+            .map(|e| format!("{:.1}\t", e))
             .fold(String::new(), |x, y| x + &y);
-        debug!("WEIGHTS\t{}\t{}\t{}", weights, ans, read.id());
+        debug!("WEIGHTS\t{}{}", weights, ans);
     }
     weights
         .iter()

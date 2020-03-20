@@ -257,6 +257,10 @@ pub fn variant_calling_all_pairs(
     (betas, lk)
 }
 
+pub fn get_lk(models: &[Vec<POA>], data: &[super::Read], c: &poa_hmm::Config, ws: &[f64]) -> f64 {
+    calc_matrices_poa(models, data, c, ws).1
+}
+
 // Call varinants between cluster i and cluster j.
 fn call_variants(i: usize, j: usize, matrices: &[Vec<f64>], column: usize) -> Vec<f64> {
     // Extract focal rows for each read.

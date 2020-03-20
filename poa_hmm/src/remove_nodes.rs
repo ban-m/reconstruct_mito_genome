@@ -60,13 +60,6 @@ impl crate::PartialOrderAlignment {
                 .sum::<f64>();
             let ave = sum / self.nodes.iter().map(|n| n.edges.len()).sum::<usize>() as f64;
             ave * thr
-            // let max = self
-            //     .nodes
-            //     .iter()
-            //     .flat_map(|e| e.weights())
-            //     .max_by(|a, b| a.partial_cmp(b).unwrap())
-            //     .unwrap();
-            // max * thr
         };
         while !queue.is_empty() {
             let idx = queue.pop_front().unwrap();
@@ -76,6 +69,7 @@ impl crate::PartialOrderAlignment {
                 .iter()
                 .max_by(|a, b| a.partial_cmp(b).unwrap())
                 .unwrap_or(&0.);
+            // let weight_thr = max * thr;
             for (edg, (&next, &w)) in node.edges().iter().zip(node.weights.iter()).enumerate() {
                 let is_heavy = if node.is_tail {
                     weight_thr <= w
