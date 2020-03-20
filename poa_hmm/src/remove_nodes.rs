@@ -19,6 +19,19 @@ impl crate::PartialOrderAlignment {
             self
         }
     }
+    pub fn remove_node_below(mut self, thr: f64) -> Self {
+        let saved = self.clone();
+        let len = self.nodes.len();
+        let to_remove: Vec<_> = self.nodes.iter().map(|n| n.weight < thr).collect();
+        self = self.remove(&to_remove);
+        self.trim_unreachable_nodes();
+        if self.nodes.len() < len / 10 {
+            saved
+        } else {
+            self
+        }
+    }
+
     fn nodewise_remove(mut self, thr: f64) -> Option<Self> {
         let (_start, arrived, _) = self.traverse(thr)?;
         let to_remove: Vec<_> = arrived

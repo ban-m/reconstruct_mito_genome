@@ -36,10 +36,10 @@ mod tests;
 // thus, it starts from 0.5 or so and
 // gradually decreases out.
 // These parameters were tuned by hand.
-pub fn get_thr(ws: &[f64]) -> f64 {
-    let sum: f64 = ws.iter().sum();
-    (sum * -0.005).exp() * 0.21 + 0.2
-}
+// pub fn get_thr(ws: &[f64]) -> f64 {
+//     let sum: f64 = ws.iter().sum();
+//     (sum * -0.005).exp() * 0.21 + 0.2
+// }
 
 // Edit operation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,33 +124,50 @@ impl PartialOrderAlignment {
         if seqs.is_empty() {
             return Self::default();
         }
-        let seed = (10_432_940. * ws.iter().sum::<f64>().floor()) as u64 + seqs.len() as u64;
+        let seed = 99_432 * (ws.iter().sum::<f64>().floor() as u64 + seqs.len() as u64);
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
-        let max_len = seqs
-            .iter()
-            .zip(ws.iter())
-            .map(|(xs, &w)| if w > 0.001 { xs.len() } else { 0 })
-            .max()
-            .unwrap_or_else(|| panic!("Empty string."));
         if ws.iter().all(|&w| w <= 0.001) {
             let weights = vec![0.05; seqs.len()];
             return Self::generate(seqs, &weights, parameters);
         }
         self.nodes.clear();
-        self.weight = -1.;
-        let thr = get_thr(ws);
+        // let max_len = seqs
+        //     .iter()
+        //     .zip(ws)
+        //     .filter(|&(_, &w)| w > 0.001)
+        //     .map(|(s, _)| s.len())
+        //     .max()
+        //     .unwrap_or(0);
+        // rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
+        //     .into_iter()
+        //     .map(|idx| (&seqs[idx], ws[idx]))
+        //     .filter(|&(_, w)| w > 0.001)
+        //     .fold(self, |x, (y, w)| {
+        //         if x.nodes.len() > 3 * max_len / 2 {
+        //             x.add(y, w, parameters).remove_node(THR)
+        //         } else {
+        //             x.add(y, w, parameters)
+        //         }
+        //     })
+        //     .remove_node(THR)
+        //     .finalize()
+        let increment = 15.;
+        let mut target = 15.;
         rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
             .into_iter()
             .map(|idx| (&seqs[idx], ws[idx]))
             .filter(|&(_, w)| w > 0.001)
             .fold(self, |x, (y, w)| {
-                if x.nodes.len() > 3 * max_len / 2 {
-                    x.add(y, w, parameters).remove_node(thr)
+                if x.weight > target {
+                    target += increment;
+                    let thr = x.weight * 0.1;
+                    x.add(y, w, parameters).remove_node_below(thr)
                 } else {
                     x.add(y, w, parameters)
                 }
             })
-            .remove_node(thr)
+            .remove_node(THR)
+            .remove_node(THR)
             .finalize()
     }
     pub fn generate_uniform(seqs: &[&[u8]]) -> POA {
@@ -454,7 +471,8 @@ impl PartialOrderAlignment {
         edges
     }
     fn finalize(mut self) -> Self {
-        self.nodes.iter_mut().for_each(|e| e.finalize());
+        let bases: Vec<_> = self.nodes.iter().map(|e| e.base).collect();
+        self.nodes.iter_mut().for_each(|e| e.finalize(&bases));
         self
     }
 }

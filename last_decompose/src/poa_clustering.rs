@@ -7,7 +7,7 @@ use poa_hmm::*;
 use rand::{thread_rng, Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
-const ENTROPY_THR: f64 = 0.30;
+const ENTROPY_THR: f64 = 0.25;
 const PICK_PROB: f64 = 0.02;
 const MAX_PICK: f64 = 0.30;
 const LRATE: f64 = 0.5;
@@ -169,9 +169,13 @@ where
     let (mut variants, mut prev_lk): (Vec<Vec<_>>, f64) =
         variant_calling::variant_calling_all_pairs(&models, &data, config, &ws);
     report(id, &weights_of_reads, border, answer, cluster_num);
+    let mut beta = 0.3;
     for loop_num in 1.. {
-        info!("LK\t{}\t{}\t{:.3}\t{}", id, loop_num, prev_lk, pick_num);
-        let betas = normalize_weights(&variants);
+        info!(
+            "LK\t{}\t{}\t{:.3}\t{}\t{:.3}",
+            id, loop_num, prev_lk, pick_num, beta
+        );
+        let betas = normalize_weights(&variants, beta);
         while !picks.is_empty() {
             let mut updates = vec![false; data.len()];
             for _ in 0..pick_num {
@@ -199,10 +203,16 @@ where
         });
         let soe = weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>();
         if lk <= prev_lk && soe / datasize / (cluster_num as f64).ln() < ENTROPY_THR {
-            info!("LK\t{}\t{}\t{:.3}\t{}", id, loop_num, lk, pick_num);
+            info!(
+                "LK\t{}\t{}\t{:.3}\t{}\t{:.3}",
+                id, loop_num, lk, pick_num, beta
+            );
             break;
         } else if lk <= prev_lk {
-            pick_num = (pick_num + 1).min(max_pick);
+            //pick_num = (pick_num + 1).min(max_pick);
+            beta *= 1.2;
+        } else {
+            beta /= 1.2;
         }
         prev_lk = lk;
         picks = (0..data.len()).skip(border).collect();
@@ -210,7 +220,7 @@ where
     }
     for (idx, (read, ans)) in data.iter().skip(border).zip(answer).enumerate() {
         let lks = calc_lks(&models, &ws, read, config);
-        debug!("FEATURE\t{}\t{}\t{}", idx, ans, lks.join("\t"));
+        debug!("FEATURE\t{}\t{}\t{}\t{}", id, idx, ans, lks.join("\t"));
     }
     weights_of_reads
 }
@@ -230,7 +240,7 @@ fn calc_lks(models: &[Vec<POA>], ws: &[f64], read: &Read, c: &Config) -> Vec<Str
         .collect()
 }
 
-fn normalize_weights(variants: &[Vec<Vec<f64>>]) -> Vec<Vec<Vec<f64>>> {
+fn normalize_weights(variants: &[Vec<Vec<f64>>], beta: f64) -> Vec<Vec<Vec<f64>>> {
     let max = variants
         .iter()
         .flat_map(|bss| bss.iter().flat_map(|bs| bs.iter()))
@@ -238,7 +248,7 @@ fn normalize_weights(variants: &[Vec<Vec<f64>>]) -> Vec<Vec<Vec<f64>>> {
     let mut betas = variants.to_vec();
     betas.iter_mut().for_each(|bss| {
         bss.iter_mut().for_each(|betas| {
-            betas.iter_mut().for_each(|b| *b /= max);
+            betas.iter_mut().for_each(|b| *b *= beta / max);
         })
     });
     betas

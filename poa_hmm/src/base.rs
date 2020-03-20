@@ -14,6 +14,7 @@ pub struct Base {
     pub tail_weight: f64,
     pub is_tail: bool,
     pub is_head: bool,
+    pub heaviest: u8,
 }
 
 impl Base {
@@ -29,6 +30,7 @@ impl Base {
             base_count: [0.; 4],
             is_tail: false,
             is_head: false,
+            heaviest: 0,
         }
     }
     pub fn weight(&self) -> f64 {
@@ -79,24 +81,6 @@ impl Base {
             .collect();
         assert_eq!(self.edges.len(), self.weights.len());
     }
-    // Remove all edges with weight less than thr and
-    // not the edges used in traverse(`e` in argument);
-    // (if e[i] = true then the i-th edge was used in the traverse.
-    // pub fn remove_edges(&mut self, thr: f64, e: usize, f: f64) {
-    //     if self.edges.len() <= 1 {
-    //         return;
-    //     }
-    //     let thr = (self.weights.iter().sum::<f64>() * f).max(thr);
-    //     let removed = self
-    //         .edges()
-    //         .iter()
-    //         .zip(self.weights.iter())
-    //         .filter(|(&to, &w)| w > thr || to == e);
-    //     let weights: Vec<_> = removed.clone().map(|(_, &w)| w).collect();
-    //     let edges: Vec<_> = removed.clone().map(|(&to, _)| to).collect();
-    //     self.weights = weights;
-    //     self.edges = edges;
-    // }
     pub fn remove_edges(&mut self, _thr: f64, e: &[bool]) {
         if self.edges.len() <= 1 {
             return;
@@ -113,7 +97,7 @@ impl Base {
         self.weights = weights;
         self.edges = edges;
     }
-    pub fn finalize(&mut self) {
+    pub fn finalize(&mut self, bases: &[u8]) {
         let tot = self.base_count.iter().sum::<f64>();
         if tot > 0.001 {
             self.base_count.iter_mut().for_each(|e| *e /= tot);
@@ -122,6 +106,14 @@ impl Base {
         }
         let tot = self.weights.iter().sum::<f64>();
         self.weights.iter_mut().for_each(|e| *e /= tot);
+        if let Some((_, &argmax)) = self
+            .weights
+            .iter()
+            .zip(self.edges())
+            .max_by(|a, b| (a.0).partial_cmp(&b.0).unwrap())
+        {
+            self.heaviest = bases[argmax];
+        }
     }
     pub fn add(&mut self, b: u8, w: f64, idx: usize) {
         let pos = match self
@@ -174,11 +166,13 @@ impl Base {
         p * LAMBDA_MATCH + (1. - LAMBDA_MATCH) * q
     }
     pub fn prob(&self, base: u8, config: &super::Config) -> f64 {
-        if self.base == base {
+        let p = self.base_count[BASE_TABLE[base as usize]];
+        let q = if base == self.heaviest {
             1. - config.mismatch
         } else {
             config.mismatch / 3.
-        }
+        };
+        p * LAMBDA_MATCH + (1. - LAMBDA_MATCH) * q
     }
     #[inline]
     pub fn insertion(&self, base: u8) -> f64 {
@@ -235,11 +229,6 @@ impl fmt::Debug for Base {
         for (w, to) in self.weights.iter().zip(self.edges.iter()) {
             writeln!(f, "E\t{}\t{:.3}", to, w)?;
         }
-        // if !self.ties.is_empty() {
-        //     for to in self.ties.iter() {
-        //         writeln!(f, "T\t{}", to)?;
-        //     }
-        // }
         for &b in b"ATGC" {
             let count = self.base_count[BASE_TABLE[b as usize]];
             if count > 0.001 {

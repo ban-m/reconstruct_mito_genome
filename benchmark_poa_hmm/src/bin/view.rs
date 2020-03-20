@@ -11,9 +11,13 @@ fn main() {
     let i = 93;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(i);
     let template = gen_sample::generate_seq(&mut rng, 150);
-    let model1: Vec<Vec<_>> = (0..50)
+    let template2 = gen_sample::introduce_errors(&template, &mut rng, 1, 0, 0);
+    eprintln!("{}", String::from_utf8_lossy(&template));
+    eprintln!("{}", String::from_utf8_lossy(&template2));
+    let mut model1: Vec<Vec<_>> = (0..50)
         .map(|_| introduce_randomness(&template, &mut rng, &PROFILE))
         .collect();
+    model1.extend((0..10).map(|_| introduce_randomness(&template2, &mut rng, &PROFILE)));
     // for m in &model1 {
     //     eprintln!("{}", String::from_utf8_lossy(m));
     // }
@@ -22,7 +26,7 @@ fn main() {
     let model = POA::generate_vec(&model1);
     eprintln!("{:?}", Instant::now() - s);
     eprintln!("Model:{}\n{}", i, model);
-    // eprintln!("Model:\n{:?}", model);
+    eprintln!("Model:\n{:?}", model);
     // eprintln!("{}", String::from_utf8_lossy(&template));
     // eprintln!("{}", String::from_utf8_lossy(&model.consensus().unwrap()));
     // let (seq, model1) = model1.split_last().unwrap();

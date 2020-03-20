@@ -591,11 +591,7 @@ pub fn clustering(
     let weights = soft_clustering_poa(data, label, forbidden, cluster_num, answer, c, &DEFAULT_ALN);
     debug!("WEIGHTS\tPrediction. Dump weights");
     assert_eq!(weights.len(), label.len() + answer.len());
-    for ((read, weight), ans) in data
-        .iter()
-        .zip(weights.iter())
-        .zip(label.iter().chain(answer.iter()))
-    {
+    for (weight, ans) in weights.iter().zip(label.iter().chain(answer.iter())) {
         let weights: String = weight
             .iter()
             .map(|e| format!("{:.1}\t", e))
