@@ -1,5 +1,5 @@
 use super::entropy;
-use super::utils;
+//use super::utils;
 use super::variant_calling;
 use super::{serialize, to_pos};
 use super::{ERead, Read};
@@ -7,10 +7,13 @@ use poa_hmm::*;
 use rand::{thread_rng, Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
-const ENTROPY_THR: f64 = 0.25;
+const ENTROPY_THR: f64 = 0.35;
 const PICK_PROB: f64 = 0.02;
-const MAX_PICK: f64 = 0.30;
 const LRATE: f64 = 0.5;
+const BETA_INCREASE: f64 = 1.3;
+const BETA_DECREASE: f64 = 1.1;
+const INIT_BETA: f64 = 0.2;
+// const ENTROPY_STEP: f64 = 0.1;
 pub struct AlnParam<F>
 where
     F: Fn(u8, u8) -> i32,
@@ -159,8 +162,7 @@ where
     debug!("Models have been created");
     let (border, datasize) = (label.len(), data.len() as f64);
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(data.len() as u64 * 23);
-    let max_pick = (datasize * MAX_PICK).floor() as usize;
-    let mut pick_num = ((datasize * PICK_PROB).floor() as usize).max(1);
+    let pick_num = ((datasize * PICK_PROB).floor() as usize).max(1);
     let mut picks: Vec<_> = (0..data.len()).skip(border).collect();
     picks.shuffle(&mut rng);
     let mut ws: Vec<f64> = (0..cluster_num)
@@ -168,8 +170,15 @@ where
         .collect();
     let (mut variants, mut prev_lk): (Vec<Vec<_>>, f64) =
         variant_calling::variant_calling_all_pairs(&models, &data, config, &ws);
+    {
+        let c = cluster_num as f64;
+        variants.iter_mut().for_each(|bss| {
+            bss.iter_mut()
+                .for_each(|bs| bs.iter_mut().for_each(|b| *b = LRATE * *b + c.recip()))
+        });
+    };
     report(id, &weights_of_reads, border, answer, cluster_num);
-    let mut beta = 0.3;
+    let mut beta = INIT_BETA;
     for loop_num in 1.. {
         info!(
             "LK\t{}\t{}\t{:.3}\t{}\t{:.3}",
@@ -209,10 +218,9 @@ where
             );
             break;
         } else if lk <= prev_lk {
-            //pick_num = (pick_num + 1).min(max_pick);
-            beta *= 1.2;
+            beta *= BETA_INCREASE;
         } else {
-            beta /= 1.2;
+            beta /= BETA_DECREASE;
         }
         prev_lk = lk;
         picks = (0..data.len()).skip(border).collect();
@@ -224,6 +232,66 @@ where
     }
     weights_of_reads
 }
+
+// fn find_initial_beta<F>(
+//     beta: f64,
+//     variants: &[Vec<Vec<f64>>],
+//     data: &[Read],
+//     picks: &[usize],
+//     (weights_of_reads, ws): (&[Vec<f64>], &[f64]),
+//     config: &Config,
+//     (border, chain_len, cluster_num): (usize, usize, usize),
+//     aln: &AlnParam<F>,
+// ) -> f64
+// where
+//     F: Fn(u8, u8) -> i32 + std::marker::Sync,
+// {
+//     debug!("SEARCH\t{}", beta);
+//     let soe = {
+//         let mut ws = ws.to_vec();
+//         let mut weights_of_reads = weights_of_reads.to_vec();
+//         let datasize = data.len() as f64;
+//         let mut picks = picks.to_vec();
+//         let pick_num = ((datasize * PICK_PROB).floor() as usize).max(1);
+//         let mut mf = ModelFactory::new(chain_len, &data);
+//         debug!("Model factory is built");
+//         let mut models: Vec<Vec<POA>> = (0..cluster_num)
+//             .map(|cl| mf.generate_model(&weights_of_reads, &data, cl, aln))
+//             .collect();
+//         let betas = normalize_weights(variants, beta);
+//         while !picks.is_empty() {
+//             let mut updates = vec![false; data.len()];
+//             for _ in 0..pick_num {
+//                 if let Some(pos) = picks.pop() {
+//                     updates[pos] = true;
+//                 }
+//             }
+//             let w = &mut weights_of_reads;
+//             update_weights(w, &mut ws, border, &data, &models, &updates, &betas, config);
+//             let wor = &weights_of_reads;
+//             models = models
+//                 .into_iter()
+//                 .enumerate()
+//                 .map(|(cl, m)| mf.update_model(m, &updates, wor, &data, cl, aln))
+//                 .collect();
+//         }
+//         weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>() / datasize
+//     };
+//     if soe / (cluster_num as f64).ln() > ENTROPY_STEP {
+//         find_initial_beta(
+//             beta / BETA_DECREASE,
+//             variants,
+//             data,
+//             picks,
+//             (weights_of_reads, ws),
+//             config,
+//             (border, chain_len, cluster_num),
+//             aln,
+//         )
+//     } else {
+//         beta
+//     }
+// }
 
 fn calc_lks(models: &[Vec<POA>], ws: &[f64], read: &Read, c: &Config) -> Vec<String> {
     models
@@ -363,25 +431,4 @@ fn compute_prior_probability(
     });
     let sum = weights.iter().sum::<f64>();
     weights.iter_mut().for_each(|w| *w /= sum);
-}
-
-#[allow(dead_code)]
-fn total_lk(models: &[Vec<POA>], ws: &[f64], reads: &[Read], c: &Config) -> f64 {
-    let lks = |ms: &[POA], read: &Read| {
-        read.iter()
-            .map(|&(p, ref u): &(usize, _)| ms[p].forward(u, c))
-            .sum::<f64>()
-    };
-    let lk = |read| {
-        models
-            .iter()
-            .zip(ws)
-            .map(|(m, w)| lks(m, read) + w.ln())
-            .collect::<Vec<_>>()
-    };
-    reads
-        .par_iter()
-        .map(|read| lk(read))
-        .map(|lks| utils::logsumexp(&lks))
-        .sum::<f64>()
 }

@@ -24,7 +24,6 @@ const SMALL: f64 = 0.000_000_001;
 const LAMBDA_INS: f64 = 0.05;
 const LAMBDA_MATCH: f64 = 0.1;
 const THR: f64 = 0.4;
-//const THR: f64 = 0.3;
 const DEFAULT: f64 = -100.;
 pub mod generate;
 #[cfg(test)]
@@ -131,44 +130,44 @@ impl PartialOrderAlignment {
             return Self::generate(seqs, &weights, parameters);
         }
         self.nodes.clear();
-        // let max_len = seqs
-        //     .iter()
-        //     .zip(ws)
-        //     .filter(|&(_, &w)| w > 0.001)
-        //     .map(|(s, _)| s.len())
-        //     .max()
-        //     .unwrap_or(0);
-        // rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
-        //     .into_iter()
-        //     .map(|idx| (&seqs[idx], ws[idx]))
-        //     .filter(|&(_, w)| w > 0.001)
-        //     .fold(self, |x, (y, w)| {
-        //         if x.nodes.len() > 3 * max_len / 2 {
-        //             x.add(y, w, parameters).remove_node(THR)
-        //         } else {
-        //             x.add(y, w, parameters)
-        //         }
-        //     })
-        //     .remove_node(THR)
-        //     .finalize()
-        let increment = 15.;
-        let mut target = 15.;
+        let max_len = seqs
+            .iter()
+            .zip(ws)
+            .filter(|&(_, &w)| w > 0.001)
+            .map(|(s, _)| s.len())
+            .max()
+            .unwrap_or(0);
         rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
             .into_iter()
             .map(|idx| (&seqs[idx], ws[idx]))
             .filter(|&(_, w)| w > 0.001)
             .fold(self, |x, (y, w)| {
-                if x.weight > target {
-                    target += increment;
-                    let thr = x.weight * 0.1;
-                    x.add(y, w, parameters).remove_node_below(thr)
+                if x.nodes.len() > 3 * max_len / 2 {
+                    x.add(y, w, parameters).remove_node(THR)
                 } else {
                     x.add(y, w, parameters)
                 }
             })
             .remove_node(THR)
-            .remove_node(THR)
             .finalize()
+        // let increment = 15.;
+        // let mut target = 15.;
+        // rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
+        //     .into_iter()
+        //     .map(|idx| (&seqs[idx], ws[idx]))
+        //     .filter(|&(_, w)| w > 0.001)
+        //     .fold(self, |x, (y, w)| {
+        //         if x.weight > target {
+        //             target += increment;
+        //             let thr = x.weight * 0.1;
+        //             x.add(y, w, parameters).remove_node_below(thr)
+        //         } else {
+        //             x.add(y, w, parameters)
+        //         }
+        //     })
+        //     .remove_node(THR)
+        //     .remove_node(THR)
+        //     .finalize()
     }
     pub fn generate_uniform(seqs: &[&[u8]]) -> POA {
         let ws = vec![1.; seqs.len()];

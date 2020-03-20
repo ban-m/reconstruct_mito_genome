@@ -29,14 +29,16 @@ fn main() {
     };
     debug!("Seed:{}", seed);
     let coverage = 0;
-    let chain_len = 60;
-    let len = 150;
-    let prob: Vec<_> = (1..=10).collect();
-    let test_nums: Vec<_> = (50..150).step_by(10).collect();
+    let chain_len = 90;
+    let len = 100;
+    // let prob: Vec<_> = (1..=10).collect();
+    //let test_nums: Vec<_> = (50..=120).step_by(10).collect();
+    let prob = vec![1];
+    let test_nums = vec![60];
     for p in prob {
         for &test_num in &test_nums {
             let seed = seed + (test_num + p) as u64;
-            let errorrate = (p + 1) as f64 / 2000.;
+            let errorrate = p as f64 / 2000.;
             println!("ErrorRate:{:3}", errorrate);
             let p = &gen_sample::Profile {
                 sub: errorrate / 6.,
