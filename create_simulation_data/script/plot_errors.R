@@ -1,21 +1,21 @@
 library("tidyverse")
 loadNamespace("cowplot")
 ## ===== Setting for usual use ======
-## generalplot <- function(g,name){
-##     cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
-##                     plot = g + cowplot::theme_cowplot(font_size=12),
-##                     dpi=350,width = 178,height = 86,units="mm")
-##     cowplot::ggsave(filename = paste0("./png/",name,".png"),
-##                     plot = g + cowplot::theme_cowplot(font_size=12),
-##                     dpi = 350,width = 178,height = 86,units="mm")
-## }
-
 generalplot <- function(g,name){
     cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
-                    plot = g + cowplot::theme_cowplot())
+                    plot = g + cowplot::theme_cowplot(font_size=12),
+                    dpi=350,width = 178,height = 86,units="mm")
     cowplot::ggsave(filename = paste0("./png/",name,".png"),
-                    plot = g + cowplot::theme_cowplot())
+                    plot = g + cowplot::theme_cowplot(font_size=12),
+                    dpi = 350,width = 178,height = 86,units="mm")
 }
+
+## generalplot <- function(g,name){
+##     cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
+##                     plot = g + cowplot::theme_cowplot())
+##     cowplot::ggsave(filename = paste0("./png/",name,".png"),
+##                     plot = g + cowplot::theme_cowplot())
+## }
 
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -31,7 +31,7 @@ accs <- dataset %>% mutate(acc1 = X4 + X7, acc2 = X5 + X6, acc = pmax(acc1, acc2
     mutate(acc = acc / X9) %>% select(X2,X3,acc1,acc2, acc, X8,X9,X10)
 
 
-mean_accs <-  accs %>% mutate(Coverage = X2 + X3) %>%
+mean_accs <-  accs %>% mutate(Coverage = (X2 + X3)/2) %>%
     select(Coverage, X10, acc) %>% nest(-X10, -Coverage) %>%
     mutate(data = map(data, ~summarize(.,Accuracy = median(acc)))) %>%
     unnest() 
