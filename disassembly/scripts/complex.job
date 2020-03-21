@@ -1,0 +1,14 @@
+#!/bin/bash
+
+ROOT=/work/ban-m/arabidopsis_mitochondria/create_simulation_data/data
+OUTPUT=${PWD}/result/
+qsub -o ./logfiles/complex1.log -j y ./scripts/disassembly.job \
+     ${ROOT}/complex/reference.fa \
+     ${ROOT}/complex/read_complex1.fa \
+     ${OUTPUT}/complex1/
+
+qsub -o ./logfiles/complex2.log -j y ./scripts/disassembly.job \
+     ${ROOT}/complex/reference.fa \
+     ${ROOT}/complex/read_complex2.fa \
+     ${OUTPUT}/complex2/
+

@@ -177,8 +177,15 @@ where
                 .for_each(|bs| bs.iter_mut().for_each(|b| *b = LRATE * *b + c.recip()))
         });
     };
+    if log_enabled!(log::Level::Trace) {
+        for (idx, (read, ans)) in data.iter().skip(border).zip(answer).enumerate() {
+            let lks = calc_lks(&models, &ws, read, config).join("\t");
+            debug!("FEATURE\tBEFORE\t{}\t{}\t{}\t{}", id, idx, ans, lks,);
+        }
+    }
     report(id, &weights_of_reads, border, answer, cluster_num);
     let mut beta = INIT_BETA;
+    let mut count = 0;
     for loop_num in 1.. {
         info!(
             "LK\t{}\t{}\t{:.3}\t{}\t{:.3}",
@@ -200,6 +207,11 @@ where
                 .enumerate()
                 .map(|(cl, m)| mf.update_model(m, &updates, wor, &data, cl, aln))
                 .collect();
+            if log_enabled!(log::Level::Trace) {
+                let lk = variant_calling::get_lk(&models, &data, config, &ws);
+                debug!("LK\t{}\t{}\t{}", id, count, lk);
+                count += 1;
+            }
         }
         report(id, &weights_of_reads, border, answer, cluster_num);
         let (weights, lk) = variant_calling::variant_calling_all_pairs(&models, &data, config, &ws);
@@ -226,9 +238,11 @@ where
         picks = (0..data.len()).skip(border).collect();
         picks.shuffle(&mut rng);
     }
-    for (idx, (read, ans)) in data.iter().skip(border).zip(answer).enumerate() {
-        let lks = calc_lks(&models, &ws, read, config);
-        debug!("FEATURE\t{}\t{}\t{}\t{}", id, idx, ans, lks.join("\t"));
+    if log_enabled!(log::Level::Trace) {
+        for (idx, (read, ans)) in data.iter().skip(border).zip(answer).enumerate() {
+            let lks = calc_lks(&models, &ws, read, config).join("\t");
+            debug!("FEATURE\tAFTER\t{}\t{}\t{}\t{}", id, idx, ans, lks,);
+        }
     }
     weights_of_reads
 }

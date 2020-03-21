@@ -10,7 +10,6 @@ use clap::{App, Arg};
 use last_decompose::ERead;
 use mito_assembler::dump_viewer;
 fn main() -> std::io::Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let matches = App::new("MMMM")
         .version("0.1")
         .author("Bansho Masutani")
@@ -85,10 +84,18 @@ fn main() -> std::io::Result<()> {
                 .short("v")
                 .long("verbose")
                 .required(false)
+                .multiple(true)
                 .value_name("VERBOSE")
                 .help("Output debug to the standard error."),
         )
         .get_matches();
+    let level = match matches.occurrences_of("verbose") {
+        0 => "warn",
+        1 => "info",
+        2 => "debug",
+        3 | _ => "trace",
+    };
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(level)).init();
     debug!("MMMM started. Debug mode.");
     let reads = matches
         .value_of("reads")

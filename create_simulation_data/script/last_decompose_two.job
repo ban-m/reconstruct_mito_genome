@@ -10,29 +10,20 @@
 set -ue
 echo "-----start-----" >> ./result/two_test_poa.tsv
 
+
+RUST_LOG=info ./target/release/test_last_decompose_multiple \
+        100 0 1231 0.001 0.5 0.5 >> ./result/two_test.tsv \
+        2>> ./logfiles/two_test.log
+RUST_LOG=trace ./target/release/test_last_decompose_multiple \
+        100 0 1231 0.001 0.5 0.5 >> ./result/two_test.tsv \
+        2>> ./logfiles/two_test.log
+
 for seed in `seq 1 10`
 do
     ./target/release/test_last_decompose_multiple \
         60 0 ${seed} 0.001 0.5 0.5 >> ./result/two_test_poa.tsv \
         2>> ./logfiles/two_test_poa.log
 done
-exit 0;
-./target/release/test_last_decompose_multiple \
-    300 0 10 0.002 0.1 0.9 >> ./result/two_test_poa.tsv \
-    2>> ./logfiles/two_test_poa.log
-exit 0 ;
-
-
-for read in `seq 50 10 200`
-do
-    for rep in 0 1 2
-    do
-        ./target/release/test_last_decompose_multiple \
-            ${read} 0 132434 0.5 0.5 > ./result/test_ela.tsv \
-            2>> ./logfiles/test_ela.log
-    done
-done
-exit 0;
 
 TEST_NUM=200
 COVERAGE=0
@@ -42,48 +33,6 @@ do
     ./target/release/test_last_decompose_multiple \
         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT} \
         2>> ${OUTLOG_PREFIX}.skew.200.log
-done
-
-
-TEST_NUM=100
-COVERAGE=0
-PROBS="0.2 0.8"
-for seed in 10 20 30 40 50
-do
-    ./target/release/test_last_decompose_multiple \
-        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT} \
-        2>> ${OUTLOG_PREFIX}.skew.100.log
-done
-
-TEST_NUM=100
-COVERAGE=0
-PROBS="0.5 0.5"
-for seed in 10 20 30 40 50
-do
-    ./target/release/test_last_decompose_multiple \
-        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT} \
-        2>> ${OUTLOG_PREFIX}.even.100.log
-done
-
-
-TEST_NUM=300
-COVERAGE=0
-PROBS="0.5 0.5"
-for seed in 10 20 30 40 50
-do
-    ./target/release/test_last_decompose_multiple \
-        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT} \
-        2>> ${OUTLOG_PREFIX}.even.300.log
-done
-
-TEST_NUM=300
-COVERAGE=0
-PROBS="0.2 0.8"
-for seed in 10 20 30 40 50
-do
-    ./target/release/test_last_decompose_multiple \
-        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT}\
-        2>> ${OUTLOG_PREFIX}.skew.300.log
 done
 
 

@@ -8,7 +8,6 @@ generalplot <- function(g,name){
     cowplot::ggsave(filename = paste0("./png/",name,".png"),
                     plot = g + cowplot::theme_cowplot(font_size=12),
                     dpi = 350,width = 178,height = 86,units="mm")
-
     ## cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
     ##                 plot = g + cowplot::theme_cowplot())
     ## cowplot::ggsave(filename = paste0("./png/",name,".png"),
@@ -29,27 +28,6 @@ g <- dataset %>% nest(-X4) %>% tail(n=1) %>%
     rename(LK1 = X1, LK2 = X2) %>% 
     ggplot() + geom_point(aes(x = LK1, y = LK2, color = answer))
 generalplot(g,"2_final")
-
-diffs <- dataset %>% nest(-X4) %>%
-    mutate(data = map(data, ~ summarize(.,diff = sum(abs(X1 - X2))))) %>%
-    unnest()
-g <- diffs %>% ggplot() + geom_point(aes(x = X4, y = diff))    
-
-
-### ---- Two cluster -----
-dataset <- read_tsv("./result/lks_skew.tsv",col_names=FALSE)
-g <- dataset %>% nest(-X4) %>% head(n=1) %>% unnest() %>%
-    mutate(answer = factor(as.integer(X3 < 30))) %>%
-    rename(LK1 = X1, LK2 =X2) %>% 
-    ggplot() + geom_point(aes(x = LK1, y = LK2, color = answer))
-generalplot(g,"2_skew_initial")
-
-g <- dataset %>% nest(-X4) %>% tail(n=1) %>%
-    unnest() %>%
-    mutate(answer = factor(as.integer(X3 < 30))) %>%
-    rename(LK1 = X1, LK2 =X2) %>% 
-    ggplot() + geom_point(aes(x = LK1, y = LK2, color = answer))
-generalplot(g,"2_skew_final")
 
 diffs <- dataset %>% nest(-X4) %>%
     mutate(data = map(data, ~ summarize(.,diff = sum(abs(X1 - X2))))) %>%
