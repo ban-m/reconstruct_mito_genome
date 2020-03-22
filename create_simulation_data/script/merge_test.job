@@ -8,11 +8,13 @@
 #$ -V
 #$ -m e
 set -ue
-COVERAGE=40
+COVERAGE=120
 CLUSTERS=6
+# WS="1 1 1 1 1 1"
+WS="0.5 0.2 0.2 0.3 0.7 0.8"
 for seed in `seq 10 10 200`
 do
     cargo run --release --bin merge_criteria --\
-          ${COVERAGE} ${CLUSTERS} ${seed} >> ./result/merge_test.txt
+          ${COVERAGE} ${CLUSTERS} ${seed} ${WS} >> ./result/merge_test_diff.txt
 done
 

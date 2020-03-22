@@ -7,28 +7,18 @@
 #$ -o ./logfiles/enumerate_cr.log
 #$ -V
 #$ -m e
-READ=../create_dataset_and_circos_plots/result/pacbio/filtered_read.fasta
-ALIGN=../mito_assembler/result/pacbio/last_db/test2.tab
-CONTIG=/data/ban-m/a_thaliana/genome/mitochondria_enhanced_reference.fa
-REPEAT=../create_dataset_and_circos_plots/result/pacbio/circos/repeats.json
-# cargo run --release --bin test -- ${READ} ${ALIGN} ${CONTIG}
+# READ=../create_dataset_and_circos_plots/result/pacbio/filtered_read.fasta
+# ALIGN=../mito_assembler/result/pacbio/last_db/test2.tab
+# CONTIG=/data/ban-m/a_thaliana/genome/mitochondria_enhanced_reference.fa
+# REPEAT=../create_dataset_and_circos_plots/result/pacbio/circos/repeats.json
+# cargo run --release --bin enumerate_cr -- ${READ} ${ALIGN} ${CONTIG} ${REPEAT} \
+#       > ./logfiles/cr.json 2> ./logfiles/cr.log
+
+
+READ=../create_simulation_data/data/complex/read_complex1.fa
+ALIGN=../disassembly/result/complex1/last_db/alignments.tab
+CONTIG=../create_simulation_data/data/complex/reference.fa
+REPEAT=../disassembly/result/complex1/last_db/self.tab
 cargo run --release --bin enumerate_cr -- ${READ} ${ALIGN} ${CONTIG} ${REPEAT} \
       > ./logfiles/cr.json 2> ./logfiles/cr.log
-
-# set -ue
-# for accession in pacbio an1 c24 cvi eri kyo ler sha col0_1106_exp2 tal6111_1106_exp2 tal6144_1115_exp2 tal61up63_1106_exp2 tal6226_1115_exp2
-# do
-#     READ=../create_dataset_and_circos_plots/result/${accession}/filtered_read.fasta
-#     ALIGN=../create_dataset_and_circos_plots/result/${accession}/last_db/initial.tab
-#     CONTIG=../create_dataset_and_circos_plots/result/NC_037304_1_split.fa
-#     REPEAT=../create_dataset_and_circos_plots/result/${accession}/circos/repeats.json
-#     cargo run --release --bin enumerate_cr -- ${READ} ${ALIGN} ${CONTIG} ${REPEAT} \
-#           > ./result/${accession}.json 2> ./result/${accession}.dump
-# done
-# ROOT=../create_dataset_and_circos_plots/result/complex1
-# READ=${ROOT}/filtered_read.fasta
-# ALIGN=${ROOT}/last_db/initial.tab
-# CONTIG=../create_simulation_data/data/complex/reference.fa
-# REPEAT=${ROOT}/circos/repeats.json
-# cargo run --release --bin enumerate_cr -- ${READ} ${ALIGN} ${CONTIG} ${REPEAT}
 

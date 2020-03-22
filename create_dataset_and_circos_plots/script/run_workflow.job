@@ -46,8 +46,9 @@ cd ../mito_assembler/
 cargo build --release
 minimap2 -t 24 -x map-pb ${REFERENCE} ${READ} |\
     ./target/release/select_mito_reads ${READ} |\
-    ./target/release/filter_low_quality |\
-    ./target/release/clip_self_chimera > ${OUTPATH}/filtered_read.fasta
+    ./target/release/filter_low_quality > ${OUTPATH}/filtered_read.fasta
+    # |\
+    # ./target/release/clip_self_chimera > ${OUTPATH}/filtered_read.fasta
 READ=${OUTPATH}/filtered_read.fasta
 
 
@@ -75,13 +76,14 @@ cargo run --release --bin convert_to_d3_data \
       -- ${OUTPATH}/circos/contig.json ${OUTPATH}/circos/reads.json \
       ${OUTPATH}/circos/repeats.json ${LASTTAB}\
       > ${OUTPATH}/circos/d3.json
-cargo run --release --bin convert_to_d3_data_lightweight \
-      -- ${OUTPATH}/circos/contig.json ${OUTPATH}/circos/reads.json \
-      ${OUTPATH}/circos/repeats.json ${LASTTAB} \
-      > ${OUTPATH}/circos/d3_lightweight.json
+# cargo run --release --bin convert_to_d3_data_lightweight \
+#       -- ${OUTPATH}/circos/contig.json ${OUTPATH}/circos/reads.json \
+#       ${OUTPATH}/circos/repeats.json ${LASTTAB} \
+#       > ${OUTPATH}/circos/d3_lightweight.json
 
 cat ./scripts/template.html | sed -e "s@/data/SED_@./@g" > ${OUTPATH}/circos/viewer.html
-cat ./scripts/template.html | sed -e "s@/data/SED_@./@g" |\
-    sed -e "s/drawer/drawer_lightweight/g" |\
-    sed -e "s/d3\.js/d3_lightweight\.js/g" > ${OUTPATH}/circos/viewer_lightweight.html
+cat ./scripts/template.html | sed -e "s@/data/SED_@./@g" > ${OUTPATH}/circos/viewer_linear.html
+# cat ./scripts/template.html | sed -e "s@/data/SED_@./@g" |\
+#     sed -e "s/drawer/drawer_lightweight/g" |\
+#     sed -e "s/d3\.js/d3_lightweight\.js/g" > ${OUTPATH}/circos/viewer_lightweight.html
 

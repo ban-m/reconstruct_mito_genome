@@ -1,4 +1,4 @@
-extern crate bio;
+// extern crate bio;
 extern crate create_simulation_data;
 extern crate dbg_hmm;
 extern crate edlib_sys;
@@ -137,8 +137,23 @@ fn benchmark(
     (result, dists)
 }
 
-fn alignment(r: &[u8], q: &[u8]) -> i64 {
-    use bio::alignment::pairwise::Aligner;
-    let mut a = Aligner::new(-3, -1, |a, b| if a == b { 1 } else { -1 });
-    a.global(r, q).score as i64
+fn alignment(xs: &[u8], ys: &[u8]) -> i64 {
+    let del = -2;
+    let ins = -2;
+    let score = |x, y| if x == y { 2 } else { -1 };
+    let mut dp = vec![vec![0; ys.len() + 1]; xs.len() + 1];
+    for i in 0..xs.len() {
+        dp[i + 1][0] = ins * (i + 1) as i64;
+    }
+    for j in 0..ys.len() {
+        dp[0][j + 1] = del * (j + 1) as i64;
+    }
+    for i in 0..xs.len() {
+        for j in 0..ys.len() {
+            dp[i + 1][j + 1] = (dp[i][j] + score(xs[i], ys[j]))
+                .max(dp[i + 1][j] + del)
+                .max(dp[i][j + 1] + ins);
+        }
+    }
+    dp[xs.len()][ys.len()]
 }

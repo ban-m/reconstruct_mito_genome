@@ -5,10 +5,13 @@ extern crate dbg_hmm;
 extern crate edlib_sys;
 extern crate env_logger;
 extern crate last_tiling;
+extern crate md5;
 extern crate nalgebra as na;
 extern crate rand;
 extern crate rand_xoshiro;
 extern crate rayon;
+extern crate serde_json;
+#[macro_use]
 extern crate serde;
 pub use find_breakpoint::critical_regions;
 use rayon::prelude::*;
@@ -57,7 +60,7 @@ const LOOP_NUM: usize = 15;
 const INIT_PICK_PROB: f64 = 0.05;
 const ENTROPY_THR: f64 = 0.05;
 const MIN_WEIGHT: f64 = 0.20;
-
+const COVERAGE_THR: f64 = 20.;
 type Read = Vec<(usize, Vec<u8>)>;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
@@ -444,8 +447,8 @@ fn select_within(
 }
 
 fn find_matching(prev: &[HashSet<String>], after: &[HashSet<String>]) -> Vec<(usize, usize)> {
-    let nodes_1 = prev.len();
-    let nodes_2 = after.len();
+    // let nodes_1 = prev.len();
+    // let nodes_2 = after.len();
     let graph: Vec<Vec<(usize, f64)>> = prev
         .iter()
         .map(|cl1| {
@@ -462,7 +465,18 @@ fn find_matching(prev: &[HashSet<String>], after: &[HashSet<String>]) -> Vec<(us
             debug!("{}->({:.3})->{}", idx, weight, to);
         }
     }
-    let res = bipartite_matching::maximum_weight_matching(nodes_1, nodes_2, &graph);
+    // let res = bipartite_matching::maximum_weight_matching(nodes_1, nodes_2, &graph);
+    let res: Vec<(usize, usize)> = graph
+        .into_iter()
+        .enumerate()
+        .flat_map(|(cl1,cl1_edges)| {
+            cl1_edges
+                .into_iter()
+                .filter(|&(_, sim)| sim > COVERAGE_THR)
+                .map(|(cl2, _)| (cl1, cl2))
+                .collect::<Vec<(usize, usize)>>()
+        })
+        .collect();
     debug!("Path Selected.");
     for &(from, to) in &res {
         debug!("{}-({})-{}", from, sim(&prev[from], &after[to]), to);
@@ -588,6 +602,7 @@ pub fn clustering(
     assert_eq!(forbidden.len(), data.len());
     assert_eq!(label.len() + answer.len(), data.len());
     use poa_clustering::DEFAULT_ALN;
+    let c = &poa_clustering::convert(c);
     let weights = soft_clustering_poa(data, label, forbidden, cluster_num, answer, c, &DEFAULT_ALN);
     debug!("WEIGHTS\tPrediction. Dump weights");
     assert_eq!(weights.len(), label.len() + answer.len());
@@ -598,6 +613,37 @@ pub fn clustering(
             .fold(String::new(), |x, y| x + &y);
         debug!("WEIGHTS\t{}{}", weights, ans);
     }
+    // let mut weights: Vec<_> = weights
+    //     .iter()
+    //     .map(|weight| {
+    //         assert_eq!(weight.len(), cluster_num);
+    //         let (cl, _): (usize, &f64) = weight
+    //             .iter()
+    //             .enumerate()
+    //             .max_by(|&(_, a), &(_, b)| a.partial_cmp(b).unwrap())
+    //             .unwrap();
+    //         let mut res = vec![0.; cluster_num];
+    //         res[cl as usize] = 1.;
+    //         res
+    //     })
+    //     .collect();
+    // for merge_num in 0.. {
+    //     let clusters = cluster_num - merge_num;
+    //     if clusters == 1 {
+    //         break;
+    //     }
+    //     let (lk_per_read, a, b) =
+    //         poa_clustering::get_mergable_cluster(data, &weights, clusters, c, &DEFAULT_ALN);
+    //     debug!("{},{},{}", lk_per_read, a, b);
+    //     if lk_per_read < LK_PER_DATA {
+    //         break;
+    //     }
+    //     debug!(
+    //         "Gain {} log-likelihood per data. Merging {} and {}",
+    //         lk_per_read, a, b
+    //     );
+    //     weights = poa_clustering::merge_cluster(&weights, a as usize, b as usize, clusters);
+    // }
     weights
         .iter()
         .map(|weight| {

@@ -120,7 +120,7 @@ impl<'a> ModelFactory<'a> {
     }
 }
 
-fn convert(c: &dbg_hmm::Config) -> poa_hmm::Config {
+pub fn convert(c: &dbg_hmm::Config) -> poa_hmm::Config {
     poa_hmm::Config {
         mismatch: c.mismatch,
         base_freq: c.base_freq,
@@ -139,14 +139,13 @@ pub fn soft_clustering_poa<F>(
     forbidden: &[Vec<u8>],
     cluster_num: usize,
     answer: &[u8],
-    config: &dbg_hmm::Config,
+    config: &poa_hmm::Config,
     aln: &AlnParam<F>,
 ) -> Vec<Vec<f64>>
 where
     F: Fn(u8, u8) -> i32 + std::marker::Sync,
 {
     assert!(cluster_num > 1);
-    let config = &convert(config);
     let (matrix_pos, chain_len) = to_pos(data);
     let data = serialize(data, &matrix_pos);
     let id: u64 = thread_rng().gen::<u64>() % 100_000;
@@ -177,7 +176,7 @@ where
                 .for_each(|bs| bs.iter_mut().for_each(|b| *b = LRATE * *b + c.recip()))
         });
     };
-    if log_enabled!(log::Level::Trace) {
+    if log_enabled!(log::Level::Debug) {
         for (idx, (read, ans)) in data.iter().skip(border).zip(answer).enumerate() {
             let lks = calc_lks(&models, &ws, read, config).join("\t");
             debug!("FEATURE\tBEFORE\t{}\t{}\t{}\t{}", id, idx, ans, lks,);
@@ -209,7 +208,7 @@ where
                 .collect();
             if log_enabled!(log::Level::Trace) {
                 let lk = variant_calling::get_lk(&models, &data, config, &ws);
-                debug!("LK\t{}\t{}\t{}", id, count, lk);
+                trace!("LK\t{}\t{}\t{}", id, count, lk);
                 count += 1;
             }
         }
@@ -238,7 +237,7 @@ where
         picks = (0..data.len()).skip(border).collect();
         picks.shuffle(&mut rng);
     }
-    if log_enabled!(log::Level::Trace) {
+    if log_enabled!(log::Level::Debug) {
         for (idx, (read, ans)) in data.iter().skip(border).zip(answer).enumerate() {
             let lks = calc_lks(&models, &ws, read, config).join("\t");
             debug!("FEATURE\tAFTER\t{}\t{}\t{}\t{}", id, idx, ans, lks,);
@@ -246,66 +245,6 @@ where
     }
     weights_of_reads
 }
-
-// fn find_initial_beta<F>(
-//     beta: f64,
-//     variants: &[Vec<Vec<f64>>],
-//     data: &[Read],
-//     picks: &[usize],
-//     (weights_of_reads, ws): (&[Vec<f64>], &[f64]),
-//     config: &Config,
-//     (border, chain_len, cluster_num): (usize, usize, usize),
-//     aln: &AlnParam<F>,
-// ) -> f64
-// where
-//     F: Fn(u8, u8) -> i32 + std::marker::Sync,
-// {
-//     debug!("SEARCH\t{}", beta);
-//     let soe = {
-//         let mut ws = ws.to_vec();
-//         let mut weights_of_reads = weights_of_reads.to_vec();
-//         let datasize = data.len() as f64;
-//         let mut picks = picks.to_vec();
-//         let pick_num = ((datasize * PICK_PROB).floor() as usize).max(1);
-//         let mut mf = ModelFactory::new(chain_len, &data);
-//         debug!("Model factory is built");
-//         let mut models: Vec<Vec<POA>> = (0..cluster_num)
-//             .map(|cl| mf.generate_model(&weights_of_reads, &data, cl, aln))
-//             .collect();
-//         let betas = normalize_weights(variants, beta);
-//         while !picks.is_empty() {
-//             let mut updates = vec![false; data.len()];
-//             for _ in 0..pick_num {
-//                 if let Some(pos) = picks.pop() {
-//                     updates[pos] = true;
-//                 }
-//             }
-//             let w = &mut weights_of_reads;
-//             update_weights(w, &mut ws, border, &data, &models, &updates, &betas, config);
-//             let wor = &weights_of_reads;
-//             models = models
-//                 .into_iter()
-//                 .enumerate()
-//                 .map(|(cl, m)| mf.update_model(m, &updates, wor, &data, cl, aln))
-//                 .collect();
-//         }
-//         weights_of_reads.iter().map(|e| entropy(e)).sum::<f64>() / datasize
-//     };
-//     if soe / (cluster_num as f64).ln() > ENTROPY_STEP {
-//         find_initial_beta(
-//             beta / BETA_DECREASE,
-//             variants,
-//             data,
-//             picks,
-//             (weights_of_reads, ws),
-//             config,
-//             (border, chain_len, cluster_num),
-//             aln,
-//         )
-//     } else {
-//         beta
-//     }
-// }
 
 fn calc_lks(models: &[Vec<POA>], ws: &[f64], read: &Read, c: &Config) -> Vec<String> {
     models
@@ -356,7 +295,8 @@ fn update_weights(
         });
     let datasize = data.len() as f64;
     ws.iter_mut().enumerate().for_each(|(cl, w)| {
-        *w = weight_of_read.iter().map(|e| e[cl]).sum::<f64>() / datasize;
+        let new_w = weight_of_read.iter().map(|e| e[cl]).sum::<f64>() / datasize;
+        *w = new_w.max(0.000_000_000_0001);
     });
     assert!((1. - ws.iter().sum::<f64>()).abs() < 0.001);
 }
@@ -445,4 +385,138 @@ fn compute_prior_probability(
     });
     let sum = weights.iter().sum::<f64>();
     weights.iter_mut().for_each(|w| *w /= sum);
+}
+
+/// Return likelihood of the assignments.
+pub fn likelihood_of_assignments<F>(
+    data: &[ERead],
+    weights_of_reads: &[Vec<f64>],
+    cluster_num: usize,
+    config: &Config,
+    aln: &AlnParam<F>,
+) -> f64
+where
+    F: Fn(u8, u8) -> i32 + std::marker::Sync,
+{
+    assert_eq!(weights_of_reads.len(), data.len());
+    assert!(cluster_num >= 1);
+    let (matrix_pos, chain_len) = to_pos(data);
+    let data = serialize(data, &matrix_pos);
+    let mut mf = ModelFactory::new(chain_len, &data);
+    let models: Vec<Vec<POA>> = (0..cluster_num)
+        .map(|cl| mf.generate_model(&weights_of_reads, &data, cl, aln))
+        .collect();
+    let ws: Vec<f64> = (0..cluster_num)
+        .map(|cl| weights_of_reads.iter().map(|ws| ws[cl]).sum::<f64>())
+        .map(|w| w / data.len() as f64)
+        .collect();
+    assert!((ws.iter().sum::<f64>() - 1.).abs() < 0.0001);
+    likelihood_of_models(&models, &data, &ws, config)
+}
+
+fn likelihood_of_models(models: &[Vec<POA>], data: &[Read], ws: &[f64], c: &Config) -> f64 {
+    assert!((1. - ws.iter().sum::<f64>()).abs() < 0.001);
+    data.par_iter()
+        .map(|read| {
+            let gs: Vec<_> = models
+                .iter()
+                .zip(ws.iter())
+                .map(|(model, w)| {
+                    let lk = read
+                        .iter()
+                        .map(|&(pos, ref u)| model[pos].forward(u, c))
+                        .sum::<f64>();
+                    lk + w.ln()
+                })
+                .collect();
+            crate::utils::logsumexp(&gs)
+        })
+        .sum::<f64>()
+}
+
+/// Return the pair of clusters giving the highest gain with
+/// respect to likelihood.
+/// (cluster number, cluster number, likelihood gain when merging two clusters)
+/// The input sequence should be a "weighted" predictions.
+pub fn get_mergable_cluster<F>(
+    data: &[ERead],
+    weights_of_reads: &[Vec<f64>],
+    cluster_num: usize,
+    c: &Config,
+    aln: &AlnParam<F>,
+) -> (f64, u8, u8)
+where
+    F: Fn(u8, u8) -> i32 + std::marker::Sync,
+{
+    let datasize = data.len() as f64;
+    let ws: Vec<f64> = weights_of_reads
+        .iter()
+        .map(|g| g.iter().sum::<f64>() / datasize)
+        .collect();
+    assert!((ws.iter().sum::<f64>() - 1.).abs() < 0.0001);
+    let before = likelihood_of_assignments(&data, weights_of_reads, cluster_num, c, aln);
+    let (mut max, mut cluster_a, mut cluster_b) = (std::f64::MIN, 0, 0);
+    assert!(cluster_num >= 2);
+    for i in 0..cluster_num {
+        for j in i + 1..cluster_num {
+            let lk = likelihood_by_merging(&data, &weights_of_reads, i, j, cluster_num, c, aln);
+            if max < lk {
+                cluster_a = i;
+                cluster_b = j;
+                max = lk;
+            }
+        }
+    }
+    let reads_num = weights_of_reads
+        .iter()
+        .map(|ws| ws[cluster_a] + ws[cluster_b])
+        .sum::<f64>();
+    let gain_per_read = (max - before) / reads_num;
+    (gain_per_read, cluster_a as u8, cluster_b as u8)
+}
+
+pub fn likelihood_by_merging<F>(
+    data: &[ERead],
+    weights_or_reads: &[Vec<f64>],
+    i: usize,
+    j: usize,
+    cluster_num: usize,
+    config: &Config,
+    aln: &AlnParam<F>,
+) -> f64
+where
+    F: Fn(u8, u8) -> i32 + std::marker::Sync,
+{
+    let datasize = data.len() as f64;
+    let wor = merge_cluster(&weights_or_reads, i, j, cluster_num);
+    let ws: Vec<f64> = (0..cluster_num - 1)
+        .map(|cl| wor.iter().map(|ws| ws[cl]).sum::<f64>())
+        .map(|w| w / datasize)
+        .collect();
+    assert!((ws.iter().sum::<f64>() - 1.).abs() < 0.0001);
+    assert!(ws.len() == cluster_num - 1);
+    likelihood_of_assignments(data, &wor, cluster_num - 1, config, aln)
+}
+
+pub fn merge_cluster(
+    weights_of_reads: &[Vec<f64>],
+    i: usize,
+    j: usize,
+    cl: usize,
+) -> Vec<Vec<f64>> {
+    assert!(i < j);
+    weights_of_reads
+        .iter()
+        .map(|read_weight| {
+            let mut ws = vec![0.; cl - 1];
+            for (idx, w) in read_weight.iter().enumerate() {
+                match idx {
+                    x if x < j => ws[idx] += w,
+                    x if x == j => ws[i] += w,
+                    _ => ws[idx - 1] += w,
+                }
+            }
+            ws
+        })
+        .collect()
 }

@@ -11,12 +11,22 @@ set -ue
 echo "-----start-----" >> ./result/two_test_poa.tsv
 
 
-RUST_LOG=info ./target/release/test_last_decompose_multiple \
+RUST_LOG=debug ./target/release/test_last_decompose_multiple \
+        100 0 1231 0.00 0.5 0.5 >> ./result/two_test.tsv \
+        2>> ./logfiles/two_test.log
+RUST_LOG=debug ./target/release/test_last_decompose_multiple \
+        100 0 1231 0.004 0.5 0.5 >> ./result/two_test.tsv \
+        2>> ./logfiles/two_test.log
+RUST_LOG=debug ./target/release/test_last_decompose_multiple \
         100 0 1231 0.001 0.5 0.5 >> ./result/two_test.tsv \
         2>> ./logfiles/two_test.log
-RUST_LOG=trace ./target/release/test_last_decompose_multiple \
-        100 0 1231 0.001 0.5 0.5 >> ./result/two_test.tsv \
-        2>> ./logfiles/two_test.log
+exit 0;
+# RUST_LOG=info ./target/release/test_last_decompose_multiple \
+#         100 0 1231 0.001 0.5 0.5 >> ./result/two_test.tsv \
+#         2>> ./logfiles/two_test.log
+# RUST_LOG=trace ./target/release/test_last_decompose_multiple \
+#         100 0 1231 0.001 0.5 0.5 >> ./result/two_test.tsv \
+#         2>> ./logfiles/two_test.log
 
 for seed in `seq 1 10`
 do
@@ -25,14 +35,14 @@ do
         2>> ./logfiles/two_test_poa.log
 done
 
-TEST_NUM=200
-COVERAGE=0
-PROBS="0.2 0.8"
-for seed in 10 20 30 40 50
-do
-    ./target/release/test_last_decompose_multiple \
-        ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT} \
-        2>> ${OUTLOG_PREFIX}.skew.200.log
-done
+# TEST_NUM=200
+# COVERAGE=0
+# PROBS="0.2 0.8"
+# for seed in 10 20 30 40 50
+# do
+#     ./target/release/test_last_decompose_multiple \
+#         ${TEST_NUM} ${COVERAGE} ${seed} ${PROBS} >> ${OUTPUT} \
+#         2>> ${OUTLOG_PREFIX}.skew.200.log
+# done
 
 

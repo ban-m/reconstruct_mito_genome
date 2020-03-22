@@ -10,6 +10,7 @@ REFERENCE=$1
 READ=$2
 OUTPUT=$3
 CORES=22
+MIN_CLUSTER=$4
 ROOT=${PWD}
 
 mkdir -p ${OUTPUT}
@@ -28,4 +29,6 @@ cd ${ROOT}
 mmmm --alignments ${OUTPUT}/last_db/alignments.tab --output ${OUTPUT} \
      --reads ${READ} --contigs ${REFERENCE} \
      --self_alignments ${OUTPUT}/last_db/self.tab \
-     --cluster_num 2 --threads ${CORES}
+     --cluster_num ${MIN_CLUSTER} --threads ${CORES} \
+     -vv
+

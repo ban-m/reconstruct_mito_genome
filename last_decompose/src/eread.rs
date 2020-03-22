@@ -6,7 +6,7 @@ use std::fmt;
 const CLIP_THR: usize = 2000;
 const MARGIN: usize = 20;
 /// A simple repr for EncodedRead.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ERead {
     pub id: String,
     pub seq: Vec<CUnit>,
@@ -217,7 +217,7 @@ impl ERead {
 
 /// A chunk of sequence. It is "canonicalized".
 /// In other words, it is reverse-complimented if needed.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CUnit {
     pub contig: u16,
     pub unit: u16,

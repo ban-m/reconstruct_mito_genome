@@ -2,6 +2,7 @@ extern crate bio_utils;
 extern crate clap;
 extern crate last_decompose;
 extern crate last_tiling;
+extern crate serde_json;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
@@ -82,10 +83,7 @@ fn main() -> std::io::Result<()> {
         .arg(
             Arg::with_name("verbose")
                 .short("v")
-                .long("verbose")
-                .required(false)
                 .multiple(true)
-                .value_name("VERBOSE")
                 .help("Output debug to the standard error."),
         )
         .get_matches();
@@ -153,6 +151,7 @@ fn main() -> std::io::Result<()> {
         .collect();
     let initial_clusters =
         last_decompose::initial_clusters(&encoded_reads, &contigs, &repeats, &alignments);
+    debug!("Initial clusters constructed");
     for c in &initial_clusters {
         let counts = c.ids().len();
         debug!("{:?} having {} reads.", c, counts);

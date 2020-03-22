@@ -2,7 +2,7 @@ library("tidyverse")
 loadNamespace("cowplot")
 ## ===== Setting for usual use ======
 generalplot <- function(g,name){
-        cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
+    cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
                     plot = g + cowplot::theme_cowplot(font_size=12),
                     dpi=350,width = 178,height = 86,units="mm")
     cowplot::ggsave(filename = paste0("./png/",name,".png"),
@@ -15,46 +15,37 @@ generalplot <- function(g,name){
 }
 
 ### ---- Two cluster -----
-dataset <- read_tsv("./result/lks.tsv",col_names=FALSE)
-g <- dataset %>% nest(-X4) %>% head(n=1) %>% unnest() %>%
-    mutate(answer = factor(as.integer(X3 < 50)))%>%
-    rename(LK1 = X1, LK2 = X2) %>% 
-    ggplot() + geom_point(aes(x = LK1, y = LK2, color = answer))
-generalplot(g,"2_initial")
-
-g <- dataset %>% nest(-X4) %>% tail(n=1) %>%
-    unnest() %>%
-    mutate(answer = factor(as.integer(X3 < 50)))%>%
-    rename(LK1 = X1, LK2 = X2) %>% 
-    ggplot() + geom_point(aes(x = LK1, y = LK2, color = answer))
-generalplot(g,"2_final")
-
-diffs <- dataset %>% nest(-X4) %>%
-    mutate(data = map(data, ~ summarize(.,diff = sum(abs(X1 - X2))))) %>%
-    unnest()
-g <- diffs %>% ggplot() + geom_point(aes(x = X4, y = diff))    
+dataset <- read_tsv("./result/lks_two.tsv",col_names=FALSE) %>%
+    rename(State = X1, ID=X2, ReadID =X3, Cluster=X4, LK1= X5, LK2=X6) %>%
+    mutate(Cluster = factor(Cluster))
+g <- dataset %>%
+    ggplot() + geom_point(mapping = aes(x = LK1, y = LK2, color = factor(Cluster))) +
+    facet_grid(State~.)
+generalplot(g,"two_clusters")
 
 
 ### ---- Six cluster -----
-dataset <- read_tsv("./result/lks_multi.tsv",col_names=FALSE)
-answer <- c(rep(1:6,each =2), rep(1:6,each=49))
-initial_state <- dataset %>% nest(-X8) %>% head(n=1) %>% unnest() %>%
-    select(-X8, -X7)
-result <- Rtsne(X=as.matrix(initial_state),pca=FALSE,theta=0, normalize=FALSE,eta = 100)
-is_tsne <- tibble(tSNE1= result$Y[,1],tSNE2=result$Y[,2], answer = factor(answer))
-g <- is_tsne %>%
-    ggplot() +
-    geom_point(aes(x = tSNE1,y = tSNE2, color = factor(answer)))
-generalplot(g,"6_initial")
+dataset <- read_tsv("./result/lks_six.tsv",col_names=FALSE) %>%
+    rename(State = X1, ID=X2, ReadID =X3, Cluster=X4) %>%
+    rename(LK1= X5, LK2=X6, LK3=X7, LK4=X8,LK5 = X9,LK6 = X10) %>%
+    select(-ID, -ReadID)
 
-final_state <- dataset %>% nest(-X8) %>% tail(n=1) %>% unnest() %>%
-    select(-X8,-X7)
+initial_state <- dataset %>% filter(State == "BEFORE") %>% select(-State, -Cluster)
+answer <- dataset %>% filter(State == "BEFORE") %>% pull(Cluster)
+result <- Rtsne(X=as.matrix(initial_state),pca=FALSE,theta=0, normalize=FALSE,eta = 100)
+is_tsne <- tibble(tSNE1= result$Y[,1],tSNE2=result$Y[,2], answer = answer, State = "BEFORE")
+
+final_state <- dataset %>% filter(State == "AFTER") %>% select(-State, -Cluster)
+answer <- dataset %>% filter(State == "AFTER") %>% pull(Cluster)
 result <- Rtsne(X=as.matrix(final_state),pca=FALSE,theta=0, normalize=FALSE,eta = 100)
-fs_tsne <- tibble(tSNE1= result$Y[,1],tSNE2=result$Y[,2], answer = factor(answer))
-g <- fs_tsne %>%
+fs_tsne <- tibble(tSNE1= result$Y[,1],tSNE2=result$Y[,2], answer = answer, State= "AFTER")
+
+tsne_data <- bind_rows(is_tsne, fs_tsne)
+g <- tsne_data %>% mutate(Cluster = factor(answer)) %>% 
     ggplot() +
-    geom_point(aes(x = tSNE1,y = tSNE2, color = factor(answer)))
-generalplot(g,"6_final")
+    geom_point(aes(x = tSNE1,y = tSNE2, color = factor(answer))) +
+    facet_grid(State~.)
+generalplot(g,"six_clusters")
 
 
 

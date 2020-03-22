@@ -460,9 +460,6 @@ pub fn critical_regions(
     let num_of_contig = contigs.get_num_of_contigs() as u16;
     debug!("There are {} contigs", num_of_contig);
     debug!("There are {} reads", reads.len());
-    for c in contigs.names().iter() {
-        debug!("->{}({}len)", c, contigs.get(c).unwrap().len());
-    }
     let contig_pairs = contigpair_position(reads, contigs);
     let confluent_regions = confluent_position(alignments, contigs, last_tiling::UNIT_SIZE);
     let contig_pairs = contig_pairs.into_iter().map(|cp| CriticalRegion::CP(cp));
@@ -513,6 +510,8 @@ pub fn contigpair_position(reads: &[ERead], contigs: &Contigs) -> Vec<ContigPair
     contigpairs
 }
 
+// This function is broken!!!!
+// FIXME!!!!!
 fn peak_call_contigpair(
     reads: &[ERead],
     mut counts: Vec<Vec<Vec<(u16, usize, bool)>>>,
@@ -535,7 +534,6 @@ fn peak_call_contigpair(
             let (from_start, from_end, to_start, to_end) =
                 search_jump_area(jumps, from, to_c, to, direction);
             // Collect the edges from (start,end) to (start_dst, end_dst)
-
             let counts = collect_edges_in(
                 jumps, from_start, from_end, to_c, to_start, to_end, direction,
             );
@@ -578,8 +576,10 @@ fn search_jump_start(
         for key in edges.iter() {
             *counts.entry(key.clone()).or_default() += 1;
         }
-        if let Some((&(x, y, z), _count)) =
-            counts.iter().filter(|&(_, &count)| count > JUMP_THR).nth(0)
+        if let Some((&(x, y, z), _)) = counts
+            .iter()
+            .filter(|&(_, &count)| count > JUMP_THR)
+            .min_by_key(|&(&(_, pos, _), _)| pos)
         {
             return Some((position, x, y, z));
         }
@@ -623,11 +623,11 @@ fn search_jump_area(
             .map(|&(_, t, _)| t)
             .max()
             .unwrap_or_else(|| panic!("{}", line!()));
-        (min, max)
+        (min, max + 1)
     };
     let (mut from_start, mut from_end) = (from, from + 1);
-    let (mut to_start, mut to_end) = (to, to + 1);
-    const STEP_SIZE: usize = 5;
+    let (mut to_start, mut to_end) = get_range(from_start, to, to + 1);
+    const STEP_SIZE: usize = 6;
     while let Some(step) = (1..STEP_SIZE)
         .filter(|&n| n < from_start && count(from_start - n, to_start, to_end) > 0)
         .last()
@@ -703,10 +703,6 @@ fn get_belong_reads(
                 }
             })
             .count();
-        if count > 2 {
-            let line: Vec<_> = read.seq().iter().map(|e| format!("{}", e.unit)).collect();
-            debug!("{}", line.join(","));
-        }
         total += count;
         count != 0
     };
