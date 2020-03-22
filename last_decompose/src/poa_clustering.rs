@@ -1,7 +1,5 @@
-use super::entropy;
 //use super::utils;
 use super::variant_calling;
-use super::{serialize, to_pos};
 use super::{ERead, Read};
 use poa_hmm::*;
 use rand::{thread_rng, Rng, SeedableRng};
@@ -14,6 +12,66 @@ const BETA_INCREASE: f64 = 1.3;
 const BETA_DECREASE: f64 = 1.1;
 const INIT_BETA: f64 = 0.2;
 // const ENTROPY_STEP: f64 = 0.1;
+const NUM_OF_BALL: usize = 100;
+fn entropy(xs: &[f64]) -> f64 {
+    assert!(xs.iter().all(|&x| x <= 1.000_000_1 && 0. <= x), "{:?}", xs);
+    xs.iter()
+        .map(|&x| if x < 0.0001 { 0. } else { -x * x.ln() })
+        .sum::<f64>()
+}
+
+
+// Serialize units in read. In other words,
+// We serialize the (contig, unit):(usize, usize) pair into position:usize.
+// Return value is (map function, maximum position)
+pub fn to_pos(reads: &[ERead]) -> (Vec<Vec<usize>>, usize) {
+    let max_contig = reads
+        .iter()
+        .filter_map(|read| read.seq.iter().map(|e| e.contig()).max())
+        .max()
+        .unwrap_or(0);
+    let minmax_units: Vec<_> = (0..=max_contig)
+        .map(|c| {
+            let iter = reads
+                .iter()
+                .flat_map(|read| read.seq.iter())
+                .filter(|e| e.contig() == c)
+                .map(|e| e.unit());
+            let max_unit = iter.clone().max()?;
+            let min_unit = iter.clone().min()?;
+            Some((min_unit, max_unit))
+        })
+        .collect();
+    let mut res: Vec<_> = minmax_units
+        .iter()
+        .map(|mm| match mm.as_ref() {
+            Some(&(_, max)) => vec![0; max + 1],
+            None => vec![],
+        })
+        .collect();
+    let mut len = 0;
+    for (contig, mm) in minmax_units.into_iter().enumerate() {
+        if let Some((min, max)) = mm {
+            for i in min..=max {
+                res[contig][i] = len + i - min;
+            }
+            len += max - min + 1;
+        }
+    }
+    (res, len)
+}
+
+fn serialize(data: &[ERead], pos: &[Vec<usize>]) -> Vec<Read> {
+    fn serialize_read(read: &ERead, pos: &[Vec<usize>]) -> Read {
+        read.seq
+            .iter()
+            .map(|u| (pos[u.contig()][u.unit()], u.bases().to_vec()))
+            .collect()
+    }
+    data.iter().map(|read| serialize_read(read, pos)).collect()
+}
+
+
 pub struct AlnParam<F>
 where
     F: Fn(u8, u8) -> i32,
@@ -120,18 +178,6 @@ impl<'a> ModelFactory<'a> {
     }
 }
 
-pub fn convert(c: &dbg_hmm::Config) -> poa_hmm::Config {
-    poa_hmm::Config {
-        mismatch: c.mismatch,
-        base_freq: c.base_freq,
-        p_match: c.p_match,
-        p_ins: c.p_ins,
-        p_del: c.p_del,
-        p_extend_ins: c.p_extend_ins,
-        p_extend_del: c.p_extend_del,
-        p_del_to_ins: c.p_del_to_ins,
-    }
-}
 use rand::seq::SliceRandom;
 pub fn soft_clustering_poa<F>(
     data: &[ERead],
@@ -151,7 +197,7 @@ where
     let id: u64 = thread_rng().gen::<u64>() % 100_000;
     let seed = data.len() as u64;
     let mut weights_of_reads =
-        crate::construct_initial_weights(label, forbidden, cluster_num, data.len(), seed);
+        construct_initial_weights(label, forbidden, cluster_num, data.len(), seed);
     debug!("Chain length is {}", chain_len);
     let mut mf = ModelFactory::new(chain_len, &data);
     debug!("Model factory is built");
@@ -296,7 +342,7 @@ fn update_weights(
     let datasize = data.len() as f64;
     ws.iter_mut().enumerate().for_each(|(cl, w)| {
         let new_w = weight_of_read.iter().map(|e| e[cl]).sum::<f64>() / datasize;
-        *w = new_w.max(0.000_000_000_0001);
+        *w = new_w.max(0.000_000_000_000_1);
     });
     assert!((1. - ws.iter().sum::<f64>()).abs() < 0.001);
 }
@@ -519,4 +565,47 @@ pub fn merge_cluster(
             ws
         })
         .collect()
+}
+
+pub fn construct_initial_weights(
+    label: &[u8],
+    forbidden: &[Vec<u8>],
+    cluster_num: usize,
+    data_size: usize,
+    seed: u64,
+) -> Vec<Vec<f64>> {
+    let border = label.len();
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
+    let num_of_ball = cluster_num * NUM_OF_BALL;
+    let denom = (num_of_ball as f64).recip();
+    let gen_dist = |idx| {
+        let mut choices = vec![true; cluster_num];
+        let forbidden: &Vec<u8> = &forbidden[idx + border];
+        forbidden
+            .iter()
+            .for_each(|&cl| choices[cl as usize] = false);
+        let choices: Vec<_> = choices
+            .into_iter()
+            .enumerate()
+            .filter_map(|(idx, b)| if b { Some(idx) } else { None })
+            .collect();
+        let mut bucket = vec![0; cluster_num];
+        (0..num_of_ball).for_each(|_| bucket[*choices.choose(&mut rng).unwrap()] += 1);
+        bucket.iter().map(|&e| e as f64 * denom).collect::<Vec<_>>()
+    };
+    let weights: Vec<Vec<_>> = label
+        .iter()
+        .map(|&e| {
+            let mut ws = vec![0.; cluster_num];
+            ws[e as usize] = 1.;
+            ws
+        })
+        .chain((0..data_size - border).map(gen_dist))
+        .collect();
+    assert_eq!(weights.len(), data_size);
+    assert!(weights.iter().all(|e| e.len() == cluster_num));
+    assert!(weights
+        .iter()
+        .all(|ws| (ws.iter().sum::<f64>() - 1.).abs() < 0.001));
+    weights
 }

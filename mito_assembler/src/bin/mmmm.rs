@@ -164,7 +164,7 @@ fn main() -> std::io::Result<()> {
         &initial_clusters,
         &contigs,
         &repeats,
-        config,
+        &config,
         &mock_ans,
         cl,
     )

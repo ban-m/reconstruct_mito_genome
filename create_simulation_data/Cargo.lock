@@ -352,7 +352,6 @@ name = "last_decompose"
 version = "0.1.0"
 dependencies = [
  "bio_utils 0.1.0",
- "dbg_hmm 0.1.0",
  "edlib_sys 0.1.0",
  "env_logger 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "last_tiling 0.1.0",

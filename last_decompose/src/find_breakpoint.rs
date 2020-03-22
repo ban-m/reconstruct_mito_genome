@@ -462,10 +462,10 @@ pub fn critical_regions(
     debug!("There are {} reads", reads.len());
     let contig_pairs = contigpair_position(reads, contigs);
     let confluent_regions = confluent_position(alignments, contigs, last_tiling::UNIT_SIZE);
-    let contig_pairs = contig_pairs.into_iter().map(|cp| CriticalRegion::CP(cp));
+    let contig_pairs = contig_pairs.into_iter().map(CriticalRegion::CP);
     let confluent_regions = confluent_regions
         .into_iter()
-        .map(|cr| CriticalRegion::CR(cr));
+        .map(CriticalRegion::CR);
     contig_pairs.chain(confluent_regions).collect()
 }
 

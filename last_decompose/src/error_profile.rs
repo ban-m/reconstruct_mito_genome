@@ -1,4 +1,4 @@
-use dbg_hmm::Config;
+use poa_hmm::Config;
 use std::collections::HashMap;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Op {

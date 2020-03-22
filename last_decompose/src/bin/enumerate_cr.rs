@@ -24,5 +24,5 @@ fn main() -> std::io::Result<()> {
     for e in res {
         debug!("{:?}", e);
     }
-    return Ok(());
+    Ok(())
 }
