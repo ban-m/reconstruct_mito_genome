@@ -38,7 +38,7 @@ pub mod variant_calling;
 const WINDOW_SIZE: usize = 200;
 const OVERLAP: usize = 50;
 const MIN_LEN: usize = 5_000;
-const COVERAGE_THR: f64 = 40.;
+const CONNECTION_THR: f64 = 20.;
 type Read = Vec<(usize, Vec<u8>)>;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
@@ -350,7 +350,7 @@ fn find_matching(prev: &[HashSet<String>], after: &[HashSet<String>]) -> Vec<(us
         .flat_map(|(cl1, cl1_edges)| {
             cl1_edges
                 .into_iter()
-                .filter(|&(_, sim)| sim > COVERAGE_THR)
+                .filter(|&(_, sim)| sim > CONNECTION_THR)
                 .map(|(cl2, _)| (cl1, cl2))
                 .collect::<Vec<(usize, usize)>>()
         })
@@ -482,8 +482,8 @@ pub fn clustering(
     assert_eq!(forbidden.len(), data.len());
     assert_eq!(label.len() + answer.len(), data.len());
     use poa_clustering::DEFAULT_ALN;
-    // let c = &poa_clustering::convert(c);
     let weights = soft_clustering_poa(data, label, forbidden, cluster_num, answer, c, &DEFAULT_ALN);
+    //     variational_bayes_poa(data, label, forbidden, cluster_num, answer, c, &DEFAULT_ALN);
     debug!("WEIGHTS\tPrediction. Dump weights");
     assert_eq!(weights.len(), label.len() + answer.len());
     for (weight, ans) in weights.iter().zip(label.iter().chain(answer.iter())) {
@@ -493,37 +493,6 @@ pub fn clustering(
             .fold(String::new(), |x, y| x + &y);
         debug!("WEIGHTS\t{}{}", weights, ans);
     }
-    // let mut weights: Vec<_> = weights
-    //     .iter()
-    //     .map(|weight| {
-    //         assert_eq!(weight.len(), cluster_num);
-    //         let (cl, _): (usize, &f64) = weight
-    //             .iter()
-    //             .enumerate()
-    //             .max_by(|&(_, a), &(_, b)| a.partial_cmp(b).unwrap())
-    //             .unwrap();
-    //         let mut res = vec![0.; cluster_num];
-    //         res[cl as usize] = 1.;
-    //         res
-    //     })
-    //     .collect();
-    // for merge_num in 0.. {
-    //     let clusters = cluster_num - merge_num;
-    //     if clusters == 1 {
-    //         break;
-    //     }
-    //     let (lk_per_read, a, b) =
-    //         poa_clustering::get_mergable_cluster(data, &weights, clusters, c, &DEFAULT_ALN);
-    //     debug!("{},{},{}", lk_per_read, a, b);
-    //     if lk_per_read < LK_PER_DATA {
-    //         break;
-    //     }
-    //     debug!(
-    //         "Gain {} log-likelihood per data. Merging {} and {}",
-    //         lk_per_read, a, b
-    //     );
-    //     weights = poa_clustering::merge_cluster(&weights, a as usize, b as usize, clusters);
-    // }
     weights
         .iter()
         .map(|weight| {

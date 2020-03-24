@@ -2,17 +2,17 @@
 use super::variant_calling;
 use super::{ERead, Read};
 use poa_hmm::*;
-use rand::{thread_rng, Rng, SeedableRng};
+use rand::{seq::SliceRandom, thread_rng, Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
-const ENTROPY_THR: f64 = 0.35;
-const PICK_PROB: f64 = 0.02;
+const ENTROPY_THR: f64 = 0.20;
+const PICK_PROB: f64 = 0.05;
 const LRATE: f64 = 0.5;
-const BETA_INCREASE: f64 = 1.3;
-const BETA_DECREASE: f64 = 1.1;
-const INIT_BETA: f64 = 0.1;
-// const ENTROPY_STEP: f64 = 0.1;
+const BETA_INCREASE: f64 = 1.1;
+const BETA_DECREASE: f64 = 1.3;
+const INIT_BETA: f64 = 0.2;
 const NUM_OF_BALL: usize = 100;
+const SMALL_WEIGHT: f64 = 0.000_000_000_000_1;
 fn entropy(xs: &[f64]) -> f64 {
     assert!(xs.iter().all(|&x| x <= 1.000_000_1 && 0. <= x), "{:?}", xs);
     xs.iter()
@@ -188,7 +188,6 @@ impl<'a> ModelFactory<'a> {
     }
 }
 
-use rand::seq::SliceRandom;
 pub fn soft_clustering_poa<F>(
     data: &[ERead],
     label: &[u8],
@@ -254,14 +253,13 @@ where
                     updates[pos] = true;
                 }
             }
-            let w = &mut weights_of_reads;
-            update_weights(w, &mut ws, border, &data, &models, &updates, &betas, config);
-            let wor = &weights_of_reads;
             models = models
                 .into_iter()
                 .enumerate()
-                .map(|(cl, m)| mf.update_model(m, &updates, wor, &data, cl, aln))
+                .map(|(cl, m)| mf.update_model(m, &updates, &weights_of_reads, &data, cl, aln))
                 .collect();
+            let w = &mut weights_of_reads;
+            update_weights(w, &mut ws, border, &data, &models, &updates, &betas, config);
             if log_enabled!(log::Level::Trace) {
                 let lk = variant_calling::get_lk(&models, &data, config, &ws);
                 trace!("LK\t{}\t{}\t{}", id, count, lk);
@@ -285,9 +283,9 @@ where
             );
             break;
         } else if lk <= prev_lk {
-            beta *= BETA_INCREASE;
+            beta *= BETA_DECREASE;
         } else {
-            beta /= BETA_DECREASE;
+            beta *= BETA_INCREASE;
         }
         prev_lk = lk;
         picks = (0..data.len()).skip(border).collect();
@@ -349,12 +347,10 @@ fn update_weights(
         .for_each(|((read, weights), _)| {
             compute_prior_probability(models, &ws, read, weights, c, betas);
         });
-    let datasize = data.len() as f64;
     ws.iter_mut().enumerate().for_each(|(cl, w)| {
-        let new_w = weight_of_read.iter().map(|e| e[cl]).sum::<f64>() / datasize;
-        *w = new_w.max(0.000_000_000_000_1);
+        let new_w = weight_of_read.iter().map(|e| e[cl]).sum::<f64>() / data.len() as f64;
+        *w = new_w.max(SMALL_WEIGHT);
     });
-    assert!((1. - ws.iter().sum::<f64>()).abs() < 0.001);
 }
 
 fn report(

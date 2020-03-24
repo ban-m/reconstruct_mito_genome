@@ -24,21 +24,10 @@ const SMALL: f64 = 0.000_000_001;
 const LAMBDA_INS: f64 = 0.05;
 const LAMBDA_MATCH: f64 = 0.1;
 const THR: f64 = 0.4;
-const DEFAULT_LK: f64 = -120.;
+const DEFAULT_LK: f64 = -150.;
 pub mod generate;
 #[cfg(test)]
 mod tests;
-
-// Determine the threshold used in the filtering step.
-// It should return 0.4 or so if the sum of ws is 15., and
-// should return 0.3 or so if the sum of ws is 150.
-// thus, it starts from 0.5 or so and
-// gradually decreases out.
-// These parameters were tuned by hand.
-// pub fn get_thr(ws: &[f64]) -> f64 {
-//     let sum: f64 = ws.iter().sum();
-//     (sum * -0.005).exp() * 0.21 + 0.2
-// }
 
 // Edit operation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,7 +109,7 @@ impl PartialOrderAlignment {
     where
         F: Fn(u8, u8) -> i32,
     {
-        if seqs.is_empty() && ws.iter().all(|&w| w <= 0.001) {
+        if seqs.is_empty() || ws.iter().all(|&w| w <= 0.001) {
             return Self::default();
         }
         let seed = 99_432 * (ws.iter().sum::<f64>().floor() as u64 + seqs.len() as u64);
@@ -146,24 +135,6 @@ impl PartialOrderAlignment {
             })
             .remove_node(THR)
             .finalize()
-        // let increment = 15.;
-        // let mut target = 15.;
-        // rand::seq::index::sample(&mut rng, seqs.len(), seqs.len())
-        //     .into_iter()
-        //     .map(|idx| (&seqs[idx], ws[idx]))
-        //     .filter(|&(_, w)| w > 0.001)
-        //     .fold(self, |x, (y, w)| {
-        //         if x.weight > target {
-        //             target += increment;
-        //             let thr = x.weight * 0.1;
-        //             x.add(y, w, parameters).remove_node_below(thr)
-        //         } else {
-        //             x.add(y, w, parameters)
-        //         }
-        //     })
-        //     .remove_node(THR)
-        //     .remove_node(THR)
-        //     .finalize()
     }
     pub fn generate_uniform(seqs: &[&[u8]]) -> POA {
         let ws = vec![1.; seqs.len()];
