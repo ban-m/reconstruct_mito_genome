@@ -5,8 +5,8 @@ use poa_hmm::*;
 use rand::{seq::SliceRandom, thread_rng, Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
-const ENTROPY_THR: f64 = 0.20;
-const PICK_PROB: f64 = 0.05;
+const ENTROPY_THR: f64 = 0.25;
+const PICK_PROB: f64 = 0.03;
 const LRATE: f64 = 0.5;
 const BETA_INCREASE: f64 = 1.1;
 const BETA_DECREASE: f64 = 1.3;
@@ -409,7 +409,7 @@ fn compute_prior_probability(
         .par_iter()
         .map(|ms| {
             read.par_iter()
-                .map(|&(pos, ref unit)| ms[pos].forward(unit, c))
+                .map(|&(pos, ref unit)| ms[pos].forward_prior(unit, c))
                 .collect()
         })
         .collect();

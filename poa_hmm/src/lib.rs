@@ -25,6 +25,7 @@ const LAMBDA_INS: f64 = 0.05;
 const LAMBDA_MATCH: f64 = 0.1;
 const THR: f64 = 0.4;
 const DEFAULT_LK: f64 = -150.;
+const PRIOR_WEIGHT: f64 = 0.1;
 pub mod generate;
 #[cfg(test)]
 mod tests;
@@ -109,11 +110,11 @@ impl PartialOrderAlignment {
     where
         F: Fn(u8, u8) -> i32,
     {
+        let seed = 99_999_111 * ((ws.iter().sum::<f64>().floor()) as u64);
+        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
         if seqs.is_empty() || ws.iter().all(|&w| w <= 0.001) {
             return Self::default();
         }
-        let seed = 99_432 * (ws.iter().sum::<f64>().floor() as u64 + seqs.len() as u64);
-        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
         self.nodes.clear();
         let max_len = seqs
             .iter()

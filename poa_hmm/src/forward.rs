@@ -1,7 +1,7 @@
 use crate::Config;
 use crate::PartialOrderAlignment;
-use crate::DEFAULT_LK;
 use crate::SMALL;
+use crate::{DEFAULT_LK, PRIOR_WEIGHT};
 use packed_simd::f64x4 as f64s;
 impl PartialOrderAlignment {
     fn sum(xs: &[f64]) -> f64 {
@@ -88,6 +88,10 @@ impl PartialOrderAlignment {
         let c = Self::sum(&updates).recip();
         Self::mul(updates, c);
         (c, d)
+    }
+    pub fn forward_prior(&self, obs: &[u8], config: &Config) -> f64 {
+        let x = self.forward(obs, config) * self.weight + PRIOR_WEIGHT * DEFAULT_LK;
+        x / (self.weight + PRIOR_WEIGHT)
     }
     pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
         if self.nodes.is_empty() {

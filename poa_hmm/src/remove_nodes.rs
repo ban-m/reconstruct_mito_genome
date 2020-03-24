@@ -19,19 +19,6 @@ impl crate::PartialOrderAlignment {
             self
         }
     }
-    pub fn remove_node_below(mut self, thr: f64) -> Self {
-        let saved = self.clone();
-        let len = self.nodes.len();
-        let to_remove: Vec<_> = self.nodes.iter().map(|n| n.weight < thr).collect();
-        self = self.remove(&to_remove);
-        self.trim_unreachable_nodes();
-        if self.nodes.len() < len / 10 {
-            saved
-        } else {
-            self
-        }
-    }
-
     fn nodewise_remove(mut self, thr: f64) -> Option<Self> {
         let (_start, arrived, _) = self.traverse(thr)?;
         let to_remove: Vec<_> = arrived
@@ -82,7 +69,6 @@ impl crate::PartialOrderAlignment {
                 .iter()
                 .max_by(|a, b| a.partial_cmp(b).unwrap())
                 .unwrap_or(&0.);
-            // let weight_thr = max * thr;
             for (edg, (&next, &w)) in node.edges().iter().zip(node.weights.iter()).enumerate() {
                 let is_heavy = if node.is_tail {
                     weight_thr <= w

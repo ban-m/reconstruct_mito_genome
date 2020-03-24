@@ -71,7 +71,7 @@ fn main() {
             }
         }
         let mock = vec![vec![]; total_coverage];
-        use last_decompose::construct_initial_weights;
+        use last_decompose::poa_clustering::construct_initial_weights;
         let weights_of_reads =
             construct_initial_weights(&vec![], &mock, num_cluster, total_coverage, 2);
         let mut weights = vec![vec![]; num_cluster];
