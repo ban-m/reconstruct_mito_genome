@@ -42,14 +42,14 @@ impl PartialOrderAlignment {
                         * weight
                 })
                 .sum::<f64>();
-            let match_observation = if dist_idx < self.nodes.len() {
-                self.nodes[dist_idx].prob(base, config)
-            } else if dist_idx == self.nodes.len() {
-                head_base_freq[BASE_TABLE[base as usize]]
-            } else {
-                // Anything is ok, as match_transition should be zero.
-                assert!(match_transition.abs() < 0.00001);
-                1.
+            use std::cmp::Ordering;
+            let match_observation = match dist_idx.cmp(&self.nodes.len()) {
+                Ordering::Less => self.nodes[dist_idx].prob(base, config),
+                Ordering::Equal => head_base_freq[BASE_TABLE[base as usize]],
+                Ordering::Greater => {
+                    assert!(match_transition.abs() < 0.00001);
+                    1.
+                }
             };
             let node = 3 * dist_idx;
             updates[node] = match_transition * match_observation;
@@ -63,13 +63,10 @@ impl PartialOrderAlignment {
                 } else {
                     prev[node..=node + 2].iter().sum::<f64>()
                 };
-            let insertion_observation = if dist_idx < self.nodes.len() {
-                self.nodes[dist_idx].insertion(base)
-            } else if dist_idx == self.nodes.len() {
-                0.25
-            } else {
-                assert_eq!(dist_idx, self.nodes.len() + 1);
-                0.25
+            let insertion_observation = match dist_idx.cmp(&self.nodes.len()) {
+                Ordering::Less => self.nodes[dist_idx].insertion(base),
+                Ordering::Greater => 0.25,
+                Ordering::Equal => 0.25,
             };
             updates[node + 1] = insertion_transition * insertion_observation;
         }

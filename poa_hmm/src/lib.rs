@@ -110,7 +110,8 @@ impl PartialOrderAlignment {
     where
         F: Fn(u8, u8) -> i32,
     {
-        let seed = 99_999_111 * ((ws.iter().sum::<f64>().floor()) as u64);
+        // let seed = 99_999_111 * ((ws.iter().sum::<f64>().floor()) as u64);
+        let seed = 0;
         let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
         if seqs.is_empty() || ws.iter().all(|&w| w <= 0.001) {
             return Self::default();
@@ -299,7 +300,7 @@ impl PartialOrderAlignment {
             // Deletion.
             for &p in &edges[g_pos - 1] {
                 let (del, del_w) = (dp[p][q_pos] + del, route_weight[p][q_pos]);
-                if del == score && del_w == weight {
+                if del == score && ((del_w - weight) / del_w.max(weight)).abs() < 0.000_1 {
                     operations.push(EditOp::Deletion(g_pos - 1));
                     g_pos = p;
                     continue 'outer;
@@ -308,7 +309,7 @@ impl PartialOrderAlignment {
             // Insertion
             let ins = dp[g_pos][q_pos - 1] + ins;
             let ins_w = route_weight[g_pos][q_pos - 1] + 1.;
-            if ins == score && ins_w == weight {
+            if ins == score && ((ins_w - weight) / ins_w.max(weight)).abs() < 0.000_1 {
                 q_pos -= 1;
                 operations.push(EditOp::Insertion(0));
                 continue 'outer;
@@ -318,7 +319,7 @@ impl PartialOrderAlignment {
             for &p in &edges[g_pos - 1] {
                 let mat = dp[p][q_pos - 1] + profile[bs][q_pos - 1];
                 let mat_w = route_weight[p][q_pos - 1] + w;
-                if mat == score && mat_w == weight {
+                if mat == score && ((mat_w - weight) / mat_w.max(weight)).abs() < 0.000_1 {
                     operations.push(EditOp::Match(g_pos - 1));
                     g_pos = p;
                     q_pos -= 1;

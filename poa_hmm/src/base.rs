@@ -81,7 +81,7 @@ impl Base {
             .collect();
         assert_eq!(self.edges.len(), self.weights.len());
     }
-    pub fn remove_edges(&mut self, _thr: f64, e: &[bool]) {
+    pub fn remove_edges(&mut self, e: &[bool]) {
         if self.edges.len() <= 1 {
             return;
         }
@@ -90,8 +90,7 @@ impl Base {
             .iter()
             .zip(self.weights.iter())
             .zip(e.iter())
-            .filter(|&((_, _), &b)| b);
-        //.filter(|&((_, &w), &b)| if self.is_tail { w > thr && b } else { b });
+            .filter(|&(_, &b)| b);
         let weights: Vec<_> = removed.clone().map(|((_, &w), _)| w).collect();
         let edges: Vec<_> = removed.clone().map(|((&to, _), _)| to).collect();
         self.weights = weights;

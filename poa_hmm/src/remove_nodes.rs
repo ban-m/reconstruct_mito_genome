@@ -33,7 +33,7 @@ impl crate::PartialOrderAlignment {
         self.nodes
             .iter_mut()
             .zip(used_edges)
-            .for_each(|(n, e)| n.remove_edges(100., &e));
+            .for_each(|(n, e)| n.remove_edges(&e));
         Some(self)
     }
     fn traverse(&mut self, thr: f64) -> Option<(usize, Vec<bool>, Vec<Vec<bool>>)> {
@@ -73,7 +73,7 @@ impl crate::PartialOrderAlignment {
                 let is_heavy = if node.is_tail {
                     weight_thr <= w
                 } else {
-                    weight_thr <= w || w == max
+                    weight_thr <= w || ((w - max) / w.max(max)).abs() < 0.000_1
                 };
                 if is_heavy {
                     if !arrived[next] {
