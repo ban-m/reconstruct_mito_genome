@@ -204,13 +204,14 @@ fn main() -> std::io::Result<()> {
             }
         };
         let mut wtr = fasta::Writer::new(wtr);
-        for read in reads {
-            writeln!(&mut readlist, "{}\t{}", cluster_id, read.id())?;
-            wtr.write_record(read)?;
+        if reads.len() > last_decompose::find_breakpoint::COVERAGE_THR {
+            for read in reads {
+                writeln!(&mut readlist, "{}\t{}", cluster_id, read.id())?;
+                wtr.write_record(read)?;
+            }
         }
     }
     let encoded_reads = last_tiling::encoding(&reads, &contigs, &alignments);
-    let res = dump_viewer(&results, &encoded_reads, &initial_clusters, &contigs)?;
     let file = format!("{}/start_stop.tsv", output_dir);
     let mut writer = BufWriter::new(std::fs::File::create(&file)?);
     for (contig, stst) in start_stop {
@@ -228,6 +229,11 @@ fn main() -> std::io::Result<()> {
     }
     let file = format!("{}/data.json", dir);
     let mut writer = BufWriter::new(std::fs::File::create(&file)?);
+    let res = dump_viewer(&results, &encoded_reads, &initial_clusters, &contigs)?;
     writeln!(&mut writer, "{}", res)?;
+    let file = format!("{}/repeats.json", dir);
+    let mut writer = BufWriter::new(std::fs::File::create(&file)?);
+    let repeats = serde_json::ser::to_string(&repeats).unwrap();
+    writeln!(&mut writer, "{}", repeats)?;
     Ok(())
 }

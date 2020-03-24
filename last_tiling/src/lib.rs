@@ -15,8 +15,8 @@ pub mod repeat;
 pub mod unit;
 use bio_utils::fasta;
 mod coverage;
-pub use coverage::get_start_stop;
 pub use contig::Contigs;
+pub use coverage::get_start_stop;
 pub use lasttab::LastTAB;
 pub use lasttab::Op;
 use rayon::prelude::*;
@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::path::Path;
 pub use unit::EncodedRead;
 use unit::*;
-pub const UNIT_SIZE: usize = 150;
+pub const UNIT_SIZE: usize = 100;
 // If an alignment is in a repetitive region,
 // we check whether the read also aligns at CHECK_POINT up stream.
 // If it does not, we discard that alignment. Otherwise, we keep it.

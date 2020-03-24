@@ -10,7 +10,7 @@ const PICK_PROB: f64 = 0.02;
 const LRATE: f64 = 0.5;
 const BETA_INCREASE: f64 = 1.3;
 const BETA_DECREASE: f64 = 1.1;
-const INIT_BETA: f64 = 0.2;
+const INIT_BETA: f64 = 0.1;
 // const ENTROPY_STEP: f64 = 0.1;
 const NUM_OF_BALL: usize = 100;
 fn entropy(xs: &[f64]) -> f64 {
@@ -19,7 +19,6 @@ fn entropy(xs: &[f64]) -> f64 {
         .map(|&x| if x < 0.0001 { 0. } else { -x * x.ln() })
         .sum::<f64>()
 }
-
 
 // Serialize units in read. In other words,
 // We serialize the (contig, unit):(usize, usize) pair into position:usize.
@@ -71,7 +70,6 @@ fn serialize(data: &[ERead], pos: &[Vec<usize>]) -> Vec<Read> {
     data.iter().map(|read| serialize_read(read, pos)).collect()
 }
 
-
 pub struct AlnParam<F>
 where
     F: Fn(u8, u8) -> i32,
@@ -81,7 +79,8 @@ where
     score: F,
 }
 
-fn score(x: u8, y: u8) -> i32 {
+#[allow(dead_code)]
+fn score2(x: u8, y: u8) -> i32 {
     if x == y {
         3
     } else {
@@ -89,9 +88,20 @@ fn score(x: u8, y: u8) -> i32 {
     }
 }
 
+#[allow(dead_code)]
+fn score(x: u8, y: u8) -> i32 {
+    if x == y {
+        2
+    } else {
+        -4
+    }
+}
+
 pub const DEFAULT_ALN: AlnParam<fn(u8, u8) -> i32> = AlnParam {
-    ins: -6,
-    del: -6,
+    ins: -3,
+    del: -3,
+    // ins:-6,
+    // del:-6,
     score,
 };
 

@@ -1,6 +1,6 @@
-use super::DEFAULT;
 use crate::Config;
 use crate::PartialOrderAlignment;
+use crate::DEFAULT_LK;
 use crate::SMALL;
 use packed_simd::f64x4 as f64s;
 impl PartialOrderAlignment {
@@ -132,7 +132,7 @@ impl PartialOrderAlignment {
     }
     pub fn forward_exp(&self, obs: &[u8], config: &Config) -> f64 {
         if self.nodes.is_empty() {
-            return DEFAULT;
+            return DEFAULT_LK;
         }
         // Alignemnts: [mat, ins, del,  mat, ins, del,  ....]
         let mut prev: Vec<f64> = self
@@ -181,6 +181,9 @@ impl PartialOrderAlignment {
         c.ln() + lk
     }
     pub fn forward(&self, obs: &[u8], config: &Config) -> f64 {
+        if self.nodes.is_empty() {
+            return DEFAULT_LK;
+        }
         // Alignemnts: [mat, ins, del,  mat, ins, del,  ....]
         let mut prev: Vec<f64> = vec![0.; 3 * (self.nodes.len() + 1)];
         // Start from the inserion state.
@@ -217,8 +220,7 @@ impl PartialOrderAlignment {
             .enumerate()
             .map(|(idx, &base)| {
                 updated.iter_mut().for_each(|e| *e = 0.);
-                let (c, d) =
-                    self.update_row(&mut updated, &prev, base, config, &edges, &base_freq);
+                let (c, d) = self.update_row(&mut updated, &prev, base, config, &edges, &base_freq);
                 std::mem::swap(&mut prev, &mut updated);
                 assert!(c * d > 0.99, "{},{},{},{}", idx, c, d, c * d);
                 if idx < obs.len() - 1 {

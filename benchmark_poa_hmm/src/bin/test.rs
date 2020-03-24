@@ -7,7 +7,7 @@ use poa_hmm::*;
 use rand::{rngs::StdRng, SeedableRng};
 use rayon::prelude::*;
 fn main() {
-    let len = 50;
+    let len = 150;
     let mut rng: StdRng = SeedableRng::seed_from_u64(12133);
     let template: Vec<_> = generate_seq(&mut rng, len);
     let p = Profile {
@@ -46,7 +46,7 @@ fn main() {
         .filter(|&(_, q)| {
             let f1 = m1.forward(q, &DEFAULT_CONFIG);
             let f2 = m2.forward(q, &DEFAULT_CONFIG);
-            //eprintln!("{}\t{}\t{}", 0, f1, f2);
+            eprintln!("{}\t{}\t{}", 0, f1, f2);
             f1 > f2
         })
         .count();
@@ -57,7 +57,7 @@ fn main() {
         .filter(|&(_, q)| {
             let f1 = m1.forward(q, &DEFAULT_CONFIG);
             let f2 = m2.forward(q, &DEFAULT_CONFIG);
-            // eprintln!("{}\t{}\t{}", 1, f1, f2);
+            eprintln!("{}\t{}\t{}", 1, f1, f2);
             f1 < f2
         })
         .count();

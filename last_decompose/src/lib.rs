@@ -24,19 +24,21 @@ pub use find_breakpoint::initial_clusters;
 pub use find_breakpoint::Cluster;
 use find_breakpoint::ReadClassify;
 use last_tiling::repeat::RepeatPairs;
-use rand::SeedableRng;
 use rand::Rng;
+use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 use std::collections::{HashMap, HashSet};
 pub mod d3_data;
 pub mod error_profile;
 pub mod poa_clustering;
-use poa_hmm::Config;
 pub use poa_clustering::soft_clustering_poa;
+use poa_hmm::Config;
 pub mod variant_calling;
-const WINDOW_SIZE: usize = 300;
-const OVERLAP: usize = 100;
-const COVERAGE_THR: f64 = 20.;
+// 200 * 100 = 20_000
+const WINDOW_SIZE: usize = 200;
+const OVERLAP: usize = 50;
+const MIN_LEN: usize = 5_000;
+const COVERAGE_THR: f64 = 40.;
 type Read = Vec<(usize, Vec<u8>)>;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
@@ -283,7 +285,6 @@ pub fn clustering_via_alignment(
     predictions
 }
 
-
 fn create_windows(idx: usize, len: usize) -> Vec<(u16, u16, u16)> {
     (0..)
         .map(|i| i * (WINDOW_SIZE - OVERLAP))
@@ -313,7 +314,7 @@ fn select_within(
     for i in 0..data.len() {
         let read = &data[i];
         let count = read.include_units(contig, start, end);
-        if count > 10 {
+        if count > MIN_LEN / last_tiling::UNIT_SIZE {
             s_data.push(read.clone_within(contig, start, end));
             s_forbid.push(forbidden[i].clone());
             if i < border {
@@ -327,8 +328,6 @@ fn select_within(
 }
 
 fn find_matching(prev: &[HashSet<String>], after: &[HashSet<String>]) -> Vec<(usize, usize)> {
-    // let nodes_1 = prev.len();
-    // let nodes_2 = after.len();
     let graph: Vec<Vec<(usize, f64)>> = prev
         .iter()
         .map(|cl1| {
@@ -345,11 +344,10 @@ fn find_matching(prev: &[HashSet<String>], after: &[HashSet<String>]) -> Vec<(us
             debug!("{}->({:.3})->{}", idx, weight, to);
         }
     }
-    // let res = bipartite_matching::maximum_weight_matching(nodes_1, nodes_2, &graph);
     let res: Vec<(usize, usize)> = graph
         .into_iter()
         .enumerate()
-        .flat_map(|(cl1,cl1_edges)| {
+        .flat_map(|(cl1, cl1_edges)| {
             cl1_edges
                 .into_iter()
                 .filter(|&(_, sim)| sim > COVERAGE_THR)
@@ -385,6 +383,8 @@ pub fn clustering_chunking(
         .enumerate()
         .flat_map(|(idx, len)| create_windows(idx, *len))
         .collect();
+    debug!("The contig lengths:{:?}", contigs);
+    debug!("There are {} windows in total.", windows.len());
     let clusterings: Vec<Vec<HashSet<String>>> = windows
         .iter()
         .map(|&region| {
@@ -425,7 +425,7 @@ pub fn clustering_chunking(
         .collect();
     // Merging.
     let mut fu = find_union::FindUnion::new(cluster_num * windows.len());
-    for idx in 0..clusterings.len() {
+    for idx in 0..clusterings.len() - 1 {
         let prev_idx = idx;
         let after_idx = (idx + 1) % clusterings.len();
         let prev = &clusterings[prev_idx];
@@ -536,4 +536,3 @@ pub fn clustering(
         })
         .collect()
 }
-

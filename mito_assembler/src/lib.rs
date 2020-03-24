@@ -1,7 +1,7 @@
-extern crate serde;
 extern crate env_logger;
 extern crate last_decompose;
 extern crate log;
+extern crate serde;
 extern crate serde_json;
 use last_decompose::d3_data::convert_to_d3_data;
 use last_decompose::find_breakpoint::Cluster;
@@ -19,10 +19,7 @@ pub fn dump_viewer(
     Ok(serde_json::ser::to_string(&summary).unwrap())
 }
 
-fn summarize_clusters(
-    clusters: &[Cluster],
-    results: &HashMap<String, u8>,
-) -> Vec<Cluster> {
+fn summarize_clusters(clusters: &[Cluster], results: &HashMap<String, u8>) -> Vec<Cluster> {
     let max = results.values().copied().max().unwrap_or(0) as usize;
     (0..max)
         .map(|cl| {
