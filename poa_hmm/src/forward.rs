@@ -44,13 +44,19 @@ impl PartialOrderAlignment {
                 .sum::<f64>();
             let match_observation = if dist_idx < self.nodes.len() {
                 self.nodes[dist_idx].prob(base, config)
-            } else {
+            } else if dist_idx == self.nodes.len() {
                 head_base_freq[BASE_TABLE[base as usize]]
+            } else {
+                // Anything is ok, as match_transition should be zero.
+                assert!(match_transition.abs() < 0.00001);
+                1.
             };
             let node = 3 * dist_idx;
             updates[node] = match_transition * match_observation;
+            // The conditional branching is short-curcuitting. Thus, self.nodes[dist_idx]
+            // is never evalueated when self.nodes.len() <= dist_idx holds.
             let insertion_transition =
-                if self.nodes.len() == dist_idx || self.nodes[dist_idx].has_edge() {
+                if self.nodes.len() <= dist_idx || self.nodes[dist_idx].has_edge() {
                     prev[node] * config.p_ins
                         + prev[node + 1] * config.p_extend_ins
                         + prev[node + 2] * config.p_del_to_ins
@@ -88,27 +94,24 @@ impl PartialOrderAlignment {
             return DEFAULT_LK;
         }
         // Alignemnts: [mat, ins, del,  mat, ins, del,  ....]
-        let mut prev: Vec<f64> = vec![0.; 3 * (self.nodes.len() + 1)];
+        let mut prev: Vec<f64> = vec![0.; 3 * (self.nodes.len() + 2)];
         // Start from the inserion state.
-        prev[3 * self.nodes.len()] = (3f64).recip();
-        prev[3 * self.nodes.len() + 1] = (3f64).recip();
-        prev[3 * self.nodes.len() + 2] = (3f64).recip();
+        let ins_and_del = config.p_ins + config.p_del;
+        prev[3 * self.nodes.len() + 4] = config.p_ins / ins_and_del;
+        prev[3 * self.nodes.len() + 5] = config.p_del / ins_and_del;
         if prev.len() % 4 != 0 {
             prev.extend(std::iter::repeat(0.).take(4 - prev.len() % 4));
         }
         let mut updated = vec![0.; prev.len()];
-        let (base_freq, total) = {
-            let mut bc = [0.; 4];
-            for n in self.nodes.iter().filter(|n| n.is_head) {
-                use super::base_table::BASE_TABLE;
-                bc[BASE_TABLE[n.base() as usize]] += n.weight();
-            }
-            let total = bc.iter().sum::<f64>();
-            bc.iter_mut().for_each(|count| *count /= total);
-            (bc, total)
-        };
+        let total = self
+            .nodes
+            .iter()
+            .filter(|n| n.is_head)
+            .map(|n| n.weight())
+            .sum::<f64>();
+        let base_freq = [0.25; 4];
         let edges = {
-            let mut edges: Vec<Vec<_>> = vec![vec![]; self.nodes.len() + 1];
+            let mut edges: Vec<Vec<_>> = vec![vec![]; self.nodes.len() + 2];
             for (from, n) in self.nodes.iter().enumerate() {
                 for (&to, &w) in n.edges.iter().zip(n.weights().iter()) {
                     edges[to].push((from, w));
@@ -117,6 +120,7 @@ impl PartialOrderAlignment {
                     edges[from].push((self.nodes.len(), n.weight() / total));
                 }
             }
+            edges[self.nodes.len()].push((self.nodes.len() + 1, 1.));
             edges
         };
         obs.iter()
