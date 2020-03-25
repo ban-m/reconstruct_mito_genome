@@ -15,7 +15,7 @@ OUTLOG_PREFIX=./logfiles/last_decompose_multi_gibbs
 TEST_NUM=300
 COVERAGE=0
 PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
-RUST_LOG=debug ./target/release/test_last_decompose_multiple \
+RUST_LOG=info ./target/release/test_last_decompose_multiple \
         ${TEST_NUM} ${COVERAGE} 300 0.002 ${PROBS} >> ./result/multi_test_poa_9K.tsv\
         2>> ./logfiles/multi_test_poa_9K.log
 exit 0;

@@ -191,7 +191,10 @@ fn main() -> std::io::Result<()> {
     use std::io::{BufWriter, Write};
     let readlist = format!("{}/readlist.tsv", output_dir);
     let mut readlist = BufWriter::new(std::fs::File::create(readlist)?);
-    for (&cluster_id, reads) in decomposed.iter() {
+    for (&cluster_id, reads) in decomposed
+        .iter()
+        .filter(|&(_, rs)| rs.len() > last_decompose::find_breakpoint::COVERAGE_THR)
+    {
         let outpath = format!("{}/{}.fasta", output_dir, cluster_id);
         let wtr = match std::fs::File::create(&outpath) {
             Ok(res) => res,
@@ -204,11 +207,9 @@ fn main() -> std::io::Result<()> {
             }
         };
         let mut wtr = fasta::Writer::new(wtr);
-        if reads.len() > last_decompose::find_breakpoint::COVERAGE_THR {
-            for read in reads {
-                writeln!(&mut readlist, "{}\t{}", cluster_id, read.id())?;
-                wtr.write_record(read)?;
-            }
+        for read in reads {
+            writeln!(&mut readlist, "{}\t{}", cluster_id, read.id())?;
+            wtr.write_record(read)?;
         }
     }
     let encoded_reads = last_tiling::encoding(&reads, &contigs, &alignments);

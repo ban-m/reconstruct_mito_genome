@@ -68,6 +68,9 @@ impl PartialOrderAlignment {
     pub fn num_edges(&self) -> usize {
         self.nodes.iter().map(|n| n.edges.len()).sum::<usize>()
     }
+    pub fn weight(&self) -> f64 {
+        self.weight
+    }
     pub fn view(&self, seq: &[u8], traceback: &[EditOp]) -> (String, String) {
         let mut q_pos = 0;
         let (mut q, mut g) = (String::new(), String::new());
@@ -98,25 +101,30 @@ impl PartialOrderAlignment {
         let mat = (-10. * c.p_match.ln() * 3.).floor() as i32;
         let mism = (c.mismatch.ln() * 3.).floor() as i32;
         let score = |x, y| if x == y { mat } else { mism };
-        Self::default().update(seqs, ws, (ins, del, &score))
+        Self::default().update_auto(seqs, ws, (ins, del, &score))
     }
     pub fn generate<F>(seqs: &[&[u8]], ws: &[f64], parameters: (i32, i32, &F)) -> POA
     where
         F: Fn(u8, u8) -> i32,
     {
-        Self::default().update(seqs, ws, parameters)
+        let seed = 99_999_111 * ((ws.iter().sum::<f64>().floor()) as u64);
+        Self::default().update(seqs, ws, parameters, seed)
     }
-    pub fn update<F>(mut self, seqs: &[&[u8]], ws: &[f64], parameters: (i32, i32, &F)) -> POA
+    pub fn update_auto<F>(self, seqs: &[&[u8]], ws: &[f64], params: (i32, i32, &F)) -> POA
     where
         F: Fn(u8, u8) -> i32,
     {
-        // let seed = 99_999_111 * ((ws.iter().sum::<f64>().floor()) as u64);
-        let seed = 0;
-        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
+        let seed = 99_999_111 * ((ws.iter().sum::<f64>().floor()) as u64);
+        self.update(seqs, ws, params, seed)
+    }
+    pub fn update<F>(self, seqs: &[&[u8]], ws: &[f64], params: (i32, i32, &F), s: u64) -> POA
+    where
+        F: Fn(u8, u8) -> i32,
+    {
+        let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(s);
         if seqs.is_empty() || ws.iter().all(|&w| w <= 0.001) {
-            return Self::default();
+            return self;
         }
-        self.nodes.clear();
         let max_len = seqs
             .iter()
             .zip(ws)
@@ -130,9 +138,9 @@ impl PartialOrderAlignment {
             .filter(|&(_, w)| w > 0.001)
             .fold(self, |x, (y, w)| {
                 if x.nodes.len() > 3 * max_len / 2 {
-                    x.add(y, w, parameters).remove_node(THR)
+                    x.add(y, w, params).remove_node(THR)
                 } else {
-                    x.add(y, w, parameters)
+                    x.add(y, w, params)
                 }
             })
             .remove_node(THR)

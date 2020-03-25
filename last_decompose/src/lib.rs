@@ -34,6 +34,7 @@ pub mod poa_clustering;
 pub use poa_clustering::soft_clustering_poa;
 use poa_hmm::Config;
 pub mod variant_calling;
+mod digamma;
 // 200 * 100 = 20_000
 const WINDOW_SIZE: usize = 200;
 const OVERLAP: usize = 50;
@@ -100,11 +101,11 @@ pub fn decompose(
     let unassigned_reads: Vec<_> = unassigned_reads
         .into_iter()
         .filter_map(|mut read| {
-            let crs: Vec<_> = initial_clusters
-                .iter()
-                .filter(|c| c.is_spanned_by(&read))
-                .map(|c| c.id as u8)
-                .collect();
+            // let crs: Vec<_> = initial_clusters
+            //     .iter()
+            //     .filter(|c| c.is_spanned_by(&read))
+            //     .map(|c| c.id as u8)
+            //     .collect();
             let seq: Vec<_> = read
                 .seq()
                 .iter()
@@ -116,7 +117,7 @@ pub fn decompose(
             }
             *read.seq_mut() = seq;
             if !read.is_empty() {
-                forbidden.push(crs);
+                // forbidden.push(crs);
                 Some(read)
             } else {
                 None
@@ -446,11 +447,11 @@ pub fn clustering_chunking(
         if parent != i {
             continue;
         }
-        debug!("Find cluster");
+        info!("Find cluster");
         for (w, clusters) in clusterings.iter().enumerate() {
             for (j, cluster) in clusters.iter().enumerate() {
                 if parent == fu.find(j + w * cluster_num).unwrap() {
-                    debug!("{}:{}", w, j);
+                    info!("{}:{}", w, j);
                     for id in cluster {
                         result.insert(id.clone(), current);
                     }
@@ -464,7 +465,7 @@ pub fn clustering_chunking(
         .map(|read| match result.get(read.id()) {
             Some(res) => *res,
             None => {
-                debug!("Read {} does not belong to any cluster.", read.id());
+                info!("Read {} does not belong to any cluster.", read.id());
                 0
             }
         })

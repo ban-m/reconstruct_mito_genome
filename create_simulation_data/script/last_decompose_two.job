@@ -11,9 +11,9 @@ set -ue
 echo "-----start-----" >> ./result/two_test_poa.tsv
 
 
-# RUST_LOG=info ./target/release/test_last_decompose_multiple \
-#         500 0 1231 0.001 0.5 0.5 >> ./result/two_test.tsv \
-#         2>> ./logfiles/two_test.log
+# RUST_LOG=debug ./target/release/test_last_decompose_multiple \
+#         60 0 1231 0.001 0.5 0.5 >> ./result/two_test_poa.tsv \
+#         2>> ./ogfiles/two_test_poa.log
 # exit 0;
 # RUST_LOG=info ./target/release/test_last_decompose_multiple \
 #         100 0 1231 0.004 0.5 0.5 >> ./result/two_test.tsv \
@@ -30,13 +30,13 @@ echo "-----start-----" >> ./result/two_test_poa.tsv
 #         2>> ./logfiles/two_test.log
 
 
-# for seed in `seq 21 30`
-# do
-#     RUST_LOG=info ./target/release/test_last_decompose_multiple \
-#             60 0 ${seed} 0.001 0.5 0.5 >> ./result/two_test_poa.tsv \
-#             2>> ./logfiles/two_test_poa.log
-# done
-
+for seed in `seq 1 10`
+do
+    RUST_LOG=info ./target/release/test_last_decompose_multiple \
+            60 0 ${seed} 0.001 0.5 0.5 >> ./result/two_test_poa.tsv \
+            2>> ./logfiles/two_test_poa.log
+done
+exit 0;
 for seed in `seq 11 20`
 do
     RUST_LOG=info ./target/release/test_last_decompose_multiple \

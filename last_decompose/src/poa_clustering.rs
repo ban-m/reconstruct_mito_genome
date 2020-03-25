@@ -6,13 +6,15 @@ use rand::{seq::SliceRandom, thread_rng, Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
 const ENTROPY_THR: f64 = 0.10;
-const PICK_PROB: f64 = 0.03;
+const PICK_PROB: f64 = 0.01;
 const LRATE: f64 = 0.5;
 const BETA_INCREASE: f64 = 1.1;
 const BETA_DECREASE: f64 = 1.3;
 const INIT_BETA: f64 = 0.2;
 const NUM_OF_BALL: usize = 100;
 const SMALL_WEIGHT: f64 = 0.000_000_000_000_1;
+const PRIOR_WEIGHT: f64 = 10.;
+// use crate::digamma::digamma;
 fn entropy(xs: &[f64]) -> f64 {
     assert!(xs.iter().all(|&x| x <= 1.000_000_1 && 0. <= x), "{:?}", xs);
     xs.iter()
@@ -108,6 +110,7 @@ pub const DEFAULT_ALN: AlnParam<fn(u8, u8) -> i32> = AlnParam {
 struct ModelFactory<'a> {
     chunks: Vec<Vec<&'a [u8]>>,
     weights: Vec<Vec<f64>>,
+    seeds: Vec<u64>,
 }
 
 impl<'a> ModelFactory<'a> {
@@ -119,38 +122,25 @@ impl<'a> ModelFactory<'a> {
                 chunks[x.0].push(&x.1);
             }
         }
-        Self { chunks, weights }
+        let seeds = vec![0; chunks.len()];
+        Self {
+            chunks,
+            weights,
+            seeds,
+        }
     }
     fn generate_model<F>(
         &mut self,
         ws: &[Vec<f64>],
         reads: &[Read],
         cl: usize,
-        &AlnParam {
-            ins,
-            del,
-            ref score,
-        }: &AlnParam<F>,
+        param: &AlnParam<F>,
     ) -> Vec<POA>
     where
         F: Fn(u8, u8) -> i32 + std::marker::Sync,
     {
-        assert!(self.weights.iter().all(|ws| ws.is_empty()));
-        for (read, w) in reads.iter().zip(ws) {
-            for &(pos, _) in read.iter() {
-                self.weights[pos].push(w[cl]);
-            }
-        }
-        let param = (ins, del, score);
-        assert_eq!(self.weights.len(), self.chunks.len());
-        let res: Vec<_> = self
-            .chunks
-            .par_iter()
-            .zip(self.weights.par_iter())
-            .map(|(chunks, ws)| POA::generate(chunks, ws, param))
-            .collect();
-        self.weights.iter_mut().for_each(|ws| ws.clear());
-        res
+        let result = self.chunks.iter().map(|_| POA::default()).collect();
+        self.update_model(result, &vec![false; ws.len()], ws, reads, cl, param)
     }
     fn update_model<F>(
         &mut self,
@@ -169,8 +159,9 @@ impl<'a> ModelFactory<'a> {
         F: Fn(u8, u8) -> i32 + std::marker::Sync,
     {
         assert!(self.weights.iter().all(|ws| ws.is_empty()));
-        for ((read, w), &b) in reads.iter().zip(ws).zip(updates) {
-            let w = if b { 0. } else { w[cl] };
+        for ((read, w), &_) in reads.iter().zip(ws).zip(updates) {
+            // let w = if b { 0. } else { w[cl] };
+            let w = w[cl];
             for &(pos, _) in read.iter() {
                 self.weights[pos].push(w);
             }
@@ -181,10 +172,37 @@ impl<'a> ModelFactory<'a> {
             .into_par_iter()
             .zip(self.chunks.par_iter())
             .zip(self.weights.par_iter())
-            .map(|((m, chunks), ws)| m.update(chunks, ws, parameters))
+            .zip(self.seeds.par_iter())
+            .map(|(((m, chunks), ws), &s)| m.update(chunks, ws, parameters, s))
             .collect();
         self.weights.iter_mut().for_each(|ws| ws.clear());
         ms
+    }
+    fn generate_prior_model<F>(&mut self, w: f64, reads: &[Read], aln: &AlnParam<F>) -> Vec<POA>
+    where
+        F: Fn(u8, u8) -> i32 + std::marker::Sync,
+    {
+        assert!(self.weights.iter().all(|ws| ws.is_empty()));
+        for read in reads.iter() {
+            for &(pos, _) in read.iter() {
+                self.weights[pos].push(w);
+            }
+        }
+        assert_eq!(self.weights.len(), self.chunks.len());
+        let parameters = (aln.ins, aln.del, &aln.score);
+        let ms: Vec<_> = self
+            .chunks
+            .par_iter()
+            .zip(self.weights.par_iter())
+            .zip(self.seeds.par_iter())
+            .map(|((chunks, ws), &s)| POA::default().update(chunks, ws, parameters, s))
+            .collect();
+        self.weights.iter_mut().for_each(|ws| ws.clear());
+        ms
+    }
+    fn update_seeds<R: Rng>(&mut self, rng: &mut R) {
+        use rand::distributions::Standard;
+        self.seeds = rng.sample_iter(Standard).take(self.chunks.len()).collect();
     }
 }
 
@@ -205,31 +223,44 @@ where
     let data = serialize(data, &matrix_pos);
     let id: u64 = thread_rng().gen::<u64>() % 100_000;
     let seed = data.len() as u64;
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(data.len() as u64 * 99);
     let mut weights_of_reads =
         construct_initial_weights(label, forbidden, cluster_num, data.len(), seed);
     debug!("Chain length is {}", chain_len);
     let mut mf = ModelFactory::new(chain_len, &data);
+    mf.update_seeds(&mut rng);
     debug!("Model factory is built");
+    // let mut models: Vec<Vec<POA>> = (0..cluster_num)
+    //     .map(|cl| mf.generate_model(&weights_of_reads, &data, cl, aln))
+    //     .collect();
+    let updates = vec![false; data.len()];
+    let prior_weight = 1. / data.len() as f64;
     let mut models: Vec<Vec<POA>> = (0..cluster_num)
-        .map(|cl| mf.generate_model(&weights_of_reads, &data, cl, aln))
+        .map(|cl| {
+            let prior: Vec<POA> = mf.generate_prior_model(prior_weight, &data, aln);
+            mf.update_model(prior, &updates, &weights_of_reads, &data, cl, aln)
+        })
         .collect();
     debug!("Models have been created");
     let (border, datasize) = (label.len(), data.len() as f64);
-    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(data.len() as u64 * 23);
     let pick_num = ((datasize * PICK_PROB).floor() as usize).max(1);
     let mut picks: Vec<_> = (0..data.len()).skip(border).collect();
     picks.shuffle(&mut rng);
     let mut ws: Vec<f64> = (0..cluster_num)
         .map(|i| weights_of_reads.iter().map(|g| g[i]).sum::<f64>() / datasize)
         .collect();
-    let (mut variants, mut prev_lk): (Vec<Vec<_>>, f64) =
-        variant_calling::variant_calling_all_pairs(&models, &data, config, &ws);
-    {
+    let (mut variants, mut prev_lk): (Vec<Vec<_>>, f64) = {
+        let models: Vec<Vec<POA>> = (0..cluster_num)
+            .map(|cl| mf.generate_model(&weights_of_reads, &data, cl, aln))
+            .collect();
+        let (mut variants, lk) =
+            variant_calling::variant_calling_all_pairs(&models, &data, config, &ws);
         let c = cluster_num as f64;
         variants.iter_mut().for_each(|bss| {
             bss.iter_mut()
                 .for_each(|bs| bs.iter_mut().for_each(|b| *b = LRATE * *b + c.recip()))
         });
+        (variants, lk)
     };
     if log_enabled!(log::Level::Debug) {
         for (idx, (read, ans)) in data.iter().skip(border).zip(answer).enumerate() {
@@ -246,28 +277,47 @@ where
             id, loop_num, prev_lk, pick_num, beta
         );
         let betas = normalize_weights(&variants, beta);
-        while !picks.is_empty() {
-            let mut updates = vec![false; data.len()];
-            for _ in 0..pick_num {
-                if let Some(pos) = picks.pop() {
-                    updates[pos] = true;
-                }
-            }
-            models = models
-                .into_iter()
-                .enumerate()
-                .map(|(cl, m)| mf.update_model(m, &updates, &weights_of_reads, &data, cl, aln))
-                .collect();
-            let w = &mut weights_of_reads;
-            update_weights(w, &mut ws, border, &data, &models, &updates, &betas, config);
-            if log_enabled!(log::Level::Trace) {
-                let lk = variant_calling::get_lk(&models, &data, config, &ws);
-                trace!("LK\t{}\t{}\t{}", id, count, lk);
-                count += 1;
-            }
+        // while !picks.is_empty() {
+        //     let mut updates = vec![false; data.len()];
+        let updates = vec![true; data.len()];
+        // for _ in 0..pick_num {
+        //     if let Some(pos) = picks.pop() {
+        //         updates[pos] = true;
+        //     }
+        // }
+        mf.update_seeds(&mut rng);
+        // models = models
+        //     .into_iter()
+        //     .enumerate()
+        //     .map(|(cl, m)| {
+        //         mf.update_model(m, &updates, &weights_of_reads, &data, cl,aln)
+        //     })
+        //     .collect();
+        models = (0..cluster_num)
+            .map(|cl| {
+                mf.update_seeds(&mut rng);
+                let prior: Vec<POA> = mf.generate_prior_model(prior_weight, &data, aln);
+                mf.update_seeds(&mut rng);
+                mf.update_model(prior, &updates, &weights_of_reads, &data, cl, aln)
+            })
+            .collect();
+        let w = &mut weights_of_reads;
+        update_weights(
+            w, &mut ws, border, &data, &models, &updates, &betas, beta, config,
+        );
+        if log_enabled!(log::Level::Trace) {
+            let lk = variant_calling::get_lk(&models, &data, config, &ws);
+            trace!("LK\t{}\t{}\t{}", id, count, lk);
+            count += 1;
         }
+        //}
         report(id, &weights_of_reads, border, answer, cluster_num);
-        let (weights, lk) = variant_calling::variant_calling_all_pairs(&models, &data, config, &ws);
+        let (weights, lk) = {
+            let models: Vec<Vec<POA>> = (0..cluster_num)
+                .map(|cl| mf.generate_model(&weights_of_reads, &data, cl, aln))
+                .collect();
+            variant_calling::variant_calling_all_pairs(&models, &data, config, &ws)
+        };
         variants.iter_mut().zip(weights).for_each(|(bss, w_bss)| {
             bss.iter_mut().zip(w_bss).for_each(|(bs, ws)| {
                 bs.iter_mut()
@@ -285,7 +335,7 @@ where
         } else if lk <= prev_lk {
             beta *= BETA_DECREASE;
         } else {
-            beta *= BETA_INCREASE;
+            beta /= BETA_INCREASE;
         }
         prev_lk = lk;
         picks = (0..data.len()).skip(border).collect();
@@ -337,6 +387,7 @@ fn update_weights(
     models: &[Vec<POA>],
     updates: &[bool],
     betas: &[Vec<Vec<f64>>],
+    beta: f64,
     c: &Config,
 ) {
     data.iter()
@@ -345,12 +396,13 @@ fn update_weights(
         .skip(border)
         .filter(|&(_, &b)| b)
         .for_each(|((read, weights), _)| {
-            compute_prior_probability(models, &ws, read, weights, c, betas);
+            compute_prior_probability(models, &ws, read, weights, c, betas, beta);
         });
     ws.iter_mut().enumerate().for_each(|(cl, w)| {
         let new_w = weight_of_read.iter().map(|e| e[cl]).sum::<f64>() / data.len() as f64;
         *w = new_w.max(SMALL_WEIGHT);
     });
+    assert!((1. - ws.iter().sum::<f64>()).abs() < 0.01, "{:?}", ws);
 }
 
 fn report(
@@ -403,13 +455,17 @@ fn compute_prior_probability(
     weights: &mut [f64],
     c: &Config,
     betas: &[Vec<Vec<f64>>],
+    _beta: f64,
 ) {
     let positions: Vec<usize> = read.iter().map(|&(pos, _)| pos).collect();
     let lks: Vec<Vec<f64>> = models
         .par_iter()
         .map(|ms| {
             read.par_iter()
-                .map(|&(pos, ref unit)| ms[pos].forward(unit, c))
+                .map(|&(pos, ref unit)| {
+                    let m = &ms[pos];
+                    m.forward(unit, c) - (1. + PRIOR_WEIGHT / m.weight()).ln()
+                })
                 .collect()
         })
         .collect();
@@ -437,6 +493,12 @@ fn compute_prior_probability(
     });
     let sum = weights.iter().sum::<f64>();
     weights.iter_mut().for_each(|w| *w /= sum);
+    assert!(
+        (1. - weights.iter().sum::<f64>()).abs() < 0.001,
+        "{},{:?}",
+        sum,
+        weights
+    );
 }
 
 /// Return likelihood of the assignments.
@@ -455,6 +517,8 @@ where
     let (matrix_pos, chain_len) = to_pos(data);
     let data = serialize(data, &matrix_pos);
     let mut mf = ModelFactory::new(chain_len, &data);
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(data.len() as u64 * 9999);
+    mf.update_seeds(&mut rng);
     let models: Vec<Vec<POA>> = (0..cluster_num)
         .map(|cl| mf.generate_model(&weights_of_reads, &data, cl, aln))
         .collect();
