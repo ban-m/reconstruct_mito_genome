@@ -34,7 +34,7 @@ fn main() {
         (200, 0, vec![2f64.recip(); 2], 2, 11920981, 0.2)
     };
     let len = 100;
-    let chain_len = 90;
+    let chain_len = 60;
     let p = &gen_sample::Profile {
         sub: errors / 6.,
         ins: errors / 6.,
@@ -131,11 +131,10 @@ fn benchmark(
         debug!("Probs:[{}]", probs.join(","));
     };
     let forbidden = vec![vec![]; data.len()];
-    //let em_pred = clustering(&data, &label, &forbidden, clusters, &answer, c);
-    let em_pred = clustering(&data, &label, &forbidden, clusters + 1, &answer, c);
+    let em_pred = clustering(&data, &label, &forbidden, clusters, &answer, c);
     assert_eq!(em_pred.len(), label.len() + answer.len());
-    //let mut result = vec![vec![0; clusters]; clusters];
-    let mut result = vec![vec![0; clusters + 1]; clusters + 1];
+    let mut result = vec![vec![0; clusters]; clusters];
+    //let mut result = vec![vec![0; clusters + 1]; clusters + 1];
     for i in 0..clusters {
         let tot = answer.iter().filter(|&&e| e as usize == i).count();
         debug!("Cluster {}:{}", i, tot);

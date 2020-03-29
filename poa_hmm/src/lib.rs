@@ -21,11 +21,12 @@ pub mod forward;
 pub mod gen_sample;
 mod remove_nodes;
 const SMALL: f64 = 0.000_000_001;
-const LAMBDA_INS: f64 = 0.05;
-const LAMBDA_MATCH: f64 = 0.1;
+const LAMBDA_INS: f64 = 0.03;
+const LAMBDA_MATCH: f64 = 0.03;
+// const LAMBDA_INS: f64 = 0.05;
+// const LAMBDA_MATCH: f64 = 0.1;
 const THR: f64 = 0.4;
 const DEFAULT_LK: f64 = -150.;
-const PRIOR_WEIGHT: f64 = 0.1;
 pub mod generate;
 #[cfg(test)]
 mod tests;
@@ -102,6 +103,13 @@ impl PartialOrderAlignment {
         let mism = (c.mismatch.ln() * 3.).floor() as i32;
         let score = |x, y| if x == y { mat } else { mism };
         Self::default().update_auto(seqs, ws, (ins, del, &score))
+    }
+    pub fn from_vec<F>(seqs: &[Vec<u8>], ws: &[f64], parameters: (i32, i32, &F)) -> POA
+    where
+        F: Fn(u8, u8) -> i32,
+    {
+        let seqs: Vec<_> = seqs.iter().map(|e| e.as_slice()).collect();
+        Self::generate(&seqs, ws, parameters)
     }
     pub fn generate<F>(seqs: &[&[u8]], ws: &[f64], parameters: (i32, i32, &F)) -> POA
     where

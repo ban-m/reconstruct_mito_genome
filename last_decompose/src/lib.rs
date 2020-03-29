@@ -1,7 +1,6 @@
 #[macro_use]
 extern crate log;
 extern crate bio_utils;
-extern crate edlib_sys;
 extern crate env_logger;
 extern crate last_tiling;
 extern crate md5;
@@ -33,8 +32,8 @@ pub mod error_profile;
 pub mod poa_clustering;
 pub use poa_clustering::soft_clustering_poa;
 use poa_hmm::Config;
-pub mod variant_calling;
 mod digamma;
+pub mod variant_calling;
 // 200 * 100 = 20_000
 const WINDOW_SIZE: usize = 200;
 const OVERLAP: usize = 50;
@@ -483,26 +482,26 @@ pub fn clustering(
     assert_eq!(forbidden.len(), data.len());
     assert_eq!(label.len() + answer.len(), data.len());
     use poa_clustering::DEFAULT_ALN;
-    let weights = soft_clustering_poa(data, label, forbidden, cluster_num, answer, c, &DEFAULT_ALN);
-    //     variational_bayes_poa(data, label, forbidden, cluster_num, answer, c, &DEFAULT_ALN);
-    debug!("WEIGHTS\tPrediction. Dump weights");
-    assert_eq!(weights.len(), label.len() + answer.len());
-    for (weight, ans) in weights.iter().zip(label.iter().chain(answer.iter())) {
-        let weights: String = weight
-            .iter()
-            .map(|e| format!("{:.1}\t", e))
-            .fold(String::new(), |x, y| x + &y);
-        debug!("WEIGHTS\t{}{}", weights, ans);
-    }
-    weights
-        .iter()
-        .map(|weight| {
-            assert_eq!(weight.len(), cluster_num);
-            let (cl, _max): (u8, f64) = weight.iter().enumerate().fold(
-                (0, -1.),
-                |(i, m), (j, &w)| if m < w { (j as u8, w) } else { (i, m) },
-            );
-            cl
-        })
-        .collect()
+    poa_clustering::gibbs_sampling(data, label, forbidden, cluster_num, answer, c, &DEFAULT_ALN)
+    // let weights = soft_clustering_poa(data, label, forbidden, cluster_num, answer, c, &DEFAULT_ALN);
+    // debug!("WEIGHTS\tPrediction. Dump weights");
+    // assert_eq!(weights.len(), label.len() + answer.len());
+    // for (weight, ans) in weights.iter().zip(label.iter().chain(answer.iter())) {
+    //     let weights: String = weight
+    //         .iter()
+    //         .map(|e| format!("{:.1}\t", e))
+    //         .fold(String::new(), |x, y| x + &y);
+    //     debug!("WEIGHTS\t{}{}", weights, ans);
+    // }
+    // weights
+    //     .iter()
+    //     .map(|weight| {
+    //         assert_eq!(weight.len(), cluster_num);
+    //         let (cl, _max): (u8, f64) = weight.iter().enumerate().fold(
+    //             (0, -1.),
+    //             |(i, m), (j, &w)| if m < w { (j as u8, w) } else { (i, m) },
+    //         );
+    //         cl
+    //     })
+    //     .collect()
 }
