@@ -86,6 +86,15 @@ fn main() -> std::io::Result<()> {
                 .multiple(true)
                 .help("Output debug to the standard error."),
         )
+        .arg(
+            Arg::with_name("limit")
+                .short("l")
+                .required(false)
+                .value_name("LIMIT")
+                .help("Maximum Execution time(sec)")
+                .default_value(&"3600")
+                .takes_value(true),
+        )
         .get_matches();
     let level = match matches.occurrences_of("verbose") {
         0 => "warn",
@@ -136,6 +145,10 @@ fn main() -> std::io::Result<()> {
         .value_of("threads")
         .and_then(|num| num.parse().ok())
         .unwrap();
+    let limit: u64 = matches
+        .value_of("limit")
+        .and_then(|num| num.parse().ok())
+        .unwrap();
     rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
         .build_global()
@@ -167,6 +180,7 @@ fn main() -> std::io::Result<()> {
         &config,
         &mock_ans,
         cl,
+        limit,
     )
     .into_iter()
     .collect();

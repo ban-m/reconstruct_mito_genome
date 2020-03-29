@@ -53,6 +53,7 @@ pub fn decompose(
     config: &Config,
     answer: &HashMap<String, u8>,
     cluster_num: usize,
+    limit: u64,
 ) -> Vec<(String, u8)> {
     let datasize = encoded_reads.len();
     let mut unassigned_reads: Vec<_> = vec![];
@@ -100,11 +101,6 @@ pub fn decompose(
     let unassigned_reads: Vec<_> = unassigned_reads
         .into_iter()
         .filter_map(|mut read| {
-            // let crs: Vec<_> = initial_clusters
-            //     .iter()
-            //     .filter(|c| c.is_spanned_by(&read))
-            //     .map(|c| c.id as u8)
-            //     .collect();
             let seq: Vec<_> = read
                 .seq()
                 .iter()
@@ -116,7 +112,8 @@ pub fn decompose(
             }
             *read.seq_mut() = seq;
             if !read.is_empty() {
-                // forbidden.push(crs);
+                //forbidden.push(crs);
+                forbidden.push(vec![]);
                 Some(read)
             } else {
                 None
@@ -135,7 +132,7 @@ pub fn decompose(
         })
         .collect();
     let dataset = vec![assigned_reads, unassigned_reads].concat();
-    assert_eq!(forbidden.len(), dataset.len());
+    // assert_eq!(forbidden.len(), dataset.len());
     let total_units = dataset.iter().map(|read| read.seq().len()).sum::<usize>();
     debug!(
         "There are {} reads and {} units.",
@@ -148,13 +145,13 @@ pub fn decompose(
         .collect();
     let predicts = clustering_chunking(
         &dataset,
-        &labels,
+        (&labels, &answer),
         &forbidden,
         initial_clusters,
         cluster_num,
         &contigs,
-        &answer,
         &config,
+        limit,
     );
     dataset
         .into_iter()
@@ -370,13 +367,13 @@ fn sim(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
 /// Clustering after chunking the reference into several chunks.
 pub fn clustering_chunking(
     data: &[ERead],
-    label: &[u8],
+    (label, answer): (&[u8], &[u8]),
     forbidden: &[Vec<u8>],
     initial_clusters: &[Cluster],
     cluster_num: usize,
     contigs: &[usize],
-    answer: &[u8],
     c: &Config,
+    limit: u64,
 ) -> Vec<u8> {
     let windows: Vec<_> = contigs
         .iter()
@@ -407,7 +404,7 @@ pub fn clustering_chunking(
             assert_eq!(data.len(), label.len() + answer.len());
             let predictions = {
                 let (da, la, fo, an) = (&data, &label, &forbidden, &answer);
-                clustering(da, la, fo, cluster_num, an, c)
+                clustering(da, (la, an), fo, cluster_num, limit, c)
             };
             assert_eq!(predictions.len(), data.len());
             (0..cluster_num)
@@ -473,17 +470,17 @@ pub fn clustering_chunking(
 
 pub fn clustering(
     data: &[ERead],
-    label: &[u8],
+    labels: (&[u8], &[u8]),
     forbidden: &[Vec<u8>],
     cluster_num: usize,
-    answer: &[u8],
+    limit: u64,
     c: &Config,
 ) -> Vec<u8> {
     assert_eq!(forbidden.len(), data.len());
-    assert_eq!(label.len() + answer.len(), data.len());
-    use poa_clustering::DEFAULT_ALN;
-    poa_clustering::gibbs_sampling(data, label, forbidden, cluster_num, answer, c, &DEFAULT_ALN)
-    // let weights = soft_clustering_poa(data, label, forbidden, cluster_num, answer, c, &DEFAULT_ALN);
+    assert_eq!((labels.0).len() + (labels.1).len(), data.len());
+    use poa_clustering::{gibbs_sampling, DEFAULT_ALN};
+    gibbs_sampling(data, labels, forbidden, cluster_num, limit, c, &DEFAULT_ALN)
+    // let weights = soft_clustering_poa(data, labels, forbidden, cluster_num, c, &DEFAULT_ALN);
     // debug!("WEIGHTS\tPrediction. Dump weights");
     // assert_eq!(weights.len(), label.len() + answer.len());
     // for (weight, ans) in weights.iter().zip(label.iter().chain(answer.iter())) {

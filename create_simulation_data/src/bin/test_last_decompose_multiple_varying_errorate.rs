@@ -11,6 +11,7 @@ use dbg_hmm::gen_sample;
 use last_decompose::{clustering, ERead};
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
+const LIMIT: u64 = 3600;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("info")).init();
     rayon::ThreadPoolBuilder::new()
@@ -155,7 +156,7 @@ fn benchmark(
         })
         .collect();
     let forbidden = vec![vec![]; data.len()];
-    let em_pred = clustering(&data, &label, &forbidden, clusters, &answer, c);
+    let em_pred = clustering(&data, (&label, &answer), &forbidden, clusters, LIMIT, c);
     let mut result = vec![vec![0; clusters]; clusters];
     for (pred, ans) in em_pred.into_iter().zip(answer) {
         result[pred as usize][ans as usize] += 1;

@@ -13,7 +13,7 @@ const INIT_BETA: f64 = 0.2;
 const NUM_OF_BALL: usize = 100;
 const SMALL_WEIGHT: f64 = 0.000_000_000_0001;
 // const WEIGHT_PRIOR: f64 = 5.;
-const REP_NUM: usize = 15;
+const REP_NUM: usize = 10;
 const POA_PRIOR: f64 = 0.5;
 const PICK_PRIOR: f64 = 0.3;
 const GIBBS_PRIOR: f64 = 0.001;
@@ -242,7 +242,7 @@ fn update_assignments<R: Rng>(
     cluster_num: usize,
     betas: &[Vec<Vec<f64>>],
     config: &Config,
-) -> bool {
+) -> u32 {
     let choises: Vec<_> = (0..cluster_num).map(|e| e as u8).collect();
     let ws = get_cluster_fraction(assignments, sampled, cluster_num);
     let seeds: Vec<u64> = rng.sample_iter(Standard).take(data.len()).collect();
@@ -283,11 +283,11 @@ fn update_assignments<R: Rng>(
             let chosen = *choises
                 .choose_weighted(&mut rng, |k| weights[*k as usize] + GIBBS_PRIOR)
                 .unwrap();
-            let is_the_same = *asn == chosen;
+            let is_the_same = if *asn == chosen { 0 } else { 1 };
             *asn = chosen;
             is_the_same
         })
-        .fold(true, |x, y| x & y)
+        .sum::<u32>()
 }
 
 fn add(mut betas: Vec<Vec<Vec<f64>>>, y: Vec<Vec<Vec<f64>>>, rep: usize) -> Vec<Vec<Vec<f64>>> {
@@ -302,12 +302,43 @@ fn add(mut betas: Vec<Vec<Vec<f64>>>, y: Vec<Vec<Vec<f64>>>, rep: usize) -> Vec<
     betas
 }
 
+fn get_variants<F, R: Rng>(
+    data: &[Read],
+    asn: &[u8],
+    (cluster_num, chain_len): (usize, usize),
+    rng: &mut R,
+    config: &Config,
+    param: (i32, i32, &F),
+    beta: f64,
+) -> (Vec<Vec<Vec<f64>>>, f64)
+where
+    F: Fn(u8, u8) -> i32 + std::marker::Sync,
+{
+    let falses = vec![false; data.len()];
+    let init: Vec<Vec<_>> = (0..cluster_num)
+        .map(|i| (0..i).map(|_| vec![0.; chain_len]).collect())
+        .collect();
+    let (variants, prev_lks) = (0..REP_NUM)
+        .map(|_| {
+            let ws = get_cluster_fraction(asn, &falses, cluster_num);
+            let ms = get_models(&data, asn, &falses, cluster_num, chain_len, rng, param);
+            variant_calling::variant_calling_all_pairs(&ms, &data, config, &ws)
+        })
+        .fold((init, vec![]), |(xs, mut ps), (y, q)| {
+            ps.push(q);
+            (add(xs, y, REP_NUM), ps)
+        });
+    let prev_lk = crate::utils::logsumexp(&prev_lks) - (REP_NUM as f64).ln();
+    let betas = normalize_weights(&variants, beta);
+    (betas, prev_lk)
+}
+
 pub fn gibbs_sampling<F>(
     data: &[ERead],
-    label: &[u8],
+    (label, answer): (&[u8], &[u8]),
     _forbidden: &[Vec<u8>],
     cluster_num: usize,
-    answer: &[u8],
+    limit: u64,
     config: &poa_hmm::Config,
     aln: &AlnParam<F>,
 ) -> Vec<u8>
@@ -328,60 +359,42 @@ where
         .copied()
         .chain((0..data.len() - label.len()).map(|_| rng.gen_range(0, cluster_num) as u8))
         .collect();
-    let mut beta = INIT_BETA;
-    let falses = vec![false; data.len()];
+    let mut beta = 1.;
     let mut count = 0;
     let asn = &mut assignments;
     let start = std::time::Instant::now();
+    let mut pick_prob: f64 = 0.01;
+    let mut lk = std::f64::NEG_INFINITY;
+    let tuple = (cluster_num, chain_len);
     while count < 2 {
-        let (betas, prev_lk) = {
-            let init: Vec<Vec<_>> = (0..cluster_num)
-                .map(|i| (0..i).map(|_| vec![0.; chain_len]).collect())
-                .collect();
-            let (variants, prev_lks) = (0..REP_NUM)
-                .map(|_| {
-                    let ws = get_cluster_fraction(asn, &falses, cluster_num);
-                    let ms = get_models(&data, asn, &falses, cluster_num, chain_len, rng, param);
-                    variant_calling::variant_calling_all_pairs(&ms, &data, config, &ws)
-                })
-                .fold((init, vec![]), |(xs, mut ps), (y, q)| {
-                    ps.push(q);
-                    (add(xs, y, REP_NUM), ps)
-                });
-            let prev_lk = crate::utils::logsumexp(&prev_lks) - (REP_NUM as f64).ln();
-            let betas = normalize_weights(&variants, beta);
-            (betas, prev_lk)
-        };
-        let has_not_changed = (0..50)
+        let (betas, next_lk) = get_variants(&data, asn, tuple, rng, config, param, beta);
+        if lk < next_lk {
+            beta = (beta * BETA_INCREASE).min(100.);
+        } else {
+            beta = (beta * BETA_DECREASE).min(100.);
+        }
+        info!("LK\t{}\t{:.3}\t{:.3}\t{:.1}", count, next_lk, lk, beta);
+        lk = next_lk;
+        let changed_num = (0..pick_prob.recip().ceil() as usize)
             .map(|_| {
                 let sampled: Vec<bool> = (0..data.len())
                     .map(|i| match i.cmp(&label.len()) {
                         std::cmp::Ordering::Less => false,
-                        _ => rng.gen_bool(0.03),
+                        _ => rng.gen_bool(pick_prob),
                     })
                     .collect();
                 let ms = get_models(&data, asn, &sampled, cluster_num, chain_len, rng, param);
                 update_assignments(&ms, asn, &data, &sampled, rng, cluster_num, &betas, config)
             })
-            .fold(true, |x, y| x & y);
-        report_gibbs(asn, answer, label, count, id, cluster_num, beta);
-        let lk = {
-            let ws = get_cluster_fraction(asn, &falses, cluster_num);
-            let ms = get_models(&data, asn, &falses, cluster_num, chain_len, rng, param);
-            variant_calling::get_lk(&ms, &data, config, &ws)
-        };
-        info!("LK\t{}\t{:.3}\t{:.3}", count, prev_lk, lk);
-        if prev_lk < lk {
-            beta = (beta * BETA_INCREASE).max(100.);
-        } else {
-            beta = (beta * BETA_DECREASE).max(100.);
-        };
-        if has_not_changed {
+            .sum::<u32>();
+        if changed_num <= (data.len() as u32 / 100).max(1) {
             count += 1;
         } else {
             count = 0;
         }
-        if (std::time::Instant::now() - start).as_secs() > 3600 {
+        pick_prob = (pick_prob + 0.0005).min(0.10);
+        report_gibbs(asn, answer, label, count, id, cluster_num, pick_prob);
+        if (std::time::Instant::now() - start).as_secs() > limit {
             info!("Break by timelimit:{:?}", std::time::Instant::now() - start);
             break;
         }
@@ -412,10 +425,9 @@ fn report_gibbs(asn: &[u8], answer: &[u8], label: &[u8], lp: usize, id: u64, cl:
 }
 pub fn soft_clustering_poa<F>(
     data: &[ERead],
-    label: &[u8],
+    (label, answer): (&[u8], &[u8]),
     forbidden: &[Vec<u8>],
     cluster_num: usize,
-    answer: &[u8],
     config: &poa_hmm::Config,
     aln: &AlnParam<F>,
 ) -> Vec<Vec<f64>>

@@ -7,6 +7,7 @@ extern crate rand_xoshiro;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
+const LIMIT: u64 = 7200;
 use dbg_hmm::gen_sample;
 use last_decompose::{clustering, ERead};
 use rand::SeedableRng;
@@ -131,7 +132,7 @@ fn benchmark(
         debug!("Probs:[{}]", probs.join(","));
     };
     let forbidden = vec![vec![]; data.len()];
-    let em_pred = clustering(&data, &label, &forbidden, clusters, &answer, c);
+    let em_pred = clustering(&data, (&label, &answer), &forbidden, clusters, LIMIT, c);
     assert_eq!(em_pred.len(), label.len() + answer.len());
     let mut result = vec![vec![0; clusters]; clusters];
     //let mut result = vec![vec![0; clusters + 1]; clusters + 1];
