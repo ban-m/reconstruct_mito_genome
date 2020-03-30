@@ -3,7 +3,7 @@
 <html>
   <head>
     <script src="https://d3js.org/d3.v5.min.js"></script>
-    <link rel="stylesheet" type="text/css" href="/scripts/style.css">
+    <link rel="stylesheet" type="text/css" href="/viewer/style.css">
   </head>
   <body>
     <div class = "title">
@@ -11,10 +11,10 @@
     </div>
     <div id = "plot"></div>
     <div id = "info"></div>
-    <script src="/scripts/drawer_lightweight.js"></script>
+    <script src="/script/drawer.js"></script>
     <script>
-      const dataset = "/result/complex1/viwer/data.json";
-      const repeats = "/result/complex1/viwer/repeats.json";
+      const dataset = "/viewer/data.json";
+      const repeats = "/viewer/repeats.json";
       const unit_length = 100;
       plotData(dataset,repeats,unit_length);
     </script>

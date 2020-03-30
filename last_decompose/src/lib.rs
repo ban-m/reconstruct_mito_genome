@@ -27,6 +27,7 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 use std::collections::{HashMap, HashSet};
+pub mod annotate_contigs_to_reference;
 pub mod d3_data;
 pub mod error_profile;
 pub mod poa_clustering;
@@ -325,33 +326,40 @@ fn select_within(
 }
 
 fn find_matching(prev: &[HashSet<String>], after: &[HashSet<String>]) -> Vec<(usize, usize)> {
+    let node1 = prev.len();
+    let node2 = after.len();
+    debug!("Dump graph");
     let graph: Vec<Vec<(usize, f64)>> = prev
         .iter()
-        .map(|cl1| {
+        .enumerate()
+        .map(|(from, cl1)| {
             after
                 .iter()
                 .enumerate()
-                .map(|(idx, cl2)| (idx, sim(cl1, cl2)))
+                .filter_map(|(to, cl2)| {
+                    let sim = sim(cl1, cl2);
+                    debug!("{}->({:.3})->{}", from, sim, to);
+                    if sim > CONNECTION_THR {
+                        Some((to, sim))
+                    } else {
+                        None
+                    }
+                })
                 .collect()
         })
         .collect();
-    debug!("Dump graph");
-    for (idx, edges) in graph.iter().enumerate() {
-        for (to, weight) in edges.iter() {
-            debug!("{}->({:.3})->{}", idx, weight, to);
-        }
-    }
-    let res: Vec<(usize, usize)> = graph
-        .into_iter()
-        .enumerate()
-        .flat_map(|(cl1, cl1_edges)| {
-            cl1_edges
-                .into_iter()
-                .filter(|&(_, sim)| sim > CONNECTION_THR)
-                .map(|(cl2, _)| (cl1, cl2))
-                .collect::<Vec<(usize, usize)>>()
-        })
-        .collect();
+    let res = bipartite_matching::maximum_weight_matching(node1, node2, &graph);
+    // let res: Vec<(usize, usize)> = graph
+    //     .into_iter()
+    //     .enumerate()
+    //     .flat_map(|(cl1, cl1_edges)| {
+    //         cl1_edges
+    //             .into_iter()
+    //             .filter(|&(_, sim)| sim > CONNECTION_THR)
+    //             .map(|(cl2, _)| (cl1, cl2))
+    //             .collect::<Vec<(usize, usize)>>()
+    //     })
+    //     .collect();
     debug!("Path Selected.");
     for &(from, to) in &res {
         debug!("{}-({})-{}", from, sim(&prev[from], &after[to]), to);

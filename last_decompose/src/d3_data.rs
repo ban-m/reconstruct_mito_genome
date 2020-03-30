@@ -1,7 +1,7 @@
-use serde::*;
 use super::find_breakpoint::{Cluster, ReadClassify};
 use last_tiling::{Contigs, EncodedRead};
-
+use serde::*;
+use std::collections::HashMap;
 pub fn convert_to_d3_data(
     contigs: &Contigs,
     reads: &[EncodedRead],
@@ -14,6 +14,22 @@ pub fn convert_to_d3_data(
         reads,
         clusters: clusters.to_vec(),
     }
+}
+
+pub fn convert_result_to_d3_data(
+    contigs: &Contigs,
+    reads: &[EncodedRead],
+    assignments: &HashMap<String, u8>,
+) -> ResultSummary {
+    let contigs = summarize_contig(&contigs, &reads);
+    let reads = summarize_reads_with_assignments(reads, assignments);
+    ResultSummary { contigs, reads }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResultSummary {
+    contigs: Vec<Contig>,
+    reads: Vec<Read>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,6 +118,31 @@ fn summarize_reads(reads: &[last_tiling::EncodedRead], clusters: &[Cluster]) -> 
                 })
                 .collect();
             let cluster = get_cluster(read, clusters);
+            Read {
+                name,
+                units,
+                cluster,
+            }
+        })
+        .collect()
+}
+fn summarize_reads_with_assignments(
+    reads: &[EncodedRead],
+    assign: &HashMap<String, u8>,
+) -> Vec<Read> {
+    reads
+        .iter()
+        .map(|read| {
+            let name = read.id().to_string();
+            let units = read
+                .seq()
+                .iter()
+                .map(|e| match e {
+                    last_tiling::unit::ChunkedUnit::Gap(gp) => Unit::G(gp.len()),
+                    last_tiling::unit::ChunkedUnit::En(en) => Unit::E(en.contig, en.unit),
+                })
+                .collect();
+            let cluster = assign.get(&name).map(|&e| e as i32).unwrap_or(-1);
             Read {
                 name,
                 units,

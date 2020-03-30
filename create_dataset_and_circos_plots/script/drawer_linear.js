@@ -452,10 +452,10 @@ const calcCoverageOf = (reads, contigs, unit_length)=>{
     return results;
 };
 
-const plotData = (dataset, repeats, unit_length) =>
-      Promise.all([dataset, repeats]
+const plotData = (dataset, repeats, alignments, unit_length) =>
+      Promise.all([dataset, repeats, alignments]
                   .map(file => d3.json(file)))
-      .then(([values, repeats]) => {
+      .then(([values, repeats, alignments]) => {
           // Unpack
           // This is array.
           const contigs = values.contigs;

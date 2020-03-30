@@ -234,7 +234,7 @@ fn main() -> std::io::Result<()> {
             writeln!(&mut writer, "{}\t{}\t{}", contig, pos, count)?;
         }
     }
-    let dir = format!("{}/viwer", output_dir);
+    let dir = format!("{}/viewer", output_dir);
     if let Err(why) = std::fs::create_dir_all(&dir) {
         error!("Error Occured while outputing reads.");
         error!("{:?}", why);
@@ -250,5 +250,11 @@ fn main() -> std::io::Result<()> {
     let mut writer = BufWriter::new(std::fs::File::create(&file)?);
     let repeats = serde_json::ser::to_string(&repeats).unwrap();
     writeln!(&mut writer, "{}", repeats)?;
+    let file = format!("{}/viewer.html", dir);
+    let mut writer = BufWriter::new(std::fs::File::create(&file)?);
+    writeln!(&mut writer, "{}", mito_assembler::template::TEMPLATE)?;
+    let file = format!("{}/style.css", dir);
+    let mut writer = BufWriter::new(std::fs::File::create(&file)?);
+    writeln!(&mut writer, "{}", mito_assembler::template::STYLE)?;
     Ok(())
 }

@@ -11,12 +11,14 @@
     </div>
     <div id = "plot"></div>
     <div id = "info"></div>
-    <script src="/script/drawer.js"></script>
+    <script src="/script/drawer_linear.js"></script>
     <script>
-      const dataset = "/data/SED_d3.json";
-      const repeats = "/data/SED_repeats.json";
-      const unit_length = 100;
-      plotData(dataset,repeats,unit_length);
+      const dataset = "/viewer/d3.json";
+      const repeats = "/viewer/repeats.json";
+      const alignments = "/viewer/alignmnets.json";
+      // UNIT_LENGTH should be replaced by some program such as `sed.`
+      const unit_length = UNIT_LENGTH;
+      plotData(dataset,repeats,alignments, unit_length);
     </script>
   </body>
 </html>

@@ -8,6 +8,7 @@ use last_decompose::find_breakpoint::Cluster;
 use last_decompose::find_breakpoint::COVERAGE_THR;
 use last_tiling::{Contigs, EncodedRead};
 use std::collections::HashMap;
+pub mod template;
 pub fn dump_viewer(
     results: &HashMap<String, u8>,
     reads: &[EncodedRead],
