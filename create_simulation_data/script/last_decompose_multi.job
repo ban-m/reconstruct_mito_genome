@@ -26,4 +26,11 @@ RUST_LOG=debug ./target/release/test_last_decompose_multiple \
     ${TEST_NUM} ${COVERAGE} 100 0.002 ${PROBS} >> ./result/multi_test_gibbs.tsv\
     2>> ./logfiles/multi_test_gibbs.log
 
+TEST_NUM=240
+COVERAGE=0
+PROBS="0.16 0.16 0.16 0.16 0.16 0.16 0.0"
+RUST_LOG=debug ./target/release/test_last_decompose_multiple \
+    ${TEST_NUM} ${COVERAGE} 100 0.002 ${PROBS} >> ./result/multi_test_gibbs.tsv\
+    2>> ./logfiles/multi_test_gibbs.log
+
 

@@ -16,7 +16,7 @@ const SMALL_WEIGHT: f64 = 0.000_000_000_0001;
 const REP_NUM: usize = 10;
 const POA_PRIOR: f64 = 0.5;
 const PICK_PRIOR: f64 = 0.3;
-const GIBBS_PRIOR: f64 = 0.001;
+const GIBBS_PRIOR: f64 = 0.02;
 use crate::digamma::digamma;
 fn entropy(xs: &[f64]) -> f64 {
     assert!(xs.iter().all(|&x| x <= 1.000_000_1 && 0. <= x), "{:?}", xs);
@@ -211,12 +211,16 @@ where
     F: Fn(u8, u8) -> i32 + std::marker::Sync,
 {
     let mut chunks: Vec<_> = vec![vec![vec![]; chain_len]; cluster_num];
-    for ((read, assign), &b) in data.iter().zip(assignments.iter()).zip(sampled) {
+    let choises: Vec<_> = (0..cluster_num).collect();
+    for ((read, &assign), &b) in data.iter().zip(assignments.iter()).zip(sampled) {
         if b {
             continue;
         }
+        let chosen = *choises
+            .choose_weighted(rng, |&k| if k as u8 == assign { 1. } else { GIBBS_PRIOR })
+            .unwrap();
         for &(pos, ref unit) in read.iter() {
-            chunks[*assign as usize][pos].push(unit.as_slice())
+            chunks[chosen][pos].push(unit.as_slice())
         }
     }
     let seeds: Vec<_> = rng.sample_iter(Standard).take(chain_len).collect();
@@ -281,7 +285,7 @@ fn update_assignments<R: Rng>(
                 .collect();
             let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(s);
             let chosen = *choises
-                .choose_weighted(&mut rng, |k| weights[*k as usize] + GIBBS_PRIOR)
+                .choose_weighted(&mut rng, |k| weights[*k as usize])
                 .unwrap();
             let is_the_same = if *asn == chosen { 0 } else { 1 };
             *asn = chosen;
@@ -335,8 +339,8 @@ where
 
 pub fn gibbs_sampling<F>(
     data: &[ERead],
-    (label, answer): (&[u8], &[u8]),
-    _forbidden: &[Vec<u8>],
+    labels: (&[u8], &[u8]),
+    f: &[Vec<u8>],
     cluster_num: usize,
     limit: u64,
     config: &poa_hmm::Config,
@@ -348,30 +352,54 @@ where
     if cluster_num <= 1 {
         return vec![0; data.len()];
     }
+    let lim = limit / 5;
+    let mut assignments = vec![];
+    for i in 1..=5 {
+        let pick_prob = (2 * i) as f64 / 100.;
+        let params = (lim, pick_prob, i * 9999 * data.len() as u64);
+        let (res, end) = gibbs_sampling_inner(data, labels, f, cluster_num, params, config, aln);
+        assignments = res;
+        if end {
+            break;
+        }
+    }
+    assignments
+}
+fn gibbs_sampling_inner<F>(
+    data: &[ERead],
+    (label, answer): (&[u8], &[u8]),
+    _forbidden: &[Vec<u8>],
+    cluster_num: usize,
+    (limit, pick_prob, seed): (u64, f64, u64),
+    config: &poa_hmm::Config,
+    aln: &AlnParam<F>,
+) -> (Vec<u8>, bool)
+where
+    F: Fn(u8, u8) -> i32 + std::marker::Sync,
+{
     let param = (aln.ins, aln.del, &aln.score);
     let (matrix_pos, chain_len) = to_pos(data);
     let data = serialize(data, &matrix_pos);
     let id: u64 = thread_rng().gen::<u64>() % 100_000;
-    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(data.len() as u64 * 99);
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let rng = &mut rng;
     let mut assignments: Vec<_> = label
         .iter()
         .copied()
         .chain((0..data.len() - label.len()).map(|_| rng.gen_range(0, cluster_num) as u8))
         .collect();
-    let mut beta = 1.;
+    let mut beta = (cluster_num as f64).powi(2) / 4.;
     let mut count = 0;
     let asn = &mut assignments;
     let start = std::time::Instant::now();
-    let mut pick_prob: f64 = 0.01;
     let mut lk = std::f64::NEG_INFINITY;
     let tuple = (cluster_num, chain_len);
     while count < 2 {
         let (betas, next_lk) = get_variants(&data, asn, tuple, rng, config, param, beta);
         if lk < next_lk {
-            beta = (beta * BETA_INCREASE).min(100.);
+            beta = beta * BETA_INCREASE;
         } else {
-            beta = (beta * BETA_DECREASE).min(100.);
+            beta = beta * BETA_DECREASE;
         }
         info!("LK\t{}\t{:.3}\t{:.3}\t{:.1}", count, next_lk, lk, beta);
         lk = next_lk;
@@ -392,14 +420,13 @@ where
         } else {
             count = 0;
         }
-        pick_prob = (pick_prob + 0.0005).min(0.10);
         report_gibbs(asn, answer, label, count, id, cluster_num, pick_prob);
         if (std::time::Instant::now() - start).as_secs() > limit {
             info!("Break by timelimit:{:?}", std::time::Instant::now() - start);
-            break;
+            return (assignments, false);
         }
     }
-    assignments
+    (assignments, true)
 }
 
 fn report_gibbs(asn: &[u8], answer: &[u8], label: &[u8], lp: usize, id: u64, cl: usize, beta: f64) {
