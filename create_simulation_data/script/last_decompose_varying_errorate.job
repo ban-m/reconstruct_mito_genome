@@ -15,15 +15,6 @@ OUTLOG_PREFIX=./logfiles/last_decompose_poa_${SGE_TASK_ID}
 
 echo "-----start-----" >> ${OUTPUT}
 
-# for seed in `seq 0 10`
-# do
-#seed=12982
-# seed=129823
-# ./target/release/test_last_decompose_multiple_varying_errorate \
-#     ${seed} 0.5 0.5 >> ./result/ve_test.tsv \
-#     2>> ./logfiles/ve_test.log
-# done
-
 COVERAGE=0
 PROBS="0.5 0.5"
 seed=1213

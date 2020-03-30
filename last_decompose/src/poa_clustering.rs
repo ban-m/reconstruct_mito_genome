@@ -365,6 +365,29 @@ where
     }
     assignments
 }
+
+fn print_lk_gibbs<F>(
+    (cluster_num, chain_len): (usize, usize),
+    asns: &[u8],
+    data: &[Read],
+    (label, answer): (&[u8], &[u8]),
+    id: u64,
+    name: &str,
+    param: (i32, i32, &F),
+    config: &Config,
+) where
+    F: Fn(u8, u8) -> i32 + std::marker::Sync,
+{
+    let falses = vec![false; data.len()];
+    let ws = get_cluster_fraction(asns, &falses, cluster_num);
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(id);
+    let models = get_models(data, asns, &falses, cluster_num, chain_len, &mut rng, param);
+    for (idx, (read, ans)) in data.iter().skip(label.len()).zip(answer).enumerate() {
+        let lks = calc_lks(&models, &ws, read, config).join("\t");
+        trace!("FEATURE\t{}\t{}\t{}\t{}\t{}", name, id, idx, ans, lks,);
+    }
+}
+
 fn gibbs_sampling_inner<F>(
     data: &[ERead],
     (label, answer): (&[u8], &[u8]),
@@ -394,6 +417,10 @@ where
     let start = std::time::Instant::now();
     let mut lk = std::f64::NEG_INFINITY;
     let tuple = (cluster_num, chain_len);
+    if log_enabled!(log::Level::Trace) {
+        print_lk_gibbs(tuple, asn, &data, (label, answer), id, "B", param, config);
+    }
+    let mut loop_num = 0;
     while count < 2 {
         let (betas, next_lk) = get_variants(&data, asn, tuple, rng, config, param, beta);
         if lk < next_lk {
@@ -404,7 +431,7 @@ where
         info!("LK\t{}\t{:.3}\t{:.3}\t{:.1}", count, next_lk, lk, beta);
         lk = next_lk;
         let changed_num = (0..pick_prob.recip().ceil() as usize)
-            .map(|_| {
+            .map(|l| {
                 let sampled: Vec<bool> = (0..data.len())
                     .map(|i| match i.cmp(&label.len()) {
                         std::cmp::Ordering::Less => false,
@@ -412,6 +439,14 @@ where
                     })
                     .collect();
                 let ms = get_models(&data, asn, &sampled, cluster_num, chain_len, rng, param);
+                if log_enabled!(log::Level::Trace) {
+                    let falses = vec![false; data.len()];
+                    let ws = get_cluster_fraction(asn, &falses, cluster_num);
+                    let ms = get_models(&data, asn, &falses, cluster_num, chain_len, rng, param);
+                    let lk = variant_calling::get_lk(&ms, &data, config, &ws);
+                    loop_num += 1;
+                    trace!("DUMP\t{}\t{}\t{}\t{}", id, loop_num, l, lk);
+                }
                 update_assignments(&ms, asn, &data, &sampled, rng, cluster_num, &betas, config)
             })
             .sum::<u32>();
@@ -425,6 +460,9 @@ where
             info!("Break by timelimit:{:?}", std::time::Instant::now() - start);
             return (assignments, false);
         }
+    }
+    if log_enabled!(log::Level::Trace) {
+        print_lk_gibbs(tuple, asn, &data, (label, answer), id, "A", param, config);
     }
     (assignments, true)
 }

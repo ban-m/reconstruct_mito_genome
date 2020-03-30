@@ -92,7 +92,7 @@ fn main() -> std::io::Result<()> {
                 .required(false)
                 .value_name("LIMIT")
                 .help("Maximum Execution time(sec)")
-                .default_value(&"3600")
+                .default_value(&"7200")
                 .takes_value(true),
         )
         .get_matches();
