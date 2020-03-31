@@ -494,7 +494,7 @@ pub fn clustering_chunking(
                 for (k, initial_cluster) in initial_clusters.iter().enumerate() {
                     let reads = initial_cluster.ids();
                     let inter_i = components[i].intersection(&reads).count();
-                    let inter_j = components[i].intersection(&reads).count();
+                    let inter_j = components[j].intersection(&reads).count();
                     debug!("{} shares {} reads with the init-cluster {}", i, inter_i, k);
                     debug!("{} shares {} reads with the init-cluster {}", j, inter_j, k);
                     if inter_i as f64 > CONNECTION_THR && inter_j as f64 > CONNECTION_THR {
