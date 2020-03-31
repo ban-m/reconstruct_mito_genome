@@ -13,7 +13,7 @@ CORES=24
 MIN_CLUSTER=$4
 ROOT=${PWD}
 
-mkdir -p ${OUTPUT}
+
 # ---- Alignment -----
 mkdir -p ${OUTPUT}/last_db
 cd ${OUTPUT}/last_db
@@ -25,10 +25,58 @@ last-train -P${CORES} -Q0 reference ${REFERENCE} > self.matrix
 lastal -f tab -P${CORES} -R00 -Q0 -p self.matrix reference ${REFERENCE} > self.tab
 cd ${ROOT}
 
+
+
 # ----- Prediction ------
-mmmm --alignments ${OUTPUT}/last_db/alignments.tab --output ${OUTPUT} \
+mmmm decompose --alignments ${OUTPUT}/last_db/alignments.tab --output ${OUTPUT} \
      --reads ${READ} --contigs ${REFERENCE} \
      --self_alignments ${OUTPUT}/last_db/self.tab \
      --cluster_num ${MIN_CLUSTER} --threads ${CORES} \
      -vv
+
+
+
+# ---- Assembly(by Canu) ----
+for reads in ${OUTPUT}/*.fasta
+do
+    ASM_PATH=${reads%%.fasta}
+    INDEX=${ASM_PATH##*/}
+    mkdir -p ${ASM_PATH}
+    canu \
+        useGrid=false\
+	    genomeSize=200K \
+        -d $ASM_PATH -p $INDEX -pacbio-raw $reads
+done
+
+
+
+# ---- Align back all reads ----
+cargo run --release --bin collect_contigs -- ${OUTPUT}
+for reads in ${OUTPUT}/*.fasta
+do
+    CONTIGS=${reads%%.fasta}.contigs.fasta
+    cd ${OUTPUT}/last_db
+    lastdb -R00 temp ${CONTIGS}
+    last-train -P${CORES} -Q0 temp ${reads} > temp.matrix
+    lastal -f maf -P${CORES} -R00 -Q0 -p temp.matrix temp ${reads} |\
+        last-split | maf-convert tab --join 1000 > ${reads%%.fasta}.reads.aln.tab
+    last-train -P${CORES} -Q0 reference ${CONTIGS} > temp.matrix
+    lastal -f tab -P ${CORES} -R00 -Q0 -p temp.matrix reference ${CONTIGS} \
+           > ${reads%%.fasta}.contigs.aln.tab
+    cd ${ROOT}
+done
+
+cat ${OUTPUT}/*.reads.aln.tab > ${OUTPUT}/reads.aln.tab
+cat ${OUTPUT}/*.contigs.aln.tab > ${OUTPUT}/contigs.aln.tab
+
+
+# ---- Create viewer files -----
+mmmm create_viewer --assignments ${OUTPUT}/readlist.tsv \
+     --contig_aln ${OUTPUT}/contigs.aln.tab \
+     --contigs ${OUTPUT}/contigs.fasta \
+     --output_dir ${OUTPUT}/viewer/ \
+     --read_aln ${OUTPUT}/reads.aln.tab \
+     --reads ${READ} \
+     --reference ${REFERENCE}
+
 

@@ -311,6 +311,7 @@ fn select_within(
     let mut shorter_reads = vec![];
     let border = label.len();
     for (idx, read) in data.iter().enumerate() {
+        let original_len = read.seq().len();
         let read = read.clone_within(contig, start, end);
         if read.seq().len() > MIN_LEN / last_tiling::UNIT_SIZE {
             s_data.push(read);
@@ -320,7 +321,7 @@ fn select_within(
             } else {
                 s_answer.push(answer[idx - border]);
             }
-        } else {
+        } else if read.seq().len() > original_len / 2 {
             shorter_reads.push(read);
         }
     }
@@ -414,18 +415,20 @@ pub fn clustering_chunking(
             assert_eq!(data.len(), label.len() + answer.len());
             let predictions = {
                 let (da, la, fo, an) = (&data, &label, &forbidden, &answer);
+                // clustering(da, (la, an), fo, cluster_num, limit, c)
                 let mut pred = clustering(da, (la, an), fo, cluster_num, limit, c);
                 let pred_short = predict(&data, &pred, cluster_num, c, &short, 0);
                 pred.extend(pred_short);
                 pred
             };
-            assert_eq!(predictions.len(), data.len() + short.len());
+            // assert_eq!(predictions.len(), data.len() + short.len());
             (0..cluster_num)
                 .map(|cluster_idx| {
                     let cluster_idx = cluster_idx as u8;
                     predictions
                         .iter()
                         .zip(data.iter().chain(short.iter()))
+                        // .zip(data.iter())
                         .filter(|(&p, _)| p == cluster_idx)
                         .map(|(_, read)| read.id().to_string())
                         .collect()
@@ -454,7 +457,7 @@ pub fn clustering_chunking(
             if fu.find(parent).unwrap() != parent {
                 return None;
             }
-            info!("Find cluster");
+            debug!("find_cluseter");
             let component = clusterings
                 .iter()
                 .enumerate()
@@ -467,7 +470,9 @@ pub fn clustering_chunking(
                             parent == p.unwrap_or(std::usize::MAX)
                         })
                         .fold(HashSet::new(), |mut acc, (j, cluster)| {
-                            info!("{}:{}", w, j);
+                            if cluster.len() > find_breakpoint::COVERAGE_THR {
+                                info!("{}:{}", w, j);
+                            }
                             acc.extend(cluster.clone());
                             acc
                         })
@@ -478,6 +483,7 @@ pub fn clustering_chunking(
                 });
             Some(component)
         })
+        .filter(|component| component.len() > find_breakpoint::COVERAGE_THR)
         .collect();
     // And futher merging.
     'merge: loop {
@@ -485,12 +491,17 @@ pub fn clustering_chunking(
         debug!("Current Cluster:{}", len);
         for i in 0..len {
             for j in (i + 1)..len {
-                let union = components[i].union(&components[j]).count();
-                if union as f64 > CONNECTION_THR {
-                    debug!("Cluster {} and {} share {} reads. Merging.", i, j, union);
-                    let from = components.remove(j);
-                    components[i].extend(from);
-                    continue 'merge;
+                for (k, initial_cluster) in initial_clusters.iter().enumerate() {
+                    let reads = initial_cluster.ids();
+                    let inter_i = components[i].intersection(&reads).count();
+                    let inter_j = components[i].intersection(&reads).count();
+                    debug!("{} shares {} reads with the init-cluster {}", i, inter_i, k);
+                    debug!("{} shares {} reads with the init-cluster {}", j, inter_j, k);
+                    if inter_i as f64 > CONNECTION_THR && inter_j as f64 > CONNECTION_THR {
+                        let from = components.remove(j);
+                        components[i].extend(from);
+                        continue 'merge;
+                    }
                 }
             }
         }

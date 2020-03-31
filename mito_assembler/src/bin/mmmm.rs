@@ -7,14 +7,90 @@ extern crate serde_json;
 extern crate log;
 extern crate env_logger;
 extern crate mito_assembler;
-use clap::{App, Arg};
+use clap::{App, Arg, SubCommand};
 use last_decompose::ERead;
 use mito_assembler::dump_viewer;
-fn main() -> std::io::Result<()> {
-    let matches = App::new("MMMM")
+use std::collections::HashMap;
+use std::io::{BufWriter, Write};
+fn subcommand_create_viewer() -> App<'static, 'static> {
+    SubCommand::with_name("create_viewer")
         .version("0.1")
         .author("Bansho Masutani")
-        .about("Decomposing long reads.")
+        .about("Create Viewer for long reads.")
+        .arg(
+            Arg::with_name("reads")
+                .required(true)
+                .short("r")
+                .long("reads")
+                .value_name("READS")
+                .help("Raw long reads<FASTA>")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("contigs")
+                .required(true)
+                .short("c")
+                .long("contigs")
+                .value_name("CONTIGS")
+                .help("Assembled contigs<FASTA>")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("reference")
+                .required(true)
+                .short("f")
+                .long("reference")
+                .value_name("REFERENCE")
+                .help("The original reference<FASTA>")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("read_alignments")
+                .required(true)
+                .short("a")
+                .long("read_aln")
+                .value_name("ALIGNMENT(Read->C)")
+                .help("Alignment from reads to contigs<LastTAB>")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("contig_alignments")
+                .required(true)
+                .short("l")
+                .long("contig_aln")
+                .value_name("ALIGNMENT(C->Ref)")
+                .help("Alignments from contigs to the reference<LastTAB>")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("output_dir")
+                .required(true)
+                .short("o")
+                .long("output_dir")
+                .value_name("OUT DIR")
+                .help("Output directry.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("assignments")
+                .required(true)
+                .short("t")
+                .long("assignments")
+                .value_name("ASSIGNMENTS")
+                .help("Assignmnet of each read")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("verbose")
+                .short("v")
+                .multiple(true)
+                .help("Output debug to the standard error."),
+        )
+}
+fn subcommand_decompose() -> App<'static, 'static> {
+    SubCommand::with_name("decompose")
+        .version("0.1")
+        .about("To Decompose long reads")
         .arg(
             Arg::with_name("reads")
                 .required(true)
@@ -95,7 +171,9 @@ fn main() -> std::io::Result<()> {
                 .default_value(&"7200")
                 .takes_value(true),
         )
-        .get_matches();
+}
+
+fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
     let level = match matches.occurrences_of("verbose") {
         0 => "warn",
         1 => "info",
@@ -169,7 +247,6 @@ fn main() -> std::io::Result<()> {
         let counts = c.ids().len();
         debug!("{:?} having {} reads.", c, counts);
     }
-    use std::collections::HashMap;
     let mock_ans: HashMap<String, u8> = HashMap::new();
     let cl = cluster_num;
     let results: HashMap<String, u8> = last_decompose::decompose(
@@ -202,7 +279,6 @@ fn main() -> std::io::Result<()> {
         error!("Shutting down...");
         std::process::exit(1);
     }
-    use std::io::{BufWriter, Write};
     let readlist = format!("{}/readlist.tsv", output_dir);
     let mut readlist = BufWriter::new(std::fs::File::create(readlist)?);
     for (&cluster_id, reads) in decomposed
@@ -254,4 +330,109 @@ fn main() -> std::io::Result<()> {
     let mut writer = BufWriter::new(std::fs::File::create(&file)?);
     writeln!(&mut writer, "{}", mito_assembler::template::STYLE)?;
     Ok(())
+}
+
+fn create_viewer(matches: &clap::ArgMatches) -> std::io::Result<()> {
+    use std::io::{BufRead, BufReader};
+    let level = match matches.occurrences_of("verbose") {
+        0 => "warn",
+        1 => "info",
+        2 => "debug",
+        3 | _ => "trace",
+    };
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(level)).init();
+    let reads = matches
+        .value_of("reads")
+        .map(|file| match bio_utils::fasta::parse_into_vec(file) {
+            Ok(res) => res,
+            Err(why) => panic!("{}:{}", why, file),
+        })
+        .unwrap();
+    let contigs = matches
+        .value_of("contigs")
+        .map(|file| match bio_utils::fasta::parse_into_vec(file) {
+            Ok(res) => res,
+            Err(why) => panic!("{}:{}", why, file),
+        })
+        .unwrap();
+    let reference = matches
+        .value_of("reference")
+        .map(|file| match bio_utils::fasta::parse_into_vec(file) {
+            Ok(res) => res,
+            Err(why) => panic!("{}:{}", why, file),
+        })
+        .unwrap();
+    let read_aln = matches
+        .value_of("read_alignments")
+        .map(|file| match last_tiling::parse_tab_file(file) {
+            Ok(res) => res,
+            Err(why) => panic!("{}:{}", why, file),
+        })
+        .unwrap();
+    let contig_aln = matches
+        .value_of("contig_alignments")
+        .map(|file| match last_tiling::parse_tab_file(file) {
+            Ok(res) => res,
+            Err(why) => panic!("{}:{}", why, file),
+        })
+        .unwrap();
+    let parse_line = |line: String| -> Option<(String, u8)> {
+        let mut line = line.split("\t");
+        let assign: u8 = line.next()?.parse().ok()?;
+        let id = line.next()?.to_string();
+        Some((id, assign))
+    };
+    let assignments: HashMap<String, u8> = matches
+        .value_of("assignments")
+        .map(|file| match std::fs::File::open(file) {
+            Ok(res) => BufReader::new(res),
+            Err(why) => panic!("{}:{}", why, file),
+        })
+        .map(|reader| {
+            reader
+                .lines()
+                .filter_map(|e| e.ok())
+                .filter_map(parse_line)
+                .collect()
+        })
+        .unwrap();
+    let output_dir = matches.value_of("output_dir").unwrap();
+    let dir = format!("{}", output_dir);
+    if let Err(why) = std::fs::create_dir_all(&dir) {
+        error!("Error Occured while outputing reads.");
+        error!("{:?}", why);
+        error!("This program did not work successfully.");
+        error!("Shutting down...");
+        std::process::exit(1);
+    }
+    use last_decompose::annotate_contigs_to_reference::annotate_aln_contigs_to_ref;
+    let contigs_to_ref = annotate_aln_contigs_to_ref(&reference, &contig_aln);
+    let file = format!("{}/contig_alns.json", output_dir);
+    let mut writer = BufWriter::new(std::fs::File::create(&file)?);
+    let contigs_to_ref = serde_json::ser::to_string(&contigs_to_ref)?;
+    writeln!(&mut writer, "{}", contigs_to_ref)?;
+
+    let contigs = last_tiling::Contigs::new(contigs.clone());
+    let reads = last_tiling::encoding(&reads, &contigs, &read_aln);
+    use last_decompose::d3_data::convert_result_to_d3_data;
+    let result_summary = convert_result_to_d3_data(&contigs, &reads, &assignments);
+    let file = format!("{}/read_data.json", output_dir);
+    let mut writer = BufWriter::new(std::fs::File::create(&file)?);
+    let result_summary = serde_json::ser::to_string(&result_summary)?;
+    writeln!(&mut writer, "{}", result_summary)?;
+    Ok(())
+}
+fn main() -> std::io::Result<()> {
+    let matches = App::new("MMMM")
+        .version("0.1")
+        .author("Bansho Masutani")
+        .about("Softwares to Decompose long reads.")
+        .subcommand(subcommand_decompose())
+        .subcommand(subcommand_create_viewer())
+        .get_matches();
+    match matches.subcommand() {
+        ("decompose", Some(sub_m)) => decompose(sub_m),
+        ("create_viewer", Some(sub_m)) => create_viewer(sub_m),
+        _ => Ok(()),
+    }
 }
