@@ -2,14 +2,14 @@
 #$ -S /bin/bash
 #$ -N M4
 #$ -cwd
-#$ -pe smp 22
+#$ -pe smp 24
 #$ -V
 #$ -m e
 set -ue 
 REFERENCE=$1
 READ=$2
 OUTPUT=$3
-CORES=22
+CORES=24
 MIN_CLUSTER=$4
 ROOT=${PWD}
 

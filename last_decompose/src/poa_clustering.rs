@@ -13,7 +13,7 @@ const INIT_BETA: f64 = 0.2;
 const NUM_OF_BALL: usize = 100;
 const SMALL_WEIGHT: f64 = 0.000_000_000_0001;
 // const WEIGHT_PRIOR: f64 = 5.;
-const REP_NUM: usize = 10;
+const REP_NUM: usize = 12;
 const POA_PRIOR: f64 = 0.5;
 const PICK_PRIOR: f64 = 0.3;
 const GIBBS_PRIOR: f64 = 0.02;
@@ -216,8 +216,9 @@ where
         if b {
             continue;
         }
+        let gp = GIBBS_PRIOR;
         let chosen = *choises
-            .choose_weighted(rng, |&k| if k as u8 == assign { 1. } else { GIBBS_PRIOR })
+            .choose_weighted(rng, |&k| if k as u8 == assign { 1. + gp } else { gp })
             .unwrap();
         for &(pos, ref unit) in read.iter() {
             chunks[chosen][pos].push(unit.as_slice())
@@ -432,6 +433,7 @@ where
         lk = next_lk;
         let changed_num = (0..pick_prob.recip().ceil() as usize)
             .map(|l| {
+                // let sampled: Vec<bool> = (0..data.len()).map(|_| rng.gen_bool(pick_prob)).collect();
                 let sampled: Vec<bool> = (0..data.len())
                     .map(|i| match i.cmp(&label.len()) {
                         std::cmp::Ordering::Less => false,
@@ -1034,4 +1036,64 @@ pub fn construct_initial_weights(
         .iter()
         .all(|ws| (ws.iter().sum::<f64>() - 1.).abs() < 0.001));
     weights
+}
+
+pub fn predict<F>(
+    data: &[ERead],
+    labels: &[u8],
+    cluster_num: usize,
+    c: &Config,
+    input: &[ERead],
+    seed: u64,
+    aln: &AlnParam<F>,
+) -> Vec<u8>
+where
+    F: Fn(u8, u8) -> i32 + std::marker::Sync,
+{
+    let param = (aln.ins, aln.del, &aln.score);
+    let (matrix_pos, chain_len) = to_pos(data);
+    let data = serialize(data, &matrix_pos);
+    let input = serialize(input, &matrix_pos);
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
+    let rng = &mut rng;
+    let beta = 20.;
+    let falses = vec![false; data.len()];
+    let tuple = (cluster_num, chain_len);
+    let (betas, _) = get_variants(&data, labels, tuple, rng, c, param, beta);
+    let ws = get_cluster_fraction(labels, &falses, cluster_num);
+    let ms = get_models(&data, labels, &falses, cluster_num, chain_len, rng, param);
+    let choises: Vec<_> = (0..cluster_num).map(|e| e as u8).collect();
+    input
+        .iter()
+        .filter_map(|read| {
+            let weights: Vec<_> = (0..cluster_num)
+                .into_par_iter()
+                .map(|l| {
+                    (0..cluster_num)
+                        .map(|k| {
+                            if k != l {
+                                let (i, j) = (l.max(k), l.min(k));
+                                let prior = ws[k].ln() - ws[l].ln();
+                                let lkdiff = read
+                                    .par_iter()
+                                    .map(|&(pos, ref u)| {
+                                        let l = ms[l][pos].forward(u, c);
+                                        let k = ms[k][pos].forward(u, c);
+                                        betas[i][j][pos] * (k - l)
+                                    })
+                                    .sum::<f64>();
+                                prior + lkdiff
+                            } else {
+                                0.
+                            }
+                        })
+                        .map(|lkdiff| lkdiff.exp())
+                        .sum::<f64>()
+                        .recip()
+                })
+                .collect();
+            choises.choose_weighted(rng, |k| weights[*k as usize]).ok()
+        })
+        .copied()
+        .collect()
 }

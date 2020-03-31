@@ -40,9 +40,6 @@ fn main() {
         sub: errors / 6.,
         ins: errors / 6.,
         del: errors / 6.,
-        // sub: 0.001,
-        // ins: 0.001,
-        // del: 0.001,
     };
     use std::time::Instant;
     println!("TestNum:{}\tLabeled:{}", test_num, coverage);
@@ -118,6 +115,7 @@ fn benchmark(
         .collect();
     let (dataset, label, answer, _border) =
         create_simulation_data::generate_mul_data(&templates, coverage, test_num, &mut rng, probs);
+    debug!("{}", dataset.len());
     let c = &poa_hmm::DEFAULT_CONFIG;
     let data: Vec<_> = dataset
         .into_iter()

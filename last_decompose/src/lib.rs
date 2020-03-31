@@ -35,11 +35,11 @@ pub use poa_clustering::soft_clustering_poa;
 use poa_hmm::Config;
 mod digamma;
 pub mod variant_calling;
-// 200 * 100 = 20_000
-const WINDOW_SIZE: usize = 200;
+// 200 * 100 = 25_000
+const WINDOW_SIZE: usize = 250;
 const OVERLAP: usize = 50;
 const MIN_LEN: usize = 5_000;
-const CONNECTION_THR: f64 = 20.;
+const CONNECTION_THR: f64 = 10.;
 type Read = Vec<(usize, Vec<u8>)>;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
@@ -304,25 +304,27 @@ fn select_within(
     label: &[u8],
     forbidden: &[Vec<u8>],
     answer: &[u8],
-) -> (Vec<ERead>, Vec<u8>, Vec<Vec<u8>>, Vec<u8>) {
+) -> ((Vec<ERead>, Vec<ERead>), Vec<u8>, Vec<Vec<u8>>, Vec<u8>) {
     assert_eq!(data.len(), label.len() + answer.len());
     let (mut s_data, mut s_label, mut s_forbid, mut s_answer) = (vec![], vec![], vec![], vec![]);
     debug!("Selecting {}\t{}\t{}...", contig, start, end);
+    let mut shorter_reads = vec![];
     let border = label.len();
-    for i in 0..data.len() {
-        let read = &data[i];
-        let count = read.include_units(contig, start, end);
-        if count > MIN_LEN / last_tiling::UNIT_SIZE {
-            s_data.push(read.clone_within(contig, start, end));
-            s_forbid.push(forbidden[i].clone());
-            if i < border {
-                s_label.push(label[i]);
+    for (idx, read) in data.iter().enumerate() {
+        let read = read.clone_within(contig, start, end);
+        if read.seq().len() > MIN_LEN / last_tiling::UNIT_SIZE {
+            s_data.push(read);
+            s_forbid.push(forbidden[idx].clone());
+            if idx < border {
+                s_label.push(label[idx]);
             } else {
-                s_answer.push(answer[i - border]);
+                s_answer.push(answer[idx - border]);
             }
+        } else {
+            shorter_reads.push(read);
         }
     }
-    (s_data, s_label, s_forbid, s_answer)
+    ((s_data, shorter_reads), s_label, s_forbid, s_answer)
 }
 
 fn find_matching(prev: &[HashSet<String>], after: &[HashSet<String>]) -> Vec<(usize, usize)> {
@@ -405,24 +407,27 @@ pub fn clustering_chunking(
                 .max(cluster_num - 1)
                 + 1;
             debug!("Number of clusters:{}", cluster_num);
-            let (data, label, forbidden, answer) =
+            let ((data, short), label, forbidden, answer) =
                 select_within(region, data, label, forbidden, answer);
             debug!("Number of Reads:{}", data.len());
             assert_eq!(data.len(), forbidden.len());
             assert_eq!(data.len(), label.len() + answer.len());
             let predictions = {
                 let (da, la, fo, an) = (&data, &label, &forbidden, &answer);
-                clustering(da, (la, an), fo, cluster_num, limit, c)
+                let mut pred = clustering(da, (la, an), fo, cluster_num, limit, c);
+                let pred_short = predict(&data, &pred, cluster_num, c, &short, 0);
+                pred.extend(pred_short);
+                pred
             };
-            assert_eq!(predictions.len(), data.len());
+            assert_eq!(predictions.len(), data.len() + short.len());
             (0..cluster_num)
                 .map(|cluster_idx| {
                     let cluster_idx = cluster_idx as u8;
                     predictions
                         .iter()
-                        .zip(data.iter())
-                        .filter_map(|(&p, r)| if p == cluster_idx { Some(r.id()) } else { None })
-                        .map(|id| id.to_string())
+                        .zip(data.iter().chain(short.iter()))
+                        .filter(|(&p, _)| p == cluster_idx)
+                        .map(|(_, read)| read.id().to_string())
                         .collect()
                 })
                 .collect()
@@ -444,27 +449,64 @@ pub fn clustering_chunking(
         }
     }
     // Then, iteratively take components.
-    let mut result: HashMap<String, u8> = HashMap::new();
-    let mut current = 0;
-    for i in 0..(cluster_num * windows.len()) {
-        let parent = fu.find(i).unwrap();
-        if parent != i {
-            continue;
-        }
-        info!("Find cluster");
-        for (w, clusters) in clusterings.iter().enumerate() {
-            for (j, cluster) in clusters.iter().enumerate() {
-                if parent == fu.find(j + w * cluster_num).unwrap() {
-                    info!("{}:{}", w, j);
-                    for id in cluster {
-                        result.insert(id.clone(), current);
-                    }
+    let mut components: Vec<HashSet<String>> = (0..(cluster_num * windows.len()))
+        .filter_map(|parent| {
+            if fu.find(parent).unwrap() != parent {
+                return None;
+            }
+            info!("Find cluster");
+            let component = clusterings
+                .iter()
+                .enumerate()
+                .map(|(w, clusters)| {
+                    clusters
+                        .iter()
+                        .enumerate()
+                        .filter(|(j, _)| {
+                            let p = fu.find(j + w * cluster_num);
+                            parent == p.unwrap_or(std::usize::MAX)
+                        })
+                        .fold(HashSet::new(), |mut acc, (j, cluster)| {
+                            info!("{}:{}", w, j);
+                            acc.extend(cluster.clone());
+                            acc
+                        })
+                })
+                .fold(HashSet::new(), |mut acc, cluster| {
+                    acc.extend(cluster);
+                    acc
+                });
+            Some(component)
+        })
+        .collect();
+    // And futher merging.
+    'merge: loop {
+        let len = components.len();
+        debug!("Current Cluster:{}", len);
+        for i in 0..len {
+            for j in (i + 1)..len {
+                let union = components[i].union(&components[j]).count();
+                if union as f64 > CONNECTION_THR {
+                    debug!("Cluster {} and {} share {} reads. Merging.", i, j, union);
+                    let from = components.remove(j);
+                    components[i].extend(from);
+                    continue 'merge;
                 }
             }
         }
-        debug!("These clusters assigned as {}", current);
-        current += 1;
+        break;
     }
+    debug!("Resulting in {} clusters.", components.len());
+    let result: HashMap<String, u8> =
+        components
+            .into_iter()
+            .enumerate()
+            .fold(HashMap::new(), |mut acc, (idx, cluster)| {
+                for read_name in cluster {
+                    *acc.entry(read_name).or_default() = idx as u8;
+                }
+                acc
+            });
     data.iter()
         .map(|read| match result.get(read.id()) {
             Some(res) => *res,
@@ -488,25 +530,17 @@ pub fn clustering(
     assert_eq!((labels.0).len() + (labels.1).len(), data.len());
     use poa_clustering::{gibbs_sampling, DEFAULT_ALN};
     gibbs_sampling(data, labels, forbidden, cluster_num, limit, c, &DEFAULT_ALN)
-    // let weights = soft_clustering_poa(data, labels, forbidden, cluster_num, c, &DEFAULT_ALN);
-    // debug!("WEIGHTS\tPrediction. Dump weights");
-    // assert_eq!(weights.len(), label.len() + answer.len());
-    // for (weight, ans) in weights.iter().zip(label.iter().chain(answer.iter())) {
-    //     let weights: String = weight
-    //         .iter()
-    //         .map(|e| format!("{:.1}\t", e))
-    //         .fold(String::new(), |x, y| x + &y);
-    //     debug!("WEIGHTS\t{}{}", weights, ans);
-    // }
-    // weights
-    //     .iter()
-    //     .map(|weight| {
-    //         assert_eq!(weight.len(), cluster_num);
-    //         let (cl, _max): (u8, f64) = weight.iter().enumerate().fold(
-    //             (0, -1.),
-    //             |(i, m), (j, &w)| if m < w { (j as u8, w) } else { (i, m) },
-    //         );
-    //         cl
-    //     })
-    //     .collect()
+}
+
+pub fn predict(
+    data: &[ERead],
+    labels: &[u8],
+    cluster_num: usize,
+    c: &Config,
+    input: &[ERead],
+    seed: u64,
+) -> Vec<u8> {
+    assert_eq!(data.len(), labels.len());
+    use poa_clustering::DEFAULT_ALN;
+    poa_clustering::predict(data, labels, cluster_num, c, input, seed, &DEFAULT_ALN)
 }

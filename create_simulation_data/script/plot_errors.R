@@ -33,7 +33,7 @@ accs <- dataset %>% mutate(acc1 = X4 + X7, acc2 = X5 + X6, acc = pmax(acc1, acc2
 
 mean_accs <-  accs %>% mutate(Coverage = (X2 + X3)/2) %>%
     select(Coverage, X10, acc) %>% nest(-X10, -Coverage) %>%
-    mutate(data = map(data, ~summarize(.,Accuracy = median(acc)))) %>%
+    mutate(data = map(data, ~summarize(.,Accuracy = mean(acc)))) %>%
     unnest() 
 
 g <- mean_accs %>%
@@ -46,3 +46,9 @@ g <- mean_accs %>%
 
 generalplot(g,paste0(outname))
 
+g <- accs %>% 
+    nest(-X8) %>%
+    mutate(data = map(data,~summarize(.,Accuracy = mean(acc)))) %>%
+    unnest() %>% 
+    ggplot() + geom_point(mapping = aes(x = X8, y = Accuracy))
+generalplot(g,paste0(outname,"_point"))

@@ -213,11 +213,8 @@ fn main() -> std::io::Result<()> {
         let wtr = match std::fs::File::create(&outpath) {
             Ok(res) => res,
             Err(why) => {
-                error!("Error Occured while creating a file:{}", outpath);
-                error!("{:?}", why);
-                error!("This program did not work successfully.");
-                error!("Shutting down...");
-                std::process::exit(1);
+                error!("Error Occured while creating a file:{:?},{}", why, outpath);
+                continue;
             }
         };
         let mut wtr = fasta::Writer::new(wtr);

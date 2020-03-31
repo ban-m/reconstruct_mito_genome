@@ -212,12 +212,11 @@ pub fn generate_mul_data<T: Rng>(
     rng: &mut T,
     probs: &[f64],
 ) -> (Vec<Vec<Vec<u8>>>, Vec<u8>, Vec<u8>, usize) {
-    debug!("{} templates", templates.len());
-    let total = test_num + coverage;
-    let answer = (0..probs.len()).flat_map(|i| vec![i; coverage]);
+    let answer: Vec<_> = (0..probs.len()).flat_map(|i| vec![i; coverage]).collect();
     let answer: Vec<_> = answer
+        .into_iter()
         .chain(probs.iter().enumerate().flat_map(|(idx, &prob)| {
-            let num = (total as f64 * prob).ceil() as usize;
+            let num = (test_num as f64 * prob).ceil() as usize;
             vec![idx; num]
         }))
         .map(|e| e as u8)
@@ -234,17 +233,8 @@ pub fn generate_mul_data<T: Rng>(
         .collect();
     let border = probs.len() * coverage;
     let (label, answer) = answer.split_at(border);
-    let (dataset, answer) = {
-        let (train, unlabel) = dataset.split_at(border);
-        assert!(answer.len() == unlabel.len());
-        let ds: Vec<_> = answer.to_vec().into_iter().zip(unlabel).collect();
-        // ds.shuffle(rng);
-        let (answer, unlabel): (Vec<_>, Vec<_>) = ds.into_iter().unzip();
-        let dataset: Vec<_> = train.into_iter().chain(unlabel).cloned().collect();
-        (dataset, answer)
-    };
     assert_eq!(dataset.len(), label.len() + answer.len());
-    (dataset, label.to_vec(), answer, border)
+    (dataset, label.to_vec(), answer.to_vec(), border)
 }
 
 /// Generate dataset. Return Reads(Chunked), assignment(label for training data),
