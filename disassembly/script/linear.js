@@ -106,7 +106,12 @@ const gap_scale = d3.scaleLog()
       .domain([gap_min_size,gap_max_size])
       .range([gap_min, gap_max])
       .clamp(true);
-
+const tick_top_margin = 20;
+const tick_margin = 50;
+const master_circle = 20;
+const master_circle_margin = 25;
+const mc_total_margin = master_circle + master_circle_margin;
+const colorScheme = d3.schemePaired;
 
 const svg = d3.select("#plot")
       .append("svg")
@@ -127,9 +132,10 @@ const start_stop_layer = svg.append("g")
 const read_layer = svg.append("g")
       .attr("transform", `translate(${left_margin},${height/2})`)
       .attr("class","read");
-const cr_layer = svg.append("g")
+const aln_layer = svg.append("g")
       .attr("transform", `translate(${left_margin},${height/2})`)
       .attr("class","critical-region");
+
 const tooltip = d3.select("body").append("div")
       .attr("class", "tooltip")
       .style("opacity", 0);
@@ -199,8 +205,6 @@ const calcReadNumScale = (contigs) => {
     const total = contigs.flatMap(c => c.start_stop).reduce((x,y) => x+y);
     const num = contigs.map(c => c.start_stop.length).reduce((x,y)=> x+y);
     const max = Math.max(...contigs.flatMap(c => c.start_stop));
-    console.log("mean", total/ num);
-    console.log("max", max);
     return d3.scaleLog()
         .domain([min_read_num,max])
         .range([min_radius,max_radius])
@@ -240,11 +244,12 @@ const readToPath = (read, handle_points, bp_scale, start_pos, unit_length)=>{
             continue;
         }
         const diff = Math.abs(unit.E[1]-current_unit);
-        current_unit = unit.E[1];
         if (unit.E[0] == contig && diff < 50){
-            x =  bp_scale(unit_length*unit.E[1]);
-            path.lineTo(x, y);
+            // x =  bp_scale(unit_length*unit.E[1]);
+            // path.lineTo(x, y);
         }else{
+            x =  bp_scale(unit_length*current_unit);
+            path.lineTo(x, y);
             // Change contig. Connect them.
             const new_y = start_pos[unit.E[0]];
             const new_x = bp_scale(unit_length*unit.E[1]);
@@ -256,6 +261,7 @@ const readToPath = (read, handle_points, bp_scale, start_pos, unit_length)=>{
             x = new_x;
             y = new_y;
         }
+        current_unit = unit.E[1];
     }
     return path.toString();
 };
@@ -455,7 +461,7 @@ const calcCoverageOf = (reads, contigs, unit_length)=>{
 const plotData = (dataset, alignments, unit_length) =>
       Promise.all([dataset, alignments]
                   .map(file => d3.json(file)))
-      .then(([values, repeats, alignments]) => {
+      .then(([values, contig_alns]) => {
           // Unpack
           // This is array.
           const contigs = values.contigs;
@@ -478,8 +484,38 @@ const plotData = (dataset, alignments, unit_length) =>
                           "readnum_scale":readnum_scale,
                           "handle_points":handle_points,
                           "start_pos": start_pos};
-          // Draw contigs.
-          console.log(contigs);
+          // Draw coverage
+          coverage_layer
+              .selectAll(".coverage")
+              .data(contigs)
+              .enter()
+              .append("path")
+              .attr("class","coverage")
+              .attr("d", contig => {
+                  const height = start_pos[contig.id];
+                  const path = d3.line()
+                        .x((_,i) => bp_scale(i * unit_length))
+                        .y(cov => height - coverage_scale(cov));
+                  return path(contig.coverages);
+              })
+              .attr("fill","none")
+              .attr("stroke",c => d3.schemeCategory10[c.id% 10]);
+          // Draw reads
+          read_layer
+              .selectAll(".read")
+              .data(reads)
+              .enter()
+              .append("path")
+              .attr("class","read")
+              .attr("d",read => readToPath(read,handle_points,bp_scale,start_pos,unit_length))
+              .attr("fill","none")
+              .attr("opacity",0.3)
+              .attr("stroke",read => "black");
+          info.append("div")
+              .attr("class","numofgapread")
+              .append("p")
+              .text(`Gap Read:${getNumOfGapRead(reads)} out of ${reads.length}`);
+          // Draw contigs
           contigs_layer
               .selectAll(".contig")
               .data(contigs)
@@ -499,106 +535,12 @@ const plotData = (dataset, alignments, unit_length) =>
                   path.closePath();
                   return path.toString();
               })
-              .attr("fill",c => d3.schemeCategory10[c.id% 10]);
-          // Draw coverage
-          coverage_layer
-              .selectAll(".coverage")
-              .data(contigs)
-              .enter()
-              .append("path")
-              .attr("class","coverage")
-              .attr("d", contig => {
-                  const height = start_pos[contig.id];
-                  const path = d3.line()
-                        .x((_,i) => bp_scale(i * unit_length))
-                        .y(cov => height - coverage_scale(cov));
-                  return path(contig.coverages);
-              })
-              .attr("fill","none")
-              .attr("stroke",c => d3.schemeCategory10[c.id% 10]);
-          // Draw start/stop reads.
-          start_stop_layer
-              .selectAll(".start-stop-count")
-              .data(contigs.flatMap(c => {
-                  const height = start_pos[c.id];
-                  return c.start_stop.map((num,i) => {
-                      const x = bp_scale(i * unit_length);
-                      return {"r":readnum_scale(num), "x": x, "y":height, "id":c.id};
-                  });
-              }))
-              .enter()
-              .append("circle")
-              .attr("class",".start-stop-count")
-              .attr("r", stst => stst.r)
-              .attr("cx",stst => stst.x)
-              .attr("cy",stst => stst.y)
-              .attr("fill",stst => d3.schemeCategory10[stst.id % 10]);
-          // Draw reads
-          read_layer
-              .selectAll(".read")
-              .data(reads)
-              .enter()
-              .append("path")
-              .attr("class","read")
-              .attr("d",read => readToPath(read,handle_points,bp_scale,start_pos,unit_length))
-              .attr("fill","none")
-              .attr("opacity",0.3)
-              .attr("stroke",read => "black");
-          // Draw critical regions.
-          const critical_regions = clusters.flatMap(d => d.members);
-          cr_layer
-              .selectAll(".cr")
-              .data(critical_regions)
-              .enter()
-              .append("path")
-              .attr("class", "cr")
-              .attr("d", d => crToPath(d.cr, handle_points, bp_scale, start_pos, unit_length))
-              .attr("stroke", d => d3.schemeCategory10[(d.cluster+1)%10])
-              .attr("stroke-width", member => (member.cr.hasOwnProperty("CP")) ? 5 : 100)
-              .attr("stroke-linecap", memmer => (memmer.cr.hasOwnProperty("CP")) ? "round" : "none")
-              .attr("opacity",member => (member.cr.hasOwnProperty("CP")) ? 0.4 : 0.5)
-              .attr("fill",  member => d3.schemeCategory10[(member.cluster+1)%10])
-              .on("mouseover", function(member) {
-                  const cluster = member.cluster;
-                  const supporting_reads = reads.filter(r => r.cluster == cluster);
-                  tooltip.style("opacity", 0.9);
-                  const contents = crToHTML(member.cr, cluster, supporting_reads);
-                  tooltip.html(contents)
-                      .style("left", (d3.event.pageX + 25) + "px")	
-                      .style("top", (d3.event.pageY + 25) + "px");
-                  const coverages = calcCoverageOf(supporting_reads, contigs, unit_length);
-                  temp_coverage_layer
-                      .selectAll(".tempcoverage")
-                      .data(coverages)
-                      .enter()
-                      .append("path")
-                      .attr("class", "tempcoverage")
-                      .attr("d", coverage => {
-                          const height = start_pos[coverage.id];
-                          const path = d3.line()
-                                .x((d,i) => bp_scale(i * unit_length))
-                                .y(d => height - coverage_scale(d));
-                          return path(coverage.cov);
-                      })
-                      .attr("fill","none")
-                      .attr("opacity", 0.9)
-                      .attr("stroke-width", 1)
-                      .attr("stroke", d3.schemeCategory10[(cluster +1)% 10]);
-              })
-              .on("mouseout", d => {
-                  temp_coverage_layer
-                      .selectAll(".tempcoverage")
-                      .remove();
-                  tooltip.style("opacity",0);
-              });
-          info.append("div")
-              .attr("class","numofgapread")
-              .append("p")
-              .text(`Gap Read:${getNumOfGapRead(reads)} out of ${reads.length}`);
+              .attr("fill","gray")
+              .attr("opacity", 0.2);
           // Draw ticks.
           const b_tick = svg.append("g")
                 .attr("class","scale")
-                .attr("transform",`translate(0,40)`);
+                .attr("transform",`translate(0,${tick_top_margin})`);
           b_tick.append("text")
               .text("Base Pair Scale");
           {
@@ -608,15 +550,58 @@ const plotData = (dataset, alignments, unit_length) =>
                         .tickFormat(d3.format(".2s"))
                         .ticks(4));
           }
+          const p_tick = svg.append("g")
+                .attr("class","scale")
+                .attr("transform",`translate(0,${tick_margin+tick_top_margin})`);
+          p_tick.append("text")
+              .text("Position of the master circle.");
+          {
+              const gradient = p_tick
+                    .selectAll("contigGradient")
+                    .data(contig_alns.references)
+                    .enter()
+                    .append("defs")
+                    .attr("class", "contigGradient")
+                    .append("linearGradient")
+                    .attr("id", (_,idx)=> `contig-${idx}`)
+                    .attr("x1", "0%")
+                    .attr("x2", "100%")
+                    .attr("y1", "0%")
+                    .attr("y2", "0%");
+              gradient.append("stop")
+                  .attr("offset","0%")
+                  .attr("stop-color", (_, idx) => colorScheme[(2*idx+1) % 10]);
+              gradient.append("stop")
+                  .attr("offset","100%")
+                  .attr("stop-color", (_, idx) => colorScheme[(2*idx+2) % 10]);
+              const p_group = p_tick
+                    .selectAll("masterCircle")
+                    .data(contig_alns.references)
+                    .enter()
+                    .append("g")
+                    .attr("transform", (_,i)=>`translate(50,${master_circle + i * master_circle_margin})`)
+                    .attr("class", "masterCircle");
+              p_group.append("text")
+                  .attr("class", "masterCircleName")
+                  .text(c => c.id);
+              p_group.append("rect")
+                  .attr("transform", `translate(0,5)`)
+                  .attr("x", 0)
+                  .attr("width", c => bp_scale(c.length))
+                  .attr("y", 0)
+                  .attr("height", c => 10)
+                  .attr("fill", (_,idx) => `url(#contig-${idx})`);
+          }
+          const occupied = contig_alns.references.length * mc_total_margin;
           const c_tick = svg.append("g")
                 .attr("class","scale")
-                .attr("transform",`translate(0,100)`);
+                .attr("transform",`translate(0,${tick_margin+2 * tick_top_margin + occupied})`);
           c_tick.append("text")
               .text("Coverage Scale");
           {
               const cscale = d3.scaleLinear()
-                    .domain([0,1500])
-                    .range([0,coverage_scale(1500)-coverage_scale(0)]);
+                    .domain([0,500])
+                    .range([0,coverage_scale(500)-coverage_scale(0)]);
               c_tick.append("g")
                   .attr("transform",`translate(50,5)`)
                   .call(d3.axisBottom(cscale)
@@ -625,7 +610,7 @@ const plotData = (dataset, alignments, unit_length) =>
           }
           const g_tick = svg.append("g")
                 .attr("class","scale")
-                .attr("transform",`translate(0,160)`);
+                .attr("transform",`translate(0,${2 * tick_margin+3 * tick_top_margin + occupied})`);
           g_tick.append("text")
               .text("Gap Scale");
           {
@@ -639,34 +624,73 @@ const plotData = (dataset, alignments, unit_length) =>
                         .ticks(1)
                        );
           }
-          const n_tick = svg.append("g")
-                .attr("class","scale")
-                .attr("transform", `translate(0,220)`);
-          n_tick.append("text")
-              .text("Number of Reads");
-          {
-              const sizes = [3,9,20];
-              n_tick.append("g")
-                  .attr("transform",`translate(60,15)`)
-                  .selectAll("specimen")
-                  .data(sizes)
-                  .enter()
-                  .append("circle")
-                  .attr("class","specimen")
-                  .attr("cx", (_,i) => 20 *i)
-                  .attr("cy", 0)
-                  .attr("r" , r => readnum_scale(r))
-                  .attr("fill","black");
-              n_tick.append("g")
-                  .attr("transform",`translate(60,35)`)
-                  .selectAll("ticks")
-                  .data(sizes)
-                  .enter()
-                  .append("text")
-                  .attr("x", (_,i) => 20 *i)
-                  .attr("y", 0)
-                  .text(r => r);
-          }
+          // Draw alignments
+          const gradient = aln_layer
+                .selectAll("alnGradient")
+                .data(contig_alns.alignments)
+                .enter()
+                .append("defs")
+                .attr("class","alnGadient")
+                .append("linearGradient")
+                .attr("id", (_,idx) => `align-${idx}`)
+                .attr("x1",aln => {
+                    const rfr = contig_alns.references.find(r => r.id == aln.reference_name);
+                    if (aln.query_start < aln.query_end){
+                        const fraction = aln.ref_start / (aln.ref_end - aln.ref_start);
+                        return `${-100 * fraction}%`;
+                    }else{
+                        const fraction = (rfr.length - aln.ref_end) / rfr.length;
+                        return `${100 * (1 + fraction)}%`;
+                    }
+                })
+                .attr("x2",aln => {
+                    const rfr = contig_alns.references.find(r => r.id == aln.reference_name);
+                    if (aln.query_start < aln.query_end){
+                        const fraction = (rfr.length - aln.ref_end) / rfr.length;
+                        return `${100 * (1 + fraction)}%`;
+                    }else{
+                        const fraction = aln.ref_start / (aln.ref_end - aln.ref_start);
+                        return `${-100 * fraction}%`;
+                    }
+                })
+                .attr("y1","0%")
+                .attr("y2","0%");
+          gradient.append("stop")
+              .attr("offset","0%")
+              .attr("stop-color", aln => {
+                  const color = contig_alns.references.map((refr,idx) => [refr.id, idx])
+                        .find(d => d[0] == aln.reference_name);
+                  return  colorScheme[(2 * color[1] + 1) % 10];
+              });
+          gradient.append("stop")
+              .attr("offset","100%")
+              .attr("stop-color", aln => {
+                  const color = contig_alns.references.map((refr,idx) => [refr.id, idx])
+                        .find(d => d[0] == aln.reference_name);
+                  return colorScheme[(2*color[1]+2) % 10];
+              });
+          aln_layer
+              .selectAll(".alignments")
+              .data(contig_alns.alignments)
+              .enter()
+              .append("rect")
+              .attr("x", aln => {
+                  const start = bp_scale(Math.min(aln.query_start, aln.query_end));
+                  return start;
+              })
+              .attr("y",aln => {
+                  const elm = contigs.find(c => c.name ===  aln.query_name);
+                  return start_pos[elm.id] - contig_thick;
+              })
+              .attr("height",contig_thick)
+              .attr("width", aln => {
+                  if (aln.query_start < aln.query_end){
+                      return bp_scale(aln.query_end - aln.query_start);
+                  }else{
+                      return bp_scale(aln.query_start - aln.query_end);
+                  }
+              })
+              .attr("fill", (_, idx) => `url(#align-${idx})` );
           return scales;
       })
       .then(ok => ok,

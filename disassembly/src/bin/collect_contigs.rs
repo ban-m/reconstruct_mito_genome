@@ -17,7 +17,7 @@ fn main() -> std::io::Result<()> {
             let mut contig = std::path::PathBuf::new();
             contig.push(&args[1]);
             contig.push(&index);
-            contig.push(index.clone() + ".contigs.fasta");
+            contig.push("scaffolds.fasta");
             let index: usize = index.parse().ok()?;
             Some((index, contig))
         })

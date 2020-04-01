@@ -323,7 +323,7 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
     let mut writer = BufWriter::new(std::fs::File::create(&file)?);
     let repeats = serde_json::ser::to_string(&repeats).unwrap();
     writeln!(&mut writer, "{}", repeats)?;
-    let file = format!("{}/viewer.html", dir);
+    let file = format!("{}/circos.html", dir);
     let mut writer = BufWriter::new(std::fs::File::create(&file)?);
     writeln!(&mut writer, "{}", mito_assembler::template::TEMPLATE)?;
     let file = format!("{}/style.css", dir);
@@ -420,6 +420,9 @@ fn create_viewer(matches: &clap::ArgMatches) -> std::io::Result<()> {
     let mut writer = BufWriter::new(std::fs::File::create(&file)?);
     let result_summary = serde_json::ser::to_string(&result_summary)?;
     writeln!(&mut writer, "{}", result_summary)?;
+    let file = format!("{}/linear.html", dir);
+    let mut writer = BufWriter::new(std::fs::File::create(&file)?);
+    writeln!(&mut writer, "{}", mito_assembler::template::TEMPLATE_LINEAR)?;
     Ok(())
 }
 fn main() -> std::io::Result<()> {

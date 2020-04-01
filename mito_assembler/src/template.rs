@@ -11,7 +11,7 @@ pub const TEMPLATE: &str = r#"<!DOCTYPE html>
     </div>
     <div id = "plot"></div>
     <div id = "info"></div>
-    <script src="/script/drawer.js"></script>
+    <script src="/script/circos.js"></script>
     <script>
       const dataset = "/viewer/data.json";
       const repeats = "/viewer/repeats.json";
@@ -21,6 +21,31 @@ pub const TEMPLATE: &str = r#"<!DOCTYPE html>
   </body>
 </html>
 "#;
+
+pub const TEMPLATE_LINEAR: &str = r#"<!DOCTYPE html>
+<meta charset="utf-8">
+<html>
+  <head>
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <link rel="stylesheet" type="text/css" href="/viewer/style.css">
+  </head>
+  <body>
+    <div class = "title">
+      Circos plot of Plant mitochondria.
+    </div>
+    <div id = "plot"></div>
+    <div id = "info"></div>
+    <script src="/script/linear.js"></script>
+    <script>
+      const dataset = "/viewer/read_data.json";
+      const repeats = "/viewer/contig_alns.json";
+      const unit_length = 100;
+      plotData(dataset,repeats,unit_length);
+    </script>
+  </body>
+</html>
+"#;
+
 
 pub const STYLE: &str = r#".title{
     font-family: sans-serif;

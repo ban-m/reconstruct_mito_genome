@@ -42,32 +42,36 @@ do
     ASM_PATH=${reads%%.fasta}
     INDEX=${ASM_PATH##*/}
     mkdir -p ${ASM_PATH}
-    canu \
-        useGrid=false\
-	    genomeSize=200K \
-        -d $ASM_PATH -p $INDEX -pacbio-raw $reads
+    flye \
+        --pacbio-raw \
+        $reads \
+	    --genome-size 200K \
+        --threads ${CORES} \
+        --iterations 10 \
+        --plasmids \
+        --out-dir $ASM_PATH 
 done
-
 
 
 # ---- Align back all reads ----
 cargo run --release --bin collect_contigs -- ${OUTPUT}
-for reads in ${OUTPUT}/*.fasta
+for contigs in ${OUTPUT}*.contigs.fasta
 do
-    CONTIGS=${reads%%.fasta}.contigs.fasta
+    reads=${contigs%%.contigs.fasta}.fasta
     cd ${OUTPUT}/last_db
-    lastdb -R00 temp ${CONTIGS}
+    lastdb -R00 temp ${contigs}
     last-train -P${CORES} -Q0 temp ${reads} > temp.matrix
     lastal -f maf -P${CORES} -R00 -Q0 -p temp.matrix temp ${reads} |\
         last-split | maf-convert tab --join 1000 > ${reads%%.fasta}.reads.aln.tab
-    last-train -P${CORES} -Q0 reference ${CONTIGS} > temp.matrix
-    lastal -f tab -P ${CORES} -R00 -Q0 -p temp.matrix reference ${CONTIGS} \
-           > ${reads%%.fasta}.contigs.aln.tab
+    last-train -P${CORES} -Q0 reference ${contigs} > temp.matrix
+    lastal -f tab -P ${CORES} -R00 -Q0 -p temp.matrix reference ${contigs} \
+           > ${contigs%%.fasta}.aln.tab
     cd ${ROOT}
 done
 
 cat ${OUTPUT}/*.reads.aln.tab > ${OUTPUT}/reads.aln.tab
 cat ${OUTPUT}/*.contigs.aln.tab > ${OUTPUT}/contigs.aln.tab
+
 
 
 # ---- Create viewer files -----

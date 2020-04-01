@@ -3,7 +3,7 @@ extern crate last_decompose;
 extern crate log;
 extern crate serde;
 extern crate serde_json;
-use last_decompose::d3_data::convert_to_d3_data;
+use last_decompose::d3_data::convert_to_d3_data_with_assign;
 use last_decompose::find_breakpoint::Cluster;
 use last_decompose::find_breakpoint::COVERAGE_THR;
 use last_tiling::{Contigs, EncodedRead};
@@ -16,13 +16,13 @@ pub fn dump_viewer(
     contigs: &Contigs,
 ) -> std::io::Result<String> {
     let clusters = summarize_clusters(clusters, results);
-    let summary = convert_to_d3_data(&contigs, &reads, &clusters);
+    let summary = convert_to_d3_data_with_assign(&contigs, &reads, &clusters, &results);
     Ok(serde_json::ser::to_string(&summary).unwrap())
 }
 
 fn summarize_clusters(clusters: &[Cluster], results: &HashMap<String, u8>) -> Vec<Cluster> {
     let max = results.values().copied().max().unwrap_or(0) as usize;
-    (0..max)
+    (0..=max)
         .map(|cl| {
             let reads: std::collections::HashSet<_> = results
                 .iter()

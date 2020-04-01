@@ -16,6 +16,21 @@ pub fn convert_to_d3_data(
     }
 }
 
+pub fn convert_to_d3_data_with_assign(
+    contigs: &Contigs,
+    reads: &[EncodedRead],
+    clusters: &[Cluster],
+    assignments: &HashMap<String, u8>,
+) -> Summary {
+    let contigs = summarize_contig(&contigs, &reads);
+    let reads = summarize_reads_with_assignments(&reads, assignments);
+    Summary {
+        contigs,
+        reads,
+        clusters: clusters.to_vec(),
+    }
+}
+
 pub fn convert_result_to_d3_data(
     contigs: &Contigs,
     reads: &[EncodedRead],
