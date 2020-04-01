@@ -11,7 +11,7 @@ pub const TEMPLATE: &str = r#"<!DOCTYPE html>
     </div>
     <div id = "plot"></div>
     <div id = "info"></div>
-    <script src="/script/circos.js"></script>
+    <script src="/viewer/circos.js"></script>
     <script>
       const dataset = "/viewer/data.json";
       const repeats = "/viewer/repeats.json";
@@ -35,7 +35,7 @@ pub const TEMPLATE_LINEAR: &str = r#"<!DOCTYPE html>
     </div>
     <div id = "plot"></div>
     <div id = "info"></div>
-    <script src="/script/linear.js"></script>
+    <script src="/viewer/linear.js"></script>
     <script>
       const dataset = "/viewer/read_data.json";
       const repeats = "/viewer/contig_alns.json";

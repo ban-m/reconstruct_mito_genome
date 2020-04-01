@@ -7,12 +7,15 @@ pub fn get_start_stop(
         .iter()
         .map(|&last| vec![0; last as usize + 1])
         .collect();
+    let mut gaps = 0;
+    let total = reads.len();
     for read in reads {
         let mut seq = read.seq.iter().skip_while(|e| e.is_gap());
         let head = match seq.next() {
             Some(unit) if unit.is_encode() => unit.encode().unwrap(),
             _ => {
                 debug!("Read {} is gappy.", read.id());
+                gaps += 1;
                 continue;
             }
         };
@@ -27,6 +30,7 @@ pub fn get_start_stop(
         };
         coverage[tail.contig as usize][tail.unit as usize] += 1;
     }
+    debug!("There are {} gappy reads out of {} reads.", gaps, total);
     coverage
         .into_iter()
         .enumerate()

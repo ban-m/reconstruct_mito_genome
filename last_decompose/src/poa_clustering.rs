@@ -452,7 +452,7 @@ where
                 update_assignments(&ms, asn, &data, &sampled, rng, cluster_num, &betas, config)
             })
             .sum::<u32>();
-        if changed_num <= (data.len() as u32 / 100).max(1) {
+        if changed_num <= (data.len() as u32 / 200).max(1) {
             count += 1;
         } else {
             count = 0;

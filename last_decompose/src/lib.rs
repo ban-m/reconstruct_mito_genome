@@ -57,30 +57,12 @@ pub fn decompose(
     limit: u64,
 ) -> Vec<(String, u8)> {
     let datasize = encoded_reads.len();
-    let mut unassigned_reads: Vec<_> = vec![];
-    let mut assigned_reads: Vec<_> = vec![];
-    let mut labels: Vec<_> = vec![];
-    for read in encoded_reads {
-        let matched_cluster = initial_clusters
-            .iter()
-            .filter_map(|cr| if cr.has(read.id()) { Some(cr.id) } else { None })
-            .nth(0);
-        if let Some(idx) = matched_cluster {
-            assigned_reads.push(read);
-            labels.push(idx as u8);
-        } else {
-            unassigned_reads.push(read);
-        }
-    }
-    assert_eq!(labels.len(), assigned_reads.len());
-    assert_eq!(assigned_reads.len() + unassigned_reads.len(), datasize);
     let masked_region = get_masked_region(&initial_clusters, &contigs, repeats);
-    // Remove contained reads.
     let mut forbidden = vec![];
-    let assigned_reads: Vec<_> = assigned_reads
+    let mut labels: Vec<_> = vec![];
+    let (assigned_reads, unassigned_reads): (Vec<_>, Vec<_>) = encoded_reads
         .into_iter()
         .map(|mut read| {
-            forbidden.push(vec![]);
             let seq = read
                 .seq()
                 .iter()
@@ -91,38 +73,23 @@ pub fn decompose(
             read
         })
         .filter(|read| !read.is_empty())
-        .collect();
-    // This should not decrease the number of assigned reads,
-    // as each assigned reads should escaped from repetitive regions.
-    assert_eq!(assigned_reads.len(), labels.len());
+        .partition(|read| {
+            let matched_cluster = initial_clusters
+                .iter()
+                .filter_map(|cr| if cr.has(read.id()) { Some(cr.id) } else { None })
+                .nth(0);
+            forbidden.push(vec![]);
+            if let Some(idx) = matched_cluster {
+                labels.push(idx as u8);
+                true
+            } else {
+                false
+            }
+        });
+    assert_eq!(labels.len(), assigned_reads.len());
+    assert!(assigned_reads.len() + unassigned_reads.len() <= datasize);
     debug!(
         "Unassigned reads before removing contained:{}",
-        unassigned_reads.len()
-    );
-    let unassigned_reads: Vec<_> = unassigned_reads
-        .into_iter()
-        .filter_map(|mut read| {
-            let seq: Vec<_> = read
-                .seq()
-                .iter()
-                .filter(|unit| !masked_region[unit.contig()][unit.unit()])
-                .cloned()
-                .collect();
-            if seq.is_empty() {
-                debug!("Read {} would be an empty read.", read);
-            }
-            *read.seq_mut() = seq;
-            if !read.is_empty() {
-                //forbidden.push(crs);
-                forbidden.push(vec![]);
-                Some(read)
-            } else {
-                None
-            }
-        })
-        .collect();
-    debug!(
-        "Unassigned reads after removing contained:{}",
         unassigned_reads.len()
     );
     let answer: Vec<_> = unassigned_reads
@@ -144,6 +111,12 @@ pub fn decompose(
     let contigs: Vec<_> = (0..contigs.get_num_of_contigs())
         .map(|e| contigs.get_last_unit(e as u16).unwrap() as usize + 1)
         .collect();
+    let windows: Vec<_> = contigs
+        .iter()
+        .zip(masked_region.iter())
+        .enumerate()
+        .flat_map(|(idx, (len, mask))| create_windows(idx, *len, mask))
+        .collect();
     let predicts = clustering_chunking(
         &dataset,
         (&labels, &answer),
@@ -153,6 +126,7 @@ pub fn decompose(
         &contigs,
         &config,
         limit,
+        &windows,
     );
     dataset
         .into_iter()
@@ -283,19 +257,25 @@ pub fn clustering_via_alignment(
     predictions
 }
 
-fn create_windows(idx: usize, len: usize) -> Vec<(u16, u16, u16)> {
-    (0..)
-        .map(|i| i * (WINDOW_SIZE - OVERLAP))
-        .take_while(|&start_pos| start_pos + WINDOW_SIZE / 2 < len || start_pos == 0)
-        .map(|start_pos| {
-            if start_pos + (WINDOW_SIZE - OVERLAP) + WINDOW_SIZE / 2 < len {
-                (idx, start_pos, start_pos + WINDOW_SIZE)
-            } else {
-                (idx, start_pos, len)
-            }
-        })
-        .map(|(x, y, z)| (x as u16, y as u16, z as u16))
-        .collect()
+fn create_windows(idx: usize, len: usize, mask: &[bool]) -> Vec<(u16, u16, u16)> {
+    let mut windows = vec![];
+    let mut start = 0;
+    while start < len {
+        // determine end position.
+        let (mut end, mut unmasked_count) = (start, 0);
+        while unmasked_count < WINDOW_SIZE && end < len {
+            unmasked_count += if !mask[end] { 1 } else { 0 };
+            end += 1;
+        }
+        if end + WINDOW_SIZE / 2 - OVERLAP < len {
+            windows.push((idx as u16, start as u16, end as u16));
+            start = end;
+        } else {
+            windows.push((idx as u16, start as u16, len as u16));
+            break;
+        }
+    }
+    windows
 }
 
 fn select_within(
@@ -385,20 +365,20 @@ pub fn clustering_chunking(
     contigs: &[usize],
     c: &Config,
     limit: u64,
+    windows: &[(u16, u16, u16)],
 ) -> Vec<u8> {
-    let windows: Vec<_> = contigs
-        .iter()
-        .enumerate()
-        .flat_map(|(idx, len)| create_windows(idx, *len))
-        .collect();
     debug!("The contig lengths:{:?}", contigs);
     debug!("There are {} windows in total.", windows.len());
+    for w in windows {
+        debug!("{:?}", w);
+    }
     let clusterings: Vec<Vec<HashSet<String>>> = windows
         .iter()
-        .map(|&region| {
+        .enumerate()
+        .map(|(idx, &region)| {
             {
                 let (contig, start, end) = region;
-                debug!("{}:{}-{}", contig, start, end);
+                debug!("{}/{}:{}-{}", idx, contig, start, end);
             }
             // Determine the number of the cluster.
             let cluster_num = initial_clusters
