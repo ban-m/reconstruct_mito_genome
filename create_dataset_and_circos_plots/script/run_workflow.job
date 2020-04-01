@@ -47,8 +47,6 @@ cargo build --release
 minimap2 -t 24 -x map-pb ${REFERENCE} ${READ} |\
     ./target/release/select_mito_reads ${READ} |\
     ./target/release/filter_low_quality > ${OUTPATH}/filtered_read.fasta
-    # |\
-    # ./target/release/clip_self_chimera > ${OUTPATH}/filtered_read.fasta
 READ=${OUTPATH}/filtered_read.fasta
 
 
