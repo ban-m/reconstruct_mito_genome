@@ -353,10 +353,11 @@ where
     if cluster_num <= 1 {
         return vec![0; data.len()];
     }
-    let lim = limit / 5;
+    let lim = limit / 3;
+    let times = vec![2, 4, 8];
     let mut assignments = vec![];
-    for i in 1..=5 {
-        let pick_prob = (2 * i) as f64 / 100.;
+    for i in times {
+        let pick_prob = i as f64 / 100.;
         let params = (lim, pick_prob, i * 9999 * data.len() as u64);
         let (res, end) = gibbs_sampling_inner(data, labels, f, cluster_num, params, config, aln);
         assignments = res;
@@ -421,7 +422,6 @@ where
     if log_enabled!(log::Level::Trace) {
         print_lk_gibbs(tuple, asn, &data, (label, answer), id, "B", param, config);
     }
-    let mut loop_num = 0;
     while count < 2 {
         let (betas, next_lk) = get_variants(&data, asn, tuple, rng, config, param, beta);
         if lk < next_lk {
@@ -432,8 +432,7 @@ where
         info!("LK\t{}\t{:.3}\t{:.3}\t{:.1}", count, next_lk, lk, beta);
         lk = next_lk;
         let changed_num = (0..pick_prob.recip().ceil() as usize)
-            .map(|l| {
-                // let sampled: Vec<bool> = (0..data.len()).map(|_| rng.gen_bool(pick_prob)).collect();
+            .map(|_| {
                 let sampled: Vec<bool> = (0..data.len())
                     .map(|i| match i.cmp(&label.len()) {
                         std::cmp::Ordering::Less => false,
@@ -441,14 +440,6 @@ where
                     })
                     .collect();
                 let ms = get_models(&data, asn, &sampled, cluster_num, chain_len, rng, param);
-                if log_enabled!(log::Level::Trace) {
-                    let falses = vec![false; data.len()];
-                    let ws = get_cluster_fraction(asn, &falses, cluster_num);
-                    let ms = get_models(&data, asn, &falses, cluster_num, chain_len, rng, param);
-                    let lk = variant_calling::get_lk(&ms, &data, config, &ws);
-                    loop_num += 1;
-                    trace!("DUMP\t{}\t{}\t{}\t{}", id, loop_num, l, lk);
-                }
                 update_assignments(&ms, asn, &data, &sampled, rng, cluster_num, &betas, config)
             })
             .sum::<u32>();

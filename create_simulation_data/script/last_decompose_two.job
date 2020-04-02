@@ -2,7 +2,7 @@
 #$ -S /bin/bash
 #$ -N DecTwo
 #$ -cwd
-#$ -pe smp 24
+#$ -pe smp 12
 #$ -e ./logfiles/last_decompose_gibbs.log
 #$ -o ./logfiles/last_decompose_gibbs.log
 #$ -V
@@ -10,9 +10,9 @@
 set -ue
 echo "-----start-----" >> ./result/two_test_gibbs.tsv
 
-# RUST_LOG=debug ./target/release/test_last_decompose_multiple \
-#         60 0 2 0.001 0.5 0.0 >> ./result/two_test_gibbs.tsv \
-#         2>> ./logfiles/two_test_gibbs.log
+RUST_LOG=trace ./target/release/test_last_decompose_multiple \
+        100 0 232 0.001 0.5 0.5 >> ./result/two_test_gibbs_trace.tsv \
+        2>> ./logfiles/two_test_gibbs_trace.log
 # RUST_LOG=debug ./target/release/test_last_decompose_multiple \
 #         60 0 3 0.001 0.5 0.5 0.0 >> ./result/two_test_gibbs.tsv \
 #         2>> ./logfiles/two_test_gibbs.log
@@ -31,12 +31,12 @@ echo "-----start-----" >> ./result/two_test_gibbs.tsv
 # RUST_LOG=debug ./target/release/test_last_decompose_multiple \
 #         200 0 3432 0.001 0.5 0.5 >> ./result/two_test_gibbs.tsv \
 #         2>> ./logfiles/two_test_gibbs.log
-for seed in `seq 1 10`
-do
-    RUST_LOG=debug ./target/release/test_last_decompose_multiple \
-            60 0 ${seed} 0.001 0.5 0.5 >> ./result/two_test_gibbs.tsv \
-            2>> ./logfiles/two_test_gibbs.log
-done
+# for seed in `seq 1 10`
+# do
+#     RUST_LOG=debug ./target/release/test_last_decompose_multiple \
+#             60 0 ${seed} 0.001 0.5 0.5 >> ./result/two_test_gibbs.tsv \
+#             2>> ./logfiles/two_test_gibbs.log
+# done
 
 # RUST_LOG=debug ./target/release/test_last_decompose_multiple \
 #         300 10 2 0.009 0.1 0.9 >> ./result/two_test_gibbs.tsv \

@@ -38,8 +38,8 @@ pub mod variant_calling;
 // 200 * 100 = 25_000
 const WINDOW_SIZE: usize = 250;
 const OVERLAP: usize = 50;
-const MIN_LEN: usize = 5_000;
-const CONNECTION_THR: f64 = 10.;
+const MIN_LEN: usize = 6_500;
+const CONNECTION_THR: f64 = 20.;
 type Read = Vec<(usize, Vec<u8>)>;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
@@ -269,7 +269,7 @@ fn create_windows(idx: usize, len: usize, mask: &[bool]) -> Vec<(u16, u16, u16)>
         }
         if end + WINDOW_SIZE / 2 - OVERLAP < len {
             windows.push((idx as u16, start as u16, end as u16));
-            start = end;
+            start = end - OVERLAP;
         } else {
             windows.push((idx as u16, start as u16, len as u16));
             break;

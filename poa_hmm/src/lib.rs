@@ -57,6 +57,9 @@ pub type POA = PartialOrderAlignment;
 pub struct PartialOrderAlignment {
     nodes: Vec<Base>,
     weight: f64,
+    dfs_flag: Vec<usize>,
+    dfs_stack: Vec<usize>,
+    mapping: Vec<usize>,
 }
 
 type TraceBack = Vec<EditOp>;
@@ -185,9 +188,28 @@ impl PartialOrderAlignment {
         nodes.push(last);
         nodes.iter_mut().for_each(|n| n.add_weight(w));
         assert!(nodes.iter().all(|n| n.weight() > 0.));
-        Self { weight, nodes }
+        let (dfs_flag, dfs_stack, mapping) = (vec![], vec![], vec![]);
+        Self {
+            weight,
+            nodes,
+            dfs_stack,
+            dfs_flag,
+            mapping,
+        }
     }
-    pub fn align<F>(&self, seq: &[u8], (ins, del, score): (i32, i32, F)) -> (i32, TraceBack)
+    pub fn align<F>(&self, seq: &[u8], param: (i32, i32, F)) -> (i32, TraceBack)
+    where
+        F: Fn(u8, u8) -> i32,
+    {
+        let (mut dp, mut profile) = (vec![], vec![]);
+        self.align_with_buf(seq, param, (&mut dp, &mut profile))
+    }
+    pub fn align_with_buf<F>(
+        &self,
+        seq: &[u8],
+        (ins, del, score): (i32, i32, F),
+        (dp, profile): (&mut Vec<i32>, &mut Vec<i32>),
+    ) -> (i32, TraceBack)
     where
         F: Fn(u8, u8) -> i32,
     {
@@ -203,10 +225,24 @@ impl PartialOrderAlignment {
         use packed_simd::f32x8 as f32s;
         use packed_simd::i32x8 as i32s;
         const LANE: usize = 8;
-        let profile: Vec<Vec<_>> = b"ACGT"
-            .iter()
-            .map(|&base| seq.iter().map(|&b| score(base, b)).collect())
-            .collect();
+        let row = self.nodes.len() + 1;
+        let column = if seq.len() % LANE == 0 {
+            seq.len() + 1
+        } else {
+            seq.len() + (LANE - (seq.len() % LANE)) + 1
+        };
+        profile.clear();
+        dp.clear();
+        assert!((column - 1) % LANE == 0);
+        for &base in b"ACGT" {
+            for i in 0..column {
+                if i < seq.len() {
+                    profile.push(score(base, seq[i]))
+                } else {
+                    profile.push(0)
+                }
+            }
+        }
         let edges: Vec<Vec<_>> = self
             .reverse_edges()
             .iter()
@@ -218,10 +254,10 @@ impl PartialOrderAlignment {
                 }
             })
             .collect();
-        let deletions = i32s::splat(del);
-        let (row, column) = (self.nodes.len() + 1, seq.len() + 1);
         // Initialazation.
-        let mut dp = vec![std::i32::MIN; column * row];
+        for _ in 0..column * row {
+            dp.push(std::i32::MIN);
+        }
         // The last elements in each row. Used at the beggining of the trace-back.
         let mut last_elements = vec![std::i32::MIN];
         // Weight to break tie. [i*column + j] is the total weight to (i,j) element.
@@ -233,85 +269,65 @@ impl PartialOrderAlignment {
         for i in 0..row {
             dp[i * column] = 0;
         }
+        let deletions = i32s::splat(del);
         for i in 1..row {
             let bs = base_table::BASE_TABLE[self.nodes[i - 1].base() as usize];
             let nw = self.nodes[i - 1].weight() as f32;
             let node_weight = f32s::splat(nw);
             // Update by SIMD instructions.
             for &p in &edges[i - 1] {
-                for j in 0..seq.len() / LANE {
-                    let start = i * column + LANE * j + 1;
+                for lj in (0..column - 1).step_by(LANE) {
+                    let start = i * column + lj + 1;
                     let end = start + LANE;
-                    let prev_start = p * column + LANE * j + 1;
+                    let prev_start = p * column + lj + 1;
                     let prev_end = prev_start + LANE;
-                    // Location to be updated.
                     let current = i32s::from_slice_unaligned(&dp[start..end]);
                     let current_weight = f32s::from_slice_unaligned(&route_weight[start..end]);
                     // Update for deletion state.
-                    let deletion =
+                    let del_score =
                         i32s::from_slice_unaligned(&dp[prev_start..prev_end]) + deletions;
-                    let deletion_weight =
+                    let del_weight =
                         f32s::from_slice_unaligned(&route_weight[prev_start..prev_end]);
-                    let mask = deletion.gt(current)
-                        | (deletion.eq(current) & deletion_weight.gt(current_weight));
-                    let current = deletion.max(current);
-                    let current_weight = mask.select(deletion_weight, current_weight);
+                    let mask = current.gt(del_score)
+                        | (current.eq(del_score) & current_weight.ge(del_weight));
+                    let current = mask.select(current, del_score);
+                    let current_weight = mask.select(current_weight, del_weight);
                     // Update for match state.
-                    let (seq_s, seq_e) = (LANE * j, LANE * (j + 1));
-                    let match_s = i32s::from_slice_unaligned(&profile[bs][seq_s..seq_e])
+                    let (seq_s, seq_e) = (column * bs + lj, column * bs + lj + LANE);
+                    let mat_score = i32s::from_slice_unaligned(&profile[seq_s..seq_e])
                         + i32s::from_slice_unaligned(&dp[prev_start - 1..prev_end - 1]);
-                    let match_weight = node_weight
+                    let mat_weight = node_weight
                         + f32s::from_slice_unaligned(&route_weight[prev_start - 1..prev_end - 1]);
-                    let mask = match_s.gt(current)
-                        | (match_s.eq(current) & match_weight.gt(current_weight));
-                    let current = match_s.max(current);
-                    let current_weight = mask.select(match_weight, current_weight);
-                    current.write_to_slice_unaligned(&mut dp[start..end]);
-                    current_weight.write_to_slice_unaligned(&mut route_weight[start..end]);
-                }
-                // Update by usual updates.
-                for j in (seq.len() / LANE) * LANE..seq.len() {
-                    let pos = i * column + j + 1;
-                    let prev_pos = p * column + j + 1;
-                    let mut current = dp[pos];
-                    let mut current_weight = route_weight[pos];
-                    let (del, del_weight) = (dp[prev_pos] + del, route_weight[prev_pos]);
-                    if del > current || (del == current && del_weight > current_weight) {
-                        current = del;
-                        current_weight = del_weight;
-                    }
-                    let mat = dp[prev_pos - 1] + profile[bs][j];
-                    let mat_weight = route_weight[prev_pos - 1] + nw;
-                    if mat > current || (mat == current && mat_weight > current_weight) {
-                        current = mat;
-                        current_weight = mat_weight;
-                    }
-                    dp[pos] = current;
-                    route_weight[pos] = current_weight;
+                    let mask = current.gt(mat_score)
+                        | (current.eq(mat_score) & current_weight.gt(mat_weight));
+                    mask.select(current, mat_score)
+                        .write_to_slice_unaligned(&mut dp[start..end]);
+                    mask.select(current_weight, mat_weight)
+                        .write_to_slice_unaligned(&mut route_weight[start..end]);
                 }
             }
             // Insertions would be updated by usual updates due to dependencies.
             for j in 0..seq.len() {
-                let current = dp[i * column + j + 1];
-                let current_weight = route_weight[i * column + j + 1];
-                let ins = dp[i * column + j] + ins;
-                let ins_weight = route_weight[i * column + j] + 1.;
+                let pos = i * column + j + 1;
+                let current = dp[pos];
+                let current_weight = route_weight[pos];
+                let ins = dp[pos - 1] + ins;
+                let ins_weight = route_weight[pos - 1] + 1.;
                 if ins > current || (ins == current && ins_weight > current_weight) {
-                    dp[i * column + j + 1] = ins;
-                    route_weight[i * column + j + 1] = ins_weight;
+                    dp[pos] = ins;
+                    route_weight[pos] = ins_weight;
                 }
             }
-            last_elements.push(dp[i * column + column - 1]);
+            last_elements.push(dp[i * column + seq.len()]);
         }
         // Traceback.
         let mut q_pos = seq.len();
         let (mut g_pos, &score) = last_elements
             .iter()
             .enumerate()
-            .max_by(|(a_i, a), (b_i, b)| match a.partial_cmp(&b) {
-                Some(std::cmp::Ordering::Equal) => a_i.cmp(&b_i),
-                Some(x) => x,
-                None => panic!("{}", line!()),
+            .max_by(|(a_i, a), (b_i, b)| match a.partial_cmp(&b).unwrap() {
+                std::cmp::Ordering::Equal => a_i.cmp(&b_i),
+                x => x,
             })
             .unwrap_or_else(|| panic!("{}", line!()));
         assert_eq!(dp[g_pos * column + q_pos], score);
@@ -341,7 +357,7 @@ impl PartialOrderAlignment {
             // Match/Mismatch
             let bs = base_table::BASE_TABLE[self.nodes[g_pos - 1].base() as usize];
             for &p in &edges[g_pos - 1] {
-                let mat = dp[p * column + q_pos - 1] + profile[bs][q_pos - 1];
+                let mat = dp[p * column + q_pos - 1] + profile[bs * column + q_pos - 1];
                 let mat_w = route_weight[p * column + q_pos - 1] + w;
                 if mat == score && ((mat_w - weight) / mat_w.max(weight)).abs() < 0.000_1 {
                     operations.push(EditOp::Match(g_pos - 1));
@@ -366,10 +382,24 @@ impl PartialOrderAlignment {
     where
         F: Fn(u8, u8) -> i32,
     {
+        let mut buf1 = vec![];
+        let mut buf2 = vec![];
+        self.add_with_buf(seq, w, parameters, (&mut buf1, &mut buf2))
+    }
+    pub fn add_with_buf<F>(
+        self,
+        seq: &[u8],
+        w: f64,
+        ps: (i32, i32, &F),
+        buffers: (&mut Vec<i32>, &mut Vec<i32>),
+    ) -> Self
+    where
+        F: Fn(u8, u8) -> i32,
+    {
         if self.weight < SMALL || self.nodes.is_empty() {
             return Self::new(seq, w);
         }
-        let (_, traceback) = self.align(seq, parameters);
+        let (_, traceback) = self.align_with_buf(seq, ps, buffers);
         self.integrate_alignment(seq, w, traceback)
     }
     fn integrate_alignment(mut self, seq: &[u8], w: f64, traceback: TraceBack) -> Self {
@@ -427,7 +457,7 @@ impl PartialOrderAlignment {
         }
         assert_eq!(q_pos, seq.len());
         self.weight += w;
-        assert!(self.nodes.iter().all(|node| node.weight() > 0.));
+        // assert!(self.nodes.iter().all(|node| node.weight() > 0.));
         self.topological_sort()
     }
     pub fn edges(&self) -> Vec<Vec<usize>> {

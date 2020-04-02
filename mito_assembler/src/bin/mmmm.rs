@@ -165,6 +165,7 @@ fn subcommand_decompose() -> App<'static, 'static> {
         .arg(
             Arg::with_name("limit")
                 .short("l")
+                .long("limit")
                 .required(false)
                 .value_name("LIMIT")
                 .help("Maximum Execution time(sec)")

@@ -5,6 +5,7 @@ use rayon::prelude::*;
 use std::ops::Shl;
 const K: usize = 6;
 const THR: f64 = 7.0;
+const LEN_THR: usize = 6_000;
 fn main() -> std::io::Result<()> {
     let stdin = std::io::stdin();
     let reads = bio_utils::fasta::parse_into_vec_from(stdin.lock())?;
@@ -13,6 +14,7 @@ fn main() -> std::io::Result<()> {
     let reads: Vec<_> = reads
         .into_par_iter()
         .filter(|read| calc_entropy(read.seq(), K) > THR)
+        .filter(|read| read.seq().len() > LEN_THR)
         .collect();
     for read in reads {
         stdout.write_record(&read)?;

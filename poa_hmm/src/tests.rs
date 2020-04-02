@@ -479,11 +479,11 @@ fn abundance_test_prior() {
         let model2 = POA::generate(&data2, &weight, parameters);
         eprintln!("{}", model1);
         eprintln!("{}", String::from_utf8_lossy(&template1));
-        eprintln!("{}", String::from_utf8_lossy(&model1.consensus().unwrap()));
+        eprintln!("{}", String::from_utf8_lossy(&model1.consensus()));
         eprintln!("----------------------");
         eprintln!("{}", model2);
         eprintln!("{}", String::from_utf8_lossy(&template2));
-        eprintln!("{}", String::from_utf8_lossy(&model2.consensus().unwrap()));
+        eprintln!("{}", String::from_utf8_lossy(&model2.consensus()));
         let num = 50;
         let correct = (0..num)
             .filter(|_| {
