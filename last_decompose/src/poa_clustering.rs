@@ -13,7 +13,7 @@ const INIT_BETA: f64 = 0.2;
 const NUM_OF_BALL: usize = 100;
 const SMALL_WEIGHT: f64 = 0.000_000_000_0001;
 // const WEIGHT_PRIOR: f64 = 5.;
-const REP_NUM: usize = 12;
+const REP_NUM: usize = 5;
 const POA_PRIOR: f64 = 0.5;
 const PICK_PRIOR: f64 = 0.3;
 const GIBBS_PRIOR: f64 = 0.02;
@@ -67,8 +67,10 @@ pub fn to_pos(reads: &[ERead]) -> (Vec<Vec<usize>>, usize) {
 
 fn serialize(data: &[ERead], pos: &[Vec<usize>]) -> Vec<Read> {
     fn serialize_read(read: &ERead, pos: &[Vec<usize>]) -> Read {
+        let max = read.seq.iter().map(|e| e.unit()).max().unwrap_or(0);
         read.seq
             .iter()
+            .filter(|u| u.contig() < pos.len() && u.unit() < pos[u.contig()].len())
             .map(|u| (pos[u.contig()][u.unit()], u.bases().to_vec()))
             .collect()
     }
@@ -258,6 +260,16 @@ fn update_assignments<R: Rng>(
         .zip(seeds.into_iter())
         .filter(|&((_, &b), _)| b)
         .map(|(((asn, read), _), s)| {
+            let likelihoods: Vec<(usize, Vec<_>)> = read
+                .par_iter()
+                .map(|&(pos, ref u)| {
+                    let lks = models
+                        .par_iter()
+                        .map(|ms| ms[pos].forward(u, &config))
+                        .collect();
+                    (pos, lks)
+                })
+                .collect();
             let weights: Vec<_> = (0..cluster_num)
                 .into_par_iter()
                 .map(|l| {
@@ -266,13 +278,9 @@ fn update_assignments<R: Rng>(
                             if k != l {
                                 let (i, j) = (l.max(k), l.min(k));
                                 let prior = ws[k].ln() - ws[l].ln();
-                                let lkdiff = read
-                                    .par_iter()
-                                    .map(|&(pos, ref u)| {
-                                        let l = models[l][pos].forward(u, &config);
-                                        let k = models[k][pos].forward(u, &config);
-                                        betas[i][j][pos] * (k - l)
-                                    })
+                                let lkdiff = likelihoods
+                                    .iter()
+                                    .map(|&(pos, ref lks)| betas[i][j][pos] * (lks[k] - lks[l]))
                                     .sum::<f64>();
                                 prior + lkdiff
                             } else {
@@ -353,8 +361,8 @@ where
     if cluster_num <= 1 {
         return vec![0; data.len()];
     }
-    let lim = limit / 3;
-    let times = vec![2, 4, 8];
+    let lim = limit / 5;
+    let times = vec![2, 4, 6, 8, 10];
     let mut assignments = vec![];
     for i in times {
         let pick_prob = i as f64 / 100.;
@@ -1041,37 +1049,46 @@ pub fn predict<F>(
 where
     F: Fn(u8, u8) -> i32 + std::marker::Sync,
 {
+    debug!("Predicting short reads:{}", input.len());
     let param = (aln.ins, aln.del, &aln.score);
     let (matrix_pos, chain_len) = to_pos(data);
+    debug!("Serialize dataset");
     let data = serialize(data, &matrix_pos);
+    debug!("Serialize input");
     let input = serialize(input, &matrix_pos);
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let rng = &mut rng;
     let beta = 20.;
     let falses = vec![false; data.len()];
     let tuple = (cluster_num, chain_len);
+    debug!("Get variants");
     let (betas, _) = get_variants(&data, labels, tuple, rng, c, param, beta);
     let ws = get_cluster_fraction(labels, &falses, cluster_num);
-    let ms = get_models(&data, labels, &falses, cluster_num, chain_len, rng, param);
+    debug!("Constructe model");
+    let models = get_models(&data, labels, &falses, cluster_num, chain_len, rng, param);
     let choises: Vec<_> = (0..cluster_num).map(|e| e as u8).collect();
+    debug!("Predicting short reads:{}", input.len());
     input
         .iter()
         .filter_map(|read| {
             let weights: Vec<_> = (0..cluster_num)
                 .into_par_iter()
                 .map(|l| {
+                    let likelihoods: Vec<(usize, Vec<_>)> = read
+                        .par_iter()
+                        .map(|&(pos, ref u)| {
+                            let lks = models.par_iter().map(|ms| ms[pos].forward(u, c)).collect();
+                            (pos, lks)
+                        })
+                        .collect();
                     (0..cluster_num)
                         .map(|k| {
                             if k != l {
                                 let (i, j) = (l.max(k), l.min(k));
                                 let prior = ws[k].ln() - ws[l].ln();
-                                let lkdiff = read
-                                    .par_iter()
-                                    .map(|&(pos, ref u)| {
-                                        let l = ms[l][pos].forward(u, c);
-                                        let k = ms[k][pos].forward(u, c);
-                                        betas[i][j][pos] * (k - l)
-                                    })
+                                let lkdiff = likelihoods
+                                    .iter()
+                                    .map(|&(pos, ref lks)| betas[i][j][pos] * (lks[k] - lks[l]))
                                     .sum::<f64>();
                                 prior + lkdiff
                             } else {

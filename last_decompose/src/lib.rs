@@ -305,6 +305,19 @@ fn select_within(
             shorter_reads.push(read);
         }
     }
+    let max_d = s_data
+        .iter()
+        .flat_map(|read| read.seq.iter())
+        .map(|e| e.unit())
+        .max()
+        .unwrap_or(0);
+    let max_s = shorter_reads
+        .iter()
+        .flat_map(|read| read.seq.iter())
+        .map(|e| e.unit())
+        .max()
+        .unwrap_or(0);
+    debug!("{}\t{}", max_d, max_s);
     ((s_data, shorter_reads), s_label, s_forbid, s_answer)
 }
 
@@ -395,9 +408,8 @@ pub fn clustering_chunking(
             assert_eq!(data.len(), label.len() + answer.len());
             let predictions = {
                 let (da, la, fo, an) = (&data, &label, &forbidden, &answer);
-                // clustering(da, (la, an), fo, cluster_num, limit, c)
                 let mut pred = clustering(da, (la, an), fo, cluster_num, limit, c);
-                let pred_short = predict(&data, &pred, cluster_num, c, &short, 0);
+                let pred_short = predict(da, &pred, cluster_num, c, &short, 0);
                 pred.extend(pred_short);
                 pred
             };

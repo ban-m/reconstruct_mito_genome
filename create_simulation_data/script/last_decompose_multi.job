@@ -10,35 +10,35 @@
 set -ue
 
 OUTPUT=./result/last_decompose_multi_gibbs.txt
-OUTLOG_PREFIX=./logfiles/last_decompose_multi_gibbs
+OUTLOG=./logfiles/last_decompose_multi_gibbs.log
 
-TEST_NUM=360
-COVERAGE=0
-PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
-RUST_LOG=trace ./target/release/test_last_decompose_multiple \
-        ${TEST_NUM} ${COVERAGE} 310 0.002 ${PROBS} >> ./result/six_test_gibbs_trace.tsv\
-        2>> ./logfiles/six_test_gibbs_trace.log
-exit 0;
+# TEST_NUM=360
+# COVERAGE=0
+# PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
+# RUST_LOG=trace ./target/release/test_last_decompose_multiple \
+#         ${TEST_NUM} ${COVERAGE} 310 0.002 ${PROBS} >> ./result/six_test_gibbs_trace.tsv\
+#         2>> ./logfiles/six_test_gibbs_trace.log
+# exit 0;
 
 TEST_NUM=300
 COVERAGE=0
 PROBS="0.16 0.16 0.16 0.16 0.16"
 RUST_LOG=debug ./target/release/test_last_decompose_multiple \
-        ${TEST_NUM} ${COVERAGE} 310 0.002 ${PROBS} >> ./result/multi_test_gibbs.tsv\
-        2>> ./logfiles/multi_test_gibbs.log
+        ${TEST_NUM} ${COVERAGE} 310 0.002 ${PROBS} >> ${OUTPUT} \
+        2>> ${OUTLOG}
 
 TEST_NUM=240
 COVERAGE=0
 PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
 RUST_LOG=debug ./target/release/test_last_decompose_multiple \
-    ${TEST_NUM} ${COVERAGE} 100 0.002 ${PROBS} >> ./result/multi_test_gibbs.tsv\
-    2>> ./logfiles/multi_test_gibbs.log
+    ${TEST_NUM} ${COVERAGE} 100 0.002 ${PROBS} >> ${OUTPUT}\
+    2>> ${OUTLOG}
 
 TEST_NUM=240
 COVERAGE=0
 PROBS="0.16 0.16 0.16 0.16 0.16 0.16 0.0"
 RUST_LOG=debug ./target/release/test_last_decompose_multiple \
-    ${TEST_NUM} ${COVERAGE} 100 0.002 ${PROBS} >> ./result/multi_test_gibbs.tsv\
-    2>> ./logfiles/multi_test_gibbs.log
+    ${TEST_NUM} ${COVERAGE} 100 0.002 ${PROBS} >> ${OUTPUT}\
+    2>> ${OUTLOG}
 
 
