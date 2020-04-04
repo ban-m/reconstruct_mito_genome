@@ -7,7 +7,7 @@ extern crate rand_xoshiro;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
-const LIMIT: u64 = 7200;
+const LIMIT: u64 = 2400;
 use dbg_hmm::gen_sample;
 use last_decompose::{clustering, ERead};
 use rand::SeedableRng;

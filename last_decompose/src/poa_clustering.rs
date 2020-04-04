@@ -16,7 +16,7 @@ const SMALL_WEIGHT: f64 = 0.000_000_000_0001;
 const REP_NUM: usize = 5;
 const POA_PRIOR: f64 = 0.5;
 const PICK_PRIOR: f64 = 0.3;
-const GIBBS_PRIOR: f64 = 0.02;
+const GIBBS_PRIOR: f64 = 0.005;
 use crate::digamma::digamma;
 fn entropy(xs: &[f64]) -> f64 {
     assert!(xs.iter().all(|&x| x <= 1.000_000_1 && 0. <= x), "{:?}", xs);
@@ -67,7 +67,6 @@ pub fn to_pos(reads: &[ERead]) -> (Vec<Vec<usize>>, usize) {
 
 fn serialize(data: &[ERead], pos: &[Vec<usize>]) -> Vec<Read> {
     fn serialize_read(read: &ERead, pos: &[Vec<usize>]) -> Read {
-        let max = read.seq.iter().map(|e| e.unit()).max().unwrap_or(0);
         read.seq
             .iter()
             .filter(|u| u.contig() < pos.len() && u.unit() < pos[u.contig()].len())
@@ -207,6 +206,7 @@ fn get_models<F, R>(
     chain_len: usize,
     rng: &mut R,
     param: (i32, i32, &F),
+    use_position: &[bool],
 ) -> Vec<Vec<POA>>
 where
     R: Rng,
@@ -234,7 +234,14 @@ where
             cluster
                 .par_iter()
                 .zip(seeds.par_iter())
-                .map(|(cs, &s)| poa.clone().update(cs, &vec![1.; cs.len()], param, s))
+                .zip(use_position.par_iter())
+                .map(|((cs, &s), &b)| {
+                    if b {
+                        poa.clone().update(cs, &vec![1.; cs.len()], param, s)
+                    } else {
+                        poa.clone()
+                    }
+                })
                 .collect()
         })
         .collect()
@@ -294,7 +301,7 @@ fn update_assignments<R: Rng>(
                 .collect();
             let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(s);
             let chosen = *choises
-                .choose_weighted(&mut rng, |k| weights[*k as usize])
+                .choose_weighted(&mut rng, |k| weights[*k as usize] + SMALL_WEIGHT)
                 .unwrap();
             let is_the_same = if *asn == chosen { 0 } else { 1 };
             *asn = chosen;
@@ -322,7 +329,6 @@ fn get_variants<F, R: Rng>(
     rng: &mut R,
     config: &Config,
     param: (i32, i32, &F),
-    beta: f64,
 ) -> (Vec<Vec<Vec<f64>>>, f64)
 where
     F: Fn(u8, u8) -> i32 + std::marker::Sync,
@@ -331,10 +337,12 @@ where
     let init: Vec<Vec<_>> = (0..cluster_num)
         .map(|i| (0..i).map(|_| vec![0.; chain_len]).collect())
         .collect();
+    let usepos = vec![true; chain_len];
+    let ws = get_cluster_fraction(asn, &falses, cluster_num);
     let (variants, prev_lks) = (0..REP_NUM)
         .map(|_| {
-            let ws = get_cluster_fraction(asn, &falses, cluster_num);
-            let ms = get_models(&data, asn, &falses, cluster_num, chain_len, rng, param);
+            let clu_num = cluster_num;
+            let ms = get_models(&data, asn, &falses, clu_num, chain_len, rng, param, &usepos);
             variant_calling::variant_calling_all_pairs(&ms, &data, config, &ws)
         })
         .fold((init, vec![]), |(xs, mut ps), (y, q)| {
@@ -342,8 +350,7 @@ where
             (add(xs, y, REP_NUM), ps)
         });
     let prev_lk = crate::utils::logsumexp(&prev_lks) - (REP_NUM as f64).ln();
-    let betas = normalize_weights(&variants, beta);
-    (betas, prev_lk)
+    (variants, prev_lk)
 }
 
 pub fn gibbs_sampling<F>(
@@ -391,7 +398,9 @@ fn print_lk_gibbs<F>(
     let falses = vec![false; data.len()];
     let ws = get_cluster_fraction(asns, &falses, cluster_num);
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(id);
-    let models = get_models(data, asns, &falses, cluster_num, chain_len, &mut rng, param);
+    let rng = &mut rng;
+    let ps = vec![true; chain_len];
+    let models = get_models(data, asns, &falses, cluster_num, chain_len, rng, param, &ps);
     for (idx, (read, ans)) in data.iter().skip(label.len()).zip(answer).enumerate() {
         let lks = calc_lks(&models, &ws, read, config).join("\t");
         trace!("FEATURE\t{}\t{}\t{}\t{}\t{}", name, id, idx, ans, lks,);
@@ -431,7 +440,10 @@ where
         print_lk_gibbs(tuple, asn, &data, (label, answer), id, "B", param, config);
     }
     while count < 2 {
-        let (betas, next_lk) = get_variants(&data, asn, tuple, rng, config, param, beta);
+        let (variants, next_lk) = get_variants(&data, asn, tuple, rng, config, param);
+        let total_unit = data.iter().map(|e| e.len()).sum::<usize>();
+        let (variants, usepos) = select_variants(variants, total_unit, chain_len);
+        let betas = normalize_weights(&variants, beta);
         if lk < next_lk {
             beta = beta * BETA_INCREASE;
         } else {
@@ -441,17 +453,17 @@ where
         lk = next_lk;
         let changed_num = (0..pick_prob.recip().ceil() as usize)
             .map(|_| {
-                let sampled: Vec<bool> = (0..data.len())
+                let s: Vec<bool> = (0..data.len())
                     .map(|i| match i.cmp(&label.len()) {
                         std::cmp::Ordering::Less => false,
                         _ => rng.gen_bool(pick_prob),
                     })
                     .collect();
-                let ms = get_models(&data, asn, &sampled, cluster_num, chain_len, rng, param);
-                update_assignments(&ms, asn, &data, &sampled, rng, cluster_num, &betas, config)
+                let ms = get_models(&data, asn, &s, cluster_num, chain_len, rng, param, &usepos);
+                update_assignments(&ms, asn, &data, &s, rng, cluster_num, &betas, config)
             })
             .sum::<u32>();
-        if changed_num <= (data.len() as u32 / 200).max(1) {
+        if changed_num <= (data.len() as u32 / 100).max(2) {
             count += 1;
         } else {
             count = 0;
@@ -607,6 +619,43 @@ fn calc_lks(models: &[Vec<POA>], ws: &[f64], read: &Read, c: &Config) -> Vec<Str
         .collect()
 }
 
+fn select_variants(
+    mut variants: Vec<Vec<Vec<f64>>>,
+    total: usize,
+    chain: usize,
+) -> (Vec<Vec<Vec<f64>>>, Vec<bool>) {
+    let thr = {
+        let mut var: Vec<_> = variants
+            .iter()
+            .flat_map(|bs| bs.iter().flat_map(|bs| bs.iter()))
+            .copied()
+            .collect();
+        var.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let thr = 2. * chain as f64 * (chain as f64).ln() / total as f64;
+        var[var.len() * 9 / 10].min(thr)
+    };
+    let mut position = vec![false; chain];
+    for bss in variants.iter_mut() {
+        for bs in bss.iter_mut() {
+            for (idx, b) in bs.iter_mut().enumerate() {
+                if *b < thr {
+                    *b = 0.;
+                } else {
+                    position[idx] = true;
+                }
+            }
+        }
+    }
+    let pos: Vec<_> = position
+        .iter()
+        .enumerate()
+        .filter(|e| *e.1)
+        .map(|e| e.0)
+        .collect();
+    debug!("{:?}", pos);
+    (variants, position)
+}
+
 fn normalize_weights(variants: &[Vec<Vec<f64>>], beta: f64) -> Vec<Vec<Vec<f64>>> {
     let max = variants
         .iter()
@@ -615,7 +664,7 @@ fn normalize_weights(variants: &[Vec<Vec<f64>>], beta: f64) -> Vec<Vec<Vec<f64>>
     let mut betas = variants.to_vec();
     betas.iter_mut().for_each(|bss| {
         bss.iter_mut().for_each(|betas| {
-            assert!((1. - betas.iter().sum::<f64>()).abs() < 0.001);
+            // assert!((1. - betas.iter().sum::<f64>()).abs() < 0.001);
             betas.iter_mut().for_each(|b| *b *= beta / max);
         })
     });
@@ -1062,10 +1111,14 @@ where
     let falses = vec![false; data.len()];
     let tuple = (cluster_num, chain_len);
     debug!("Get variants");
-    let (betas, _) = get_variants(&data, labels, tuple, rng, c, param, beta);
+    let (variants, _) = get_variants(&data, labels, tuple, rng, c, param);
+    let total_unit = data.iter().map(|e| e.len()).sum::<usize>();
+    let (variants, pos) = select_variants(variants, total_unit, chain_len);
+    let betas = normalize_weights(&variants, beta);
     let ws = get_cluster_fraction(labels, &falses, cluster_num);
     debug!("Constructe model");
-    let models = get_models(&data, labels, &falses, cluster_num, chain_len, rng, param);
+    let clu_num = cluster_num;
+    let models = get_models(&data, labels, &falses, clu_num, chain_len, rng, param, &pos);
     let choises: Vec<_> = (0..cluster_num).map(|e| e as u8).collect();
     debug!("Predicting short reads:{}", input.len());
     input
