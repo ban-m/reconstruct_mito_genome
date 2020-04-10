@@ -5,6 +5,5 @@ authors = ["ban-m <ban-m@g.ecc.u-tokyo.ac.jp>"]
 edition = "2018"
 
 [dependencies]
-bio = "*"
-handmade_bloom_filter = {"path" = "../../handmade_bloom_filter/"}
-rayon = "*"
+rust-htslib = "*"
+bio_utils = {path = "../../bio_utils"}

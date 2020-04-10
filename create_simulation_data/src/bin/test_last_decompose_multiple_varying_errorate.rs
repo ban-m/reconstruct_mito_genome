@@ -9,6 +9,7 @@ extern crate log;
 extern crate env_logger;
 use dbg_hmm::gen_sample;
 use last_decompose::{clustering, ERead};
+use rand::Rng;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 const LIMIT: u64 = 3600;
@@ -32,25 +33,16 @@ fn main() {
     let coverage = 0;
     let chain_len = 90;
     let len = 100;
-    let prob: Vec<_> = (1..=10).collect();
-    let test_nums: Vec<_> = (50..=120).step_by(10).collect();
-    // let prob = vec![4];
-    // let test_nums = vec![60];
-    for p in prob {
+    let errors: Vec<_> = (1..=5).collect();
+    let test_nums: Vec<_> = (80..=150).step_by(10).collect();
+    for error in errors {
         for &test_num in &test_nums {
-            let seed = seed + (test_num + p) as u64;
-            let errorrate = p as f64 / 2000.;
-            println!("ErrorRate:{:3}", errorrate);
-            let p = &gen_sample::Profile {
-                sub: errorrate / 6.,
-                ins: errorrate / 6.,
-                del: errorrate / 6.,
-            };
-            use std::time::Instant;
+            let seed = seed + (test_num + error) as u64;
             println!("TestNum:{}\tLabeled:{}", test_num, coverage);
+            use std::time::Instant;
             let s = Instant::now();
             let (hmm, dists) = benchmark(
-                seed, p, coverage, test_num, chain_len, len, &probs, clusters,
+                seed, error, coverage, test_num, chain_len, len, &probs, clusters,
             );
             debug!("Elapsed {:?}", Instant::now() - s);
             let mut line = "RESULT".to_string();
@@ -79,7 +71,7 @@ fn main() {
                 println!();
             }
             line += &format!("\t{}", test_num);
-            line += &format!("\t{:.5}", errorrate);
+            line += &format!("\t{}", error);
             println!("{}", line);
         }
     }
@@ -87,7 +79,7 @@ fn main() {
 
 fn benchmark(
     seed: u64,
-    p: &gen_sample::Profile,
+    error: usize,
     coverage: usize,
     test_num: usize,
     chain_len: usize,
@@ -97,17 +89,39 @@ fn benchmark(
 ) -> (Vec<Vec<u32>>, Vec<Vec<u32>>) {
     let seed = 1003437 + seed;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
-    let mut templates = vec![];
+    let errors = {
+        let mut pos = vec![vec![0; chain_len]; clusters];
+        for _ in 0..error {
+            let c = rng.gen_range(0, clusters);
+            let p = rng.gen_range(0, chain_len);
+            pos[c][p] += 1;
+        }
+        pos
+    };
     let template: Vec<_> = (0..chain_len)
         .map(|_| gen_sample::generate_seq(&mut rng, len))
         .collect::<Vec<_>>();
-    for _ in 0..clusters {
-        let seq: Vec<_> = template
-            .iter()
-            .map(|e| gen_sample::introduce_randomness(e, &mut rng, &p))
-            .collect();
-        templates.push(seq);
-    }
+    let templates: Vec<Vec<_>> = errors
+        .into_iter()
+        .map(|error_num| {
+            template
+                .iter()
+                .zip(error_num)
+                .map(|(seq, e)| {
+                    let (mut sub, mut ins, mut del) = (0, 0, 0);
+                    for _ in 0..e {
+                        match rng.gen_range(0, 3) {
+                            0 => sub += 1,
+                            1 => ins += 1,
+                            2 => del += 1,
+                            _ => {}
+                        }
+                    }
+                    gen_sample::introduce_errors(seq, &mut rng, sub, del, ins)
+                })
+                .collect()
+        })
+        .collect();
     debug!("Index1\tIndex2\tDist");
     let dists: Vec<Vec<_>> = (0..clusters)
         .map(|i| {
@@ -159,7 +173,11 @@ fn benchmark(
     let em_pred = clustering(&data, (&label, &answer), &forbidden, clusters, LIMIT, c);
     let mut result = vec![vec![0; clusters]; clusters];
     for (pred, ans) in em_pred.into_iter().zip(answer) {
-        result[pred as usize][ans as usize] += 1;
+        let pred = match pred {
+            Some(res) => res as usize,
+            None => 0,
+        };
+        result[pred][ans as usize] += 1;
     }
     (result, dists)
 }

@@ -47,7 +47,7 @@ fn main() -> std::io::Result<()> {
         })
         .flat_map(|c| c)
         .collect();
-    let wtr = format!("{}/contigs.fasta", &args[1]);
+    let wtr = format!("{}/multipartite.fasta", &args[1]);
     let wtr = fs::File::create(wtr)?;
     let mut wtr = fasta::Writer::new(wtr);
     for c in contigs {

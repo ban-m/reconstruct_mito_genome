@@ -43,7 +43,7 @@ impl CUnit {
 
 impl ERead {
     pub fn new(er: EncodedRead) -> Self {
-        let EncodedRead { id, seq } = er;
+        let EncodedRead { id, seq, .. } = er;
         let seq = seq
             .iter()
             .filter_map(|u| u.encode())

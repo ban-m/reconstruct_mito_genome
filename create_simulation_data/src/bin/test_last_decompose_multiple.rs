@@ -35,7 +35,7 @@ fn main() {
         (200, 0, vec![2f64.recip(); 2], 2, 11920981, 0.2)
     };
     let len = 100;
-    let chain_len = 60;
+    let chain_len = 90;
     let p = &gen_sample::Profile {
         sub: errors / 6.,
         ins: errors / 6.,
@@ -139,7 +139,11 @@ fn benchmark(
         debug!("Cluster {}:{}", i, tot);
     }
     for (pred, ans) in em_pred.into_iter().zip(label.into_iter().chain(answer)) {
-        result[pred as usize][ans as usize] += 1;
+        let pred = match pred {
+            Some(res) => res as usize,
+            None => 0,
+        };
+        result[pred][ans as usize] += 1;
     }
     (result, dists)
 }

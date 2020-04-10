@@ -8,6 +8,7 @@ use std::fmt;
 pub struct EncodedRead {
     pub id: String,
     pub seq: Vec<ChunkedUnit>,
+    pub desc: Option<String>,
 }
 
 use std::hash::{Hash, Hasher};
@@ -26,14 +27,17 @@ impl PartialEq for EncodedRead {
 impl Eq for EncodedRead {}
 
 impl EncodedRead {
-    pub fn from(id: String, seq: Vec<ChunkedUnit>) -> Self {
-        Self { id, seq }
+    pub fn from(id: String, seq: Vec<ChunkedUnit>, desc: Option<String>) -> Self {
+        Self { id, seq, desc }
     }
     pub fn id(&self) -> &str {
         &self.id
     }
     pub fn seq(&self) -> &[ChunkedUnit] {
         &self.seq
+    }
+    pub fn desc(&self) -> Option<&String> {
+        self.desc.as_ref()
     }
     pub fn recover_raw_sequence(&self) -> Vec<u8> {
         self.seq

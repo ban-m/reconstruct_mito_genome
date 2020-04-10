@@ -28,7 +28,7 @@ const LAMBDA_MATCH: f64 = 0.04;
 // const LAMBDA_INS: f64 = 0.02;
 // const LAMBDA_MATCH: f64 = 0.02;
 const THR: f64 = 0.4;
-const DEFAULT_LK: f64 = -150.;
+pub const DEFAULT_LK: f64 = -150.;
 pub mod generate;
 #[cfg(test)]
 mod tests;

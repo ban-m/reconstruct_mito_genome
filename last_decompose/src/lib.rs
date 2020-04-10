@@ -35,11 +35,11 @@ pub use poa_clustering::soft_clustering_poa;
 use poa_hmm::Config;
 mod digamma;
 pub mod variant_calling;
-// 200 * 100 = 25_000
-const WINDOW_SIZE: usize = 250;
-const OVERLAP: usize = 50;
-const MIN_LEN: usize = 6_500;
-const CONNECTION_THR: f64 = 20.;
+const WINDOW_SIZE: usize = 100;
+const OVERLAP: usize = 25;
+const MIN_LEN: usize = 5_000;
+const CONNECTION_THR: f64 = 0.7;
+const MERGE_THR: usize = 5;
 type Read = Vec<(usize, Vec<u8>)>;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
@@ -55,30 +55,33 @@ pub fn decompose(
     answer: &HashMap<String, u8>,
     cluster_num: usize,
     limit: u64,
-) -> Vec<(String, u8)> {
+) -> Vec<(String, Option<u8>)> {
     let datasize = encoded_reads.len();
     let masked_region = get_masked_region(&initial_clusters, &contigs, repeats);
-    let mut forbidden = vec![];
+    let mut forbidden: HashMap<String, _> = HashMap::new();
     let mut labels: Vec<_> = vec![];
     let (assigned_reads, unassigned_reads): (Vec<_>, Vec<_>) = encoded_reads
         .into_iter()
-        .map(|mut read| {
-            let seq = read
-                .seq()
+        .filter_map(|mut read| {
+            let forbid: Vec<_> = initial_clusters
                 .iter()
-                .filter(|unit| !masked_region[unit.contig as usize][unit.unit as usize])
-                .cloned()
+                .filter(|cluster| cluster.is_spanned_by(&read))
+                .map(|c| c.id as u8)
                 .collect();
-            *read.seq_mut() = seq;
-            read
+            let seq: Vec<_> = read.seq().iter().cloned().collect();
+            forbidden.insert(read.id().to_string(), forbid);
+            if seq.is_empty() {
+                None
+            } else {
+                *read.seq_mut() = seq;
+                Some(read)
+            }
         })
-        .filter(|read| !read.is_empty())
         .partition(|read| {
             let matched_cluster = initial_clusters
                 .iter()
                 .filter_map(|cr| if cr.has(read.id()) { Some(cr.id) } else { None })
                 .nth(0);
-            forbidden.push(vec![]);
             if let Some(idx) = matched_cluster {
                 labels.push(idx as u8);
                 true
@@ -100,12 +103,15 @@ pub fn decompose(
         })
         .collect();
     let dataset = vec![assigned_reads, unassigned_reads].concat();
-    // assert_eq!(forbidden.len(), dataset.len());
     let total_units = dataset.iter().map(|read| read.seq().len()).sum::<usize>();
     debug!(
         "There are {} reads and {} units.",
         dataset.len(),
         total_units
+    );
+    debug!(
+        "Nonempty forbbidens are {}",
+        forbidden.values().filter(|e| !e.is_empty()).count()
     );
     assert_eq!(answer.len() + labels.len(), dataset.len());
     let contigs: Vec<_> = (0..contigs.get_num_of_contigs())
@@ -282,7 +288,7 @@ fn select_within(
     (contig, start, end): (u16, u16, u16),
     data: &[ERead],
     label: &[u8],
-    forbidden: &[Vec<u8>],
+    forbidden: &HashMap<String, Vec<u8>>,
     answer: &[u8],
 ) -> ((Vec<ERead>, Vec<ERead>), Vec<u8>, Vec<Vec<u8>>, Vec<u8>) {
     assert_eq!(data.len(), label.len() + answer.len());
@@ -294,8 +300,9 @@ fn select_within(
         let original_len = read.seq().len();
         let read = read.clone_within(contig, start, end);
         if read.seq().len() > MIN_LEN / last_tiling::UNIT_SIZE {
+            let forbid = forbidden.get(read.id()).cloned().unwrap_or(vec![]);
+            s_forbid.push(forbid);
             s_data.push(read);
-            s_forbid.push(forbidden[idx].clone());
             if idx < border {
                 s_label.push(label[idx]);
             } else {
@@ -305,37 +312,53 @@ fn select_within(
             shorter_reads.push(read);
         }
     }
-    let max_d = s_data
-        .iter()
-        .flat_map(|read| read.seq.iter())
-        .map(|e| e.unit())
-        .max()
-        .unwrap_or(0);
-    let max_s = shorter_reads
-        .iter()
-        .flat_map(|read| read.seq.iter())
-        .map(|e| e.unit())
-        .max()
-        .unwrap_or(0);
-    debug!("{}\t{}", max_d, max_s);
+    assert_eq!(s_data.len(), s_forbid.len());
     ((s_data, shorter_reads), s_label, s_forbid, s_answer)
 }
 
-fn find_matching(prev: &[HashSet<String>], after: &[HashSet<String>]) -> Vec<(usize, usize)> {
+fn find_matching(
+    prev: &[HashSet<String>],
+    after: &[HashSet<String>],
+    forbidden: &HashMap<String, Vec<u8>>,
+    initial_clusters: &[Cluster],
+) -> Vec<(usize, usize)> {
     let node1 = prev.len();
     let node2 = after.len();
     debug!("Dump graph");
+    let prev_boundary: Vec<HashSet<_>> = prev
+        .iter()
+        .map(|from| {
+            after.iter().fold(HashSet::new(), |mut acc, x| {
+                acc.extend(x.intersection(from).cloned());
+                acc
+            })
+        })
+        .collect();
+    let after_boundary: Vec<HashSet<_>> = after
+        .iter()
+        .map(|to| {
+            prev.iter().fold(HashSet::new(), |mut acc, x| {
+                acc.extend(x.intersection(to).cloned());
+                acc
+            })
+        })
+        .collect();
     let graph: Vec<Vec<(usize, f64)>> = prev
         .iter()
+        .zip(prev_boundary)
         .enumerate()
-        .map(|(from, cl1)| {
+        .map(|(from, (cl1, cl1_boundary))| {
             after
                 .iter()
+                .zip(after_boundary.iter())
                 .enumerate()
-                .filter_map(|(to, cl2)| {
-                    let sim = sim(cl1, cl2);
-                    debug!("{}->({:.3})->{}", from, sim, to);
+                .filter(|(_, (cl2, _))| is_mergiable(cl1, cl2, forbidden, initial_clusters))
+                .filter_map(|(to, (cl2, cl2_boundary))| {
+                    let intersect = cl1.intersection(cl2).count();
+                    let union = cl1_boundary.union(cl2_boundary).count();
+                    let sim = intersect as f64 / union as f64;
                     if sim > CONNECTION_THR {
+                        debug!("{}->({:.3})->{}", from, sim, to);
                         Some((to, sim))
                     } else {
                         None
@@ -345,41 +368,66 @@ fn find_matching(prev: &[HashSet<String>], after: &[HashSet<String>]) -> Vec<(us
         })
         .collect();
     let res = bipartite_matching::maximum_weight_matching(node1, node2, &graph);
-    // let res: Vec<(usize, usize)> = graph
-    //     .into_iter()
-    //     .enumerate()
-    //     .flat_map(|(cl1, cl1_edges)| {
-    //         cl1_edges
-    //             .into_iter()
-    //             .filter(|&(_, sim)| sim > CONNECTION_THR)
-    //             .map(|(cl2, _)| (cl1, cl2))
-    //             .collect::<Vec<(usize, usize)>>()
-    //     })
-    //     .collect();
     debug!("Path Selected.");
     for &(from, to) in &res {
-        debug!("{}-({})-{}", from, sim(&prev[from], &after[to]), to);
+        debug!("{}-{}", from, to);
     }
     res
 }
 
-// Define similarity between two cluster.
-fn sim(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
-    a.intersection(&b).count() as f64
+fn is_mergiable(
+    cl1: &HashSet<String>,
+    cl2: &HashSet<String>,
+    forbidden: &HashMap<String, Vec<u8>>,
+    clusters: &[Cluster],
+) -> bool {
+    let cl1_cluster: HashSet<_> = clusters
+        .iter()
+        .filter_map(|cl| {
+            if cl1.iter().any(|id| cl.has(id)) {
+                Some(cl.id as u8)
+            } else {
+                None
+            }
+        })
+        .collect();
+    let cl2_cluster: HashSet<_> = clusters
+        .iter()
+        .filter_map(|cl| {
+            if cl2.iter().any(|id| cl.has(id)) {
+                Some(cl.id as u8)
+            } else {
+                None
+            }
+        })
+        .collect();
+    // Check whether cl1_cluster violates cl2's forbidden set
+    // or cl2_cluster violates cl1's forbidden set.
+    let cl1_violate: usize = cl1
+        .iter()
+        .filter_map(|id| forbidden.get(id))
+        .filter(|forbid| forbid.iter().any(|f| cl2_cluster.contains(f)))
+        .count();
+    let cl2_violate: usize = cl2
+        .iter()
+        .filter_map(|id| forbidden.get(id))
+        .filter(|forbid| forbid.iter().any(|f| cl1_cluster.contains(f)))
+        .count();
+    cl1_violate < 5 && cl2_violate < 5
 }
 
 /// Clustering after chunking the reference into several chunks.
 pub fn clustering_chunking(
     data: &[ERead],
     (label, answer): (&[u8], &[u8]),
-    forbidden: &[Vec<u8>],
+    forbidden: &HashMap<String, Vec<u8>>,
     initial_clusters: &[Cluster],
     cluster_num: usize,
     contigs: &[usize],
     c: &Config,
     limit: u64,
     windows: &[(u16, u16, u16)],
-) -> Vec<u8> {
+) -> Vec<Option<u8>> {
     debug!("The contig lengths:{:?}", contigs);
     debug!("There are {} windows in total.", windows.len());
     for w in windows {
@@ -389,23 +437,38 @@ pub fn clustering_chunking(
         .iter()
         .enumerate()
         .map(|(idx, &region)| {
-            {
-                let (contig, start, end) = region;
-                debug!("{}/{}:{}-{}", idx, contig, start, end);
-            }
-            // Determine the number of the cluster.
-            let cluster_num = initial_clusters
-                .iter()
-                .filter(|cl| cl.overlap(region))
-                .count()
-                .max(cluster_num - 1)
-                + 1;
-            debug!("Number of clusters:{}", cluster_num);
+            let (contig, start, end) = region;
+            debug!("{}/{}:{}-{}", idx, contig, start, end);
             let ((data, short), label, forbidden, answer) =
                 select_within(region, data, label, forbidden, answer);
             debug!("Number of Reads:{}", data.len());
             assert_eq!(data.len(), forbidden.len());
             assert_eq!(data.len(), label.len() + answer.len());
+            let cluster_map: HashMap<u8, u8> = {
+                let mut clusters: Vec<_> = label.iter().copied().collect();
+                clusters.sort();
+                clusters.dedup();
+                clusters
+                    .into_iter()
+                    .enumerate()
+                    .map(|(to, from)| (from, to as u8))
+                    .collect()
+            };
+            let cluster_num = cluster_map.len().max(cluster_num - 1) + 1;
+            debug!("Number of clusters:{}", cluster_num);
+            debug!("Mapping:{:?}", cluster_map);
+            let label: Vec<_> = label.iter().map(|c| cluster_map[c]).collect();
+            let forbidden: Vec<Vec<_>> = forbidden
+                .iter()
+                .map(|f| {
+                    f.iter()
+                        .filter_map(|c| cluster_map.get(c))
+                        .copied()
+                        .collect()
+                })
+                .collect();
+            let forbs = forbidden.iter().filter(|e| !e.is_empty()).count();
+            debug!("{} labels and {} noempty forbidden", label.len(), forbs);
             let predictions = {
                 let (da, la, fo, an) = (&data, &label, &forbidden, &answer);
                 let mut pred = clustering(da, (la, an), fo, cluster_num, limit, c);
@@ -413,38 +476,36 @@ pub fn clustering_chunking(
                 pred.extend(pred_short);
                 pred
             };
-            // assert_eq!(predictions.len(), data.len() + short.len());
             (0..cluster_num)
                 .map(|cluster_idx| {
                     let cluster_idx = cluster_idx as u8;
                     predictions
                         .iter()
                         .zip(data.iter().chain(short.iter()))
-                        // .zip(data.iter())
-                        .filter(|(&p, _)| p == cluster_idx)
+                        .filter_map(|(p, x)| p.map(|p| (p, x)))
+                        .filter(|&(p, _)| p == cluster_idx)
                         .map(|(_, read)| read.id().to_string())
                         .collect()
                 })
                 .collect()
         })
         .collect();
+    let max_cluster_num = clusterings.iter().map(|e| e.len()).max().unwrap_or(0);
     // Merging.
-    let mut fu = find_union::FindUnion::new(cluster_num * windows.len());
-    for idx in 0..clusterings.len() - 1 {
+    let mut fu = find_union::FindUnion::new(max_cluster_num * windows.len());
+    for idx in 0..clusterings.len() {
         let prev_idx = idx;
         let after_idx = (idx + 1) % clusterings.len();
         let prev = &clusterings[prev_idx];
         let after = &clusterings[after_idx];
-        assert!(prev.len() == cluster_num);
-        assert!(after.len() == cluster_num);
-        for (i, j) in find_matching(prev, after) {
-            let i = i + prev_idx * cluster_num;
-            let j = j + after_idx * cluster_num;
+        for (i, j) in find_matching(prev, after, forbidden, initial_clusters) {
+            let i = i + prev_idx * max_cluster_num;
+            let j = j + after_idx * max_cluster_num;
             fu.unite(i, j).unwrap();
         }
     }
     // Then, iteratively take components.
-    let mut components: Vec<HashSet<String>> = (0..(cluster_num * windows.len()))
+    let mut components: Vec<HashSet<String>> = (0..(max_cluster_num * windows.len()))
         .filter_map(|parent| {
             if fu.find(parent).unwrap() != parent {
                 return None;
@@ -458,13 +519,10 @@ pub fn clustering_chunking(
                         .iter()
                         .enumerate()
                         .filter(|(j, _)| {
-                            let p = fu.find(j + w * cluster_num);
+                            let p = fu.find(j + w * max_cluster_num);
                             parent == p.unwrap_or(std::usize::MAX)
                         })
-                        .fold(HashSet::new(), |mut acc, (j, cluster)| {
-                            if cluster.len() > find_breakpoint::COVERAGE_THR {
-                                info!("{}:{}", w, j);
-                            }
+                        .fold(HashSet::new(), |mut acc, (_, cluster)| {
                             acc.extend(cluster.clone());
                             acc
                         })
@@ -487,9 +545,9 @@ pub fn clustering_chunking(
                     let reads = initial_cluster.ids();
                     let inter_i = components[i].intersection(&reads).count();
                     let inter_j = components[j].intersection(&reads).count();
-                    debug!("{} shares {} reads with the init-cluster {}", i, inter_i, k);
-                    debug!("{} shares {} reads with the init-cluster {}", j, inter_j, k);
-                    if inter_i as f64 > CONNECTION_THR && inter_j as f64 > CONNECTION_THR {
+                    if inter_i > MERGE_THR && inter_j > MERGE_THR {
+                        debug!("{} shares {} reads with the init-cluster {}", i, inter_i, k);
+                        debug!("{} shares {} reads with the init-cluster {}", j, inter_j, k);
                         let from = components.remove(j);
                         components[i].extend(from);
                         continue 'merge;
@@ -510,17 +568,11 @@ pub fn clustering_chunking(
                 }
                 acc
             });
-    data.iter()
-        .map(|read| match result.get(read.id()) {
-            Some(res) => *res,
-            None => {
-                info!("Read {} does not belong to any cluster.", read.id());
-                0
-            }
-        })
-        .collect()
+    data.iter().map(|r| result.get(r.id()).cloned()).collect()
 }
 
+/// Return clustering. If the value is None,
+/// the element can not be assigned to any cluster.
 pub fn clustering(
     data: &[ERead],
     labels: (&[u8], &[u8]),
@@ -528,7 +580,7 @@ pub fn clustering(
     cluster_num: usize,
     limit: u64,
     c: &Config,
-) -> Vec<u8> {
+) -> Vec<Option<u8>> {
     assert_eq!(forbidden.len(), data.len());
     assert_eq!((labels.0).len() + (labels.1).len(), data.len());
     use poa_clustering::{gibbs_sampling, DEFAULT_ALN};
@@ -537,12 +589,12 @@ pub fn clustering(
 
 pub fn predict(
     data: &[ERead],
-    labels: &[u8],
+    labels: &[Option<u8>],
     cluster_num: usize,
     c: &Config,
     input: &[ERead],
     seed: u64,
-) -> Vec<u8> {
+) -> Vec<Option<u8>> {
     assert_eq!(data.len(), labels.len());
     use poa_clustering::DEFAULT_ALN;
     poa_clustering::predict(data, labels, cluster_num, c, input, seed, &DEFAULT_ALN)

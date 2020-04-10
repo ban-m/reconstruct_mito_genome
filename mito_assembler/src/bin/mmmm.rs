@@ -235,6 +235,11 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
     debug!("Profiled Error Rates:{}", config);
     let contigs = last_tiling::contig::Contigs::new(reference);
     let repeats = last_tiling::into_repeats(&self_aln, &contigs);
+    // Please remove this
+    let reads: Vec<_> = {
+        let mean = reads.iter().map(|e| e.seq().len()).sum::<usize>() / reads.len();
+        reads.into_iter().filter(|r| r.seq().len() > mean).collect()
+    };
     let encoded_reads = last_tiling::encoding(&reads, &contigs, &alignments);
     let start_stop = last_tiling::get_start_stop(&encoded_reads, &contigs);
     let encoded_reads: Vec<_> = encoded_reads
@@ -261,16 +266,20 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
         limit,
     )
     .into_iter()
+    .filter_map(|(id, c)| c.map(|c| (id, c)))
     .collect();
     use bio_utils::fasta;
     let mut decomposed: HashMap<u8, Vec<&fasta::Record>> = HashMap::new();
+    let unassigned = results.values().map(|&c| c).max().unwrap_or(0) + 1;
     for read in &reads {
         if let Some(cluster) = results.get(read.id()) {
             let cls = decomposed.entry(*cluster).or_insert(vec![]);
             cls.push(read);
         } else {
-            warn!("Read:{} is not in the results. ", read.id());
-            warn!("Maybe it is a junk read. Go to the next read.");
+            let cls = decomposed.entry(unassigned).or_insert(vec![]);
+            cls.push(read);
+            // warn!("Read:{} is not in the results. ", read.id());
+            // warn!("Maybe it is a junk read. Go to the next read.");
         }
     }
     if let Err(why) = std::fs::create_dir_all(output_dir) {
@@ -296,7 +305,11 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
         };
         let mut wtr = fasta::Writer::new(wtr);
         for read in reads {
-            writeln!(&mut readlist, "{}\t{}", cluster_id, read.id())?;
+            let line = match read.desc() {
+                Some(desc) => format!("{}\t{}\t{}", cluster_id, read.id(), desc),
+                None => format!("{}\t{}\tNoDesc", cluster_id, read.id()),
+            };
+            writeln!(&mut readlist, "{}", line)?;
             wtr.write_record(read)?;
         }
     }
@@ -412,7 +425,6 @@ fn create_viewer(matches: &clap::ArgMatches) -> std::io::Result<()> {
     let mut writer = BufWriter::new(std::fs::File::create(&file)?);
     let contigs_to_ref = serde_json::ser::to_string(&contigs_to_ref)?;
     writeln!(&mut writer, "{}", contigs_to_ref)?;
-
     let contigs = last_tiling::Contigs::new(contigs.clone());
     let reads = last_tiling::encoding(&reads, &contigs, &read_aln);
     use last_decompose::d3_data::convert_result_to_d3_data;

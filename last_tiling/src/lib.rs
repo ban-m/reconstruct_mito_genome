@@ -116,7 +116,8 @@ pub fn encoding(fasta: &[fasta::Record], defs: &Contigs, alns: &[LastTAB]) -> Ve
         .map(|(bucket, seq)| {
             if bucket.is_empty() {
                 let read = vec![ChunkedUnit::Gap(GapUnit::new(seq.seq(), None))];
-                EncodedRead::from(seq.id().to_string(), read)
+                let desc = seq.desc().map(|e| e.clone());
+                EncodedRead::from(seq.id().to_string(), read, desc)
             } else {
                 into_encoding(bucket, seq, defs)
             }
@@ -141,7 +142,8 @@ pub fn encoding_w_repeat(
             let bucket = trim_aln_in_repetitive(bucket, repeat);
             if bucket.is_empty() {
                 let read = vec![ChunkedUnit::Gap(GapUnit::new(seq.seq(), None))];
-                EncodedRead::from(seq.id().to_string(), read)
+                let desc = seq.desc().map(|e| e.clone());
+                EncodedRead::from(seq.id().to_string(), read, desc)
             } else {
                 into_encoding(bucket, seq, defs)
             }
@@ -201,20 +203,7 @@ fn has_flanking(rep: &Repeat, bucket: &[&LastTAB]) -> bool {
 }
 
 fn into_encoding(bucket: Vec<&LastTAB>, seq: &fasta::Record, defs: &Contigs) -> EncodedRead {
-    // debug!("Encoding {} alignments", bucket.len());
-    // debug!("Read:{},{}len", seq.id(), seq.seq().len());
     let bucket = filter_contained_alignment(bucket, defs);
-    // debug!("Filter contained. Remain {} alignments", bucket.len());
-    // for aln in &bucket {
-    //     debug!(
-    //         "{}-{}({}:{}-{})",
-    //         aln.seq2_start_from_forward(),
-    //         aln.seq2_end_from_forward(),
-    //         aln.seq1_name(),
-    //         aln.seq1_start_from_forward(),
-    //         aln.seq1_end_from_forward()
-    //     );
-    // }
     let (mut start_pos, mut read) = (0, vec![]);
     let bases = seq.seq();
     // Id of bucket[buclet.len()-2]. If bucket.len()==1, it should be None.
@@ -247,7 +236,8 @@ fn into_encoding(bucket: Vec<&LastTAB>, seq: &fasta::Record, defs: &Contigs) -> 
         let gapunit = ChunkedUnit::Gap(GapUnit::new(&bases[start_pos..], Some((c, c))));
         read.push(gapunit);
     }
-    unit::EncodedRead::from(seq.id().to_string(), read)
+    let desc = seq.desc().map(|e| e.clone());
+    unit::EncodedRead::from(seq.id().to_string(), read, desc)
 }
 
 type ChunkedUnits = Vec<ChunkedUnit>;

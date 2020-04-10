@@ -37,11 +37,10 @@ mean_accs <-  accs %>% mutate(Coverage = (X2 + X3)/2) %>%
     unnest() 
 
 g <- mean_accs %>%
-    rename(DivergenceRate = X10) %>%
-    mutate(DivergenceRate = 100 * DivergenceRate) %>% 
+    rename(VariantSite = X10) %>%
     ggplot() +
-    geom_raster(mapping = aes(x = Coverage, y = DivergenceRate, fill = Accuracy))  +
-    labs(y = "Divergence Rate(%)") +
+    geom_raster(mapping = aes(x = Coverage, y = VariantSite, fill = Accuracy))  +
+    labs(y = "Number of Variant Sites") +
     scale_fill_continuous(limits =c(0.5,1))
 
 generalplot(g,paste0(outname))

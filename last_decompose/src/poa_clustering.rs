@@ -13,11 +13,13 @@ const INIT_BETA: f64 = 0.2;
 const NUM_OF_BALL: usize = 100;
 const SMALL_WEIGHT: f64 = 0.000_000_000_0001;
 // const WEIGHT_PRIOR: f64 = 5.;
-const REP_NUM: usize = 5;
+const REP_NUM: usize = 4;
 const POA_PRIOR: f64 = 0.5;
 const PICK_PRIOR: f64 = 0.3;
-const GIBBS_PRIOR: f64 = 0.005;
+const GIBBS_PRIOR: f64 = 0.0;
 use crate::digamma::digamma;
+const STABLE_LIMIT: u32 = 9;
+const IS_STABLE: u32 = 5;
 fn entropy(xs: &[f64]) -> f64 {
     assert!(xs.iter().all(|&x| x <= 1.000_000_1 && 0. <= x), "{:?}", xs);
     xs.iter()
@@ -202,28 +204,29 @@ fn get_models<F, R>(
     data: &[Read],
     assignments: &[u8],
     sampled: &[bool],
-    cluster_num: usize,
-    chain_len: usize,
+    (cluster_num, chain_len): (usize, usize),
     rng: &mut R,
     param: (i32, i32, &F),
     use_position: &[bool],
+    pick: f64,
 ) -> Vec<Vec<POA>>
 where
     R: Rng,
     F: Fn(u8, u8) -> i32 + std::marker::Sync,
 {
     let mut chunks: Vec<_> = vec![vec![vec![]; chain_len]; cluster_num];
-    let choises: Vec<_> = (0..cluster_num).collect();
-    for ((read, &assign), &b) in data.iter().zip(assignments.iter()).zip(sampled) {
+    let choises: Vec<u8> = (0..cluster_num).map(|e| e as u8).collect();
+    for ((read, &asn), &b) in data.iter().zip(assignments.iter()).zip(sampled) {
         if b {
             continue;
         }
-        let gp = GIBBS_PRIOR;
         let chosen = *choises
-            .choose_weighted(rng, |&k| if k as u8 == assign { 1. + gp } else { gp })
+            .choose_weighted(rng, |&k| if k == asn { 1. + pick } else { pick })
             .unwrap();
         for &(pos, ref unit) in read.iter() {
-            chunks[chosen][pos].push(unit.as_slice())
+            if use_position[pos] {
+                chunks[chosen as usize][pos].push(unit.as_slice());
+            }
         }
     }
     let seeds: Vec<_> = rng.sample_iter(Standard).take(chain_len).collect();
@@ -256,17 +259,38 @@ fn update_assignments<R: Rng>(
     cluster_num: usize,
     betas: &[Vec<Vec<f64>>],
     config: &Config,
+    forbidden: &[Vec<u8>],
 ) -> u32 {
     let choises: Vec<_> = (0..cluster_num).map(|e| e as u8).collect();
-    let ws = get_cluster_fraction(assignments, sampled, cluster_num);
+    let fraction_on_positions: Vec<Vec<f64>> = {
+        let cl = models[0].len();
+        let mut total_count = vec![0; cl];
+        let mut counts = vec![vec![0; cl]; cluster_num];
+        for (&asn, read) in assignments.iter().zip(data) {
+            for &(pos, _) in read.iter() {
+                total_count[pos] += 1;
+                counts[asn as usize][pos] += 1;
+            }
+        }
+        counts
+            .iter()
+            .map(|cs| {
+                cs.iter()
+                    .zip(total_count.iter())
+                    .map(|(&c, &t)| c as f64 / t as f64 + SMALL_WEIGHT)
+                    .collect()
+            })
+            .collect()
+    };
     let seeds: Vec<u64> = rng.sample_iter(Standard).take(data.len()).collect();
     assignments
         .iter_mut()
         .zip(data.iter())
-        .zip(sampled.iter())
+        .zip(forbidden.iter())
         .zip(seeds.into_iter())
-        .filter(|&((_, &b), _)| b)
-        .map(|(((asn, read), _), s)| {
+        .zip(sampled.iter())
+        .filter(|&(_, &b)| b)
+        .map(|((((asn, read), f), s), _)| {
             let likelihoods: Vec<(usize, Vec<_>)> = read
                 .par_iter()
                 .map(|&(pos, ref u)| {
@@ -276,6 +300,11 @@ fn update_assignments<R: Rng>(
                         .collect();
                     (pos, lks)
                 })
+                .collect();
+            let ws: Vec<_> = fraction_on_positions
+                .iter()
+                .map(|ws| read.iter().map(|&(pos, _)| ws[pos]).sum::<f64>())
+                .map(|ws| ws / read.len() as f64)
                 .collect();
             let weights: Vec<_> = (0..cluster_num)
                 .into_par_iter()
@@ -301,7 +330,13 @@ fn update_assignments<R: Rng>(
                 .collect();
             let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(s);
             let chosen = *choises
-                .choose_weighted(&mut rng, |k| weights[*k as usize] + SMALL_WEIGHT)
+                .choose_weighted(&mut rng, |k| {
+                    if f.contains(k) {
+                        0.
+                    } else {
+                        weights[*k as usize] + SMALL_WEIGHT
+                    }
+                })
                 .unwrap();
             let is_the_same = if *asn == chosen { 0 } else { 1 };
             *asn = chosen;
@@ -341,8 +376,8 @@ where
     let ws = get_cluster_fraction(asn, &falses, cluster_num);
     let (variants, prev_lks) = (0..REP_NUM)
         .map(|_| {
-            let clu_num = cluster_num;
-            let ms = get_models(&data, asn, &falses, clu_num, chain_len, rng, param, &usepos);
+            let tuple = (cluster_num, chain_len);
+            let ms = get_models(&data, asn, &falses, tuple, rng, param, &usepos, 0.);
             variant_calling::variant_calling_all_pairs(&ms, &data, config, &ws)
         })
         .fold((init, vec![]), |(xs, mut ps), (y, q)| {
@@ -361,19 +396,25 @@ pub fn gibbs_sampling<F>(
     limit: u64,
     config: &poa_hmm::Config,
     aln: &AlnParam<F>,
-) -> Vec<u8>
+) -> Vec<Option<u8>>
 where
     F: Fn(u8, u8) -> i32 + std::marker::Sync,
 {
-    if cluster_num <= 1 {
-        return vec![0; data.len()];
+    if cluster_num <= 1 || data.len() <= 2 {
+        return vec![None; data.len()];
     }
-    let lim = limit / 5;
-    let times = vec![2, 4, 6, 8, 10];
+    assert_eq!(f.len(), data.len());
+    let lim = limit / 2;
+    let times = vec![0.005, 0.10];
+    let sum = data
+        .iter()
+        .flat_map(|e| e.id().bytes())
+        .map(|e| e as u64)
+        .sum::<u64>()
+        + 1;
     let mut assignments = vec![];
-    for i in times {
-        let pick_prob = i as f64 / 100.;
-        let params = (lim, pick_prob, i * 9999 * data.len() as u64);
+    for (seed, pick_prob) in times.into_iter().enumerate() {
+        let params = (lim, pick_prob, seed as u64 * sum);
         let (res, end) = gibbs_sampling_inner(data, labels, f, cluster_num, params, config, aln);
         assignments = res;
         if end {
@@ -399,23 +440,36 @@ fn print_lk_gibbs<F>(
     let ws = get_cluster_fraction(asns, &falses, cluster_num);
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(id);
     let rng = &mut rng;
-    let ps = vec![true; chain_len];
-    let models = get_models(data, asns, &falses, cluster_num, chain_len, rng, param, &ps);
+    let tuple = (cluster_num, chain_len);
+    let (variants, _) = get_variants(&data, asns, tuple, rng, config, param);
+    let total_unit = data.iter().map(|e| e.len()).sum::<usize>();
+    let (variants, pos) = select_variants(variants, total_unit, chain_len);
+    let betas = normalize_weights(&variants, 2.);
+    let models = get_models(data, asns, &falses, tuple, rng, param, &pos, 0.);
     for (idx, (read, ans)) in data.iter().skip(label.len()).zip(answer).enumerate() {
-        let lks = calc_lks(&models, &ws, read, config).join("\t");
+        let lks = calc_lks(&models, &ws, read, config, &betas).join("\t");
         trace!("FEATURE\t{}\t{}\t{}\t{}\t{}", name, id, idx, ans, lks,);
+    }
+}
+
+fn gen_assignment<R: Rng>(not_allowed: &[u8], rng: &mut R, c: usize) -> u8 {
+    loop {
+        let a = rng.gen_range(0, c) as u8;
+        if !not_allowed.contains(&a) {
+            break a;
+        }
     }
 }
 
 fn gibbs_sampling_inner<F>(
     data: &[ERead],
     (label, answer): (&[u8], &[u8]),
-    _forbidden: &[Vec<u8>],
+    forbidden: &[Vec<u8>],
     cluster_num: usize,
     (limit, pick_prob, seed): (u64, f64, u64),
     config: &poa_hmm::Config,
     aln: &AlnParam<F>,
-) -> (Vec<u8>, bool)
+) -> (Vec<Option<u8>>, bool)
 where
     F: Fn(u8, u8) -> i32 + std::marker::Sync,
 {
@@ -425,13 +479,18 @@ where
     let id: u64 = thread_rng().gen::<u64>() % 100_000;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let rng = &mut rng;
-    let mut assignments: Vec<_> = label
-        .iter()
-        .copied()
-        .chain((0..data.len() - label.len()).map(|_| rng.gen_range(0, cluster_num) as u8))
+    let mut assignments: Vec<_> = (0..data.len())
+        .map(|idx| {
+            if idx < label.len() {
+                label[idx]
+            } else {
+                gen_assignment(&forbidden[idx], rng, cluster_num)
+            }
+        })
         .collect();
-    let mut beta = (cluster_num as f64).powi(2) / 4.;
+    let mut beta = (cluster_num as f64).powi(2);
     let mut count = 0;
+    let mut predictions = std::collections::VecDeque::new();
     let asn = &mut assignments;
     let start = std::time::Instant::now();
     let mut lk = std::f64::NEG_INFINITY;
@@ -439,19 +498,19 @@ where
     if log_enabled!(log::Level::Trace) {
         print_lk_gibbs(tuple, asn, &data, (label, answer), id, "B", param, config);
     }
-    while count < 2 {
+    while count < STABLE_LIMIT {
         let (variants, next_lk) = get_variants(&data, asn, tuple, rng, config, param);
         let total_unit = data.iter().map(|e| e.len()).sum::<usize>();
-        let (variants, usepos) = select_variants(variants, total_unit, chain_len);
+        let (variants, pos) = select_variants(variants, total_unit, chain_len);
         let betas = normalize_weights(&variants, beta);
-        if lk < next_lk {
-            beta = beta * BETA_INCREASE;
-        } else {
-            beta = beta * BETA_DECREASE;
-        }
+        beta *= match lk.partial_cmp(&next_lk) {
+            Some(std::cmp::Ordering::Less) => BETA_DECREASE,
+            Some(std::cmp::Ordering::Greater) => BETA_INCREASE,
+            _ => 1.,
+        };
         info!("LK\t{}\t{:.3}\t{:.3}\t{:.1}", count, next_lk, lk, beta);
         lk = next_lk;
-        let changed_num = (0..pick_prob.recip().ceil() as usize)
+        let changed_num = (0..pick_prob.recip().ceil() as usize / 2)
             .map(|_| {
                 let s: Vec<bool> = (0..data.len())
                     .map(|i| match i.cmp(&label.len()) {
@@ -459,47 +518,76 @@ where
                         _ => rng.gen_bool(pick_prob),
                     })
                     .collect();
-                let ms = get_models(&data, asn, &s, cluster_num, chain_len, rng, param, &usepos);
-                update_assignments(&ms, asn, &data, &s, rng, cluster_num, &betas, config)
+                let ms = get_models(&data, asn, &s, tuple, rng, param, &pos, GIBBS_PRIOR);
+                let f = forbidden;
+                update_assignments(&ms, asn, &data, &s, rng, cluster_num, &betas, config, f)
             })
             .sum::<u32>();
-        if changed_num <= (data.len() as u32 / 100).max(2) {
+        debug!("CHANGENUM\t{}", changed_num);
+        if changed_num <= (data.len() as u32 / 30).max(3) {
             count += 1;
         } else {
             count = 0;
         }
+        predictions.push_back(asn.clone());
+        if predictions.len() as u32 > STABLE_LIMIT {
+            predictions.pop_front();
+        }
         report_gibbs(asn, answer, label, count, id, cluster_num, pick_prob);
         if (std::time::Instant::now() - start).as_secs() > limit {
             info!("Break by timelimit:{:?}", std::time::Instant::now() - start);
-            return (assignments, false);
+            let result = predictions_into_assignments(predictions, cluster_num, data.len());
+            return (result, false);
         }
     }
     if log_enabled!(log::Level::Trace) {
         print_lk_gibbs(tuple, asn, &data, (label, answer), id, "A", param, config);
     }
-    (assignments, true)
+    let result = predictions_into_assignments(predictions, cluster_num, data.len());
+    (result, true)
 }
 
-fn report_gibbs(asn: &[u8], answer: &[u8], label: &[u8], lp: usize, id: u64, cl: usize, beta: f64) {
+fn predictions_into_assignments(
+    predictions: std::collections::VecDeque<Vec<u8>>,
+    cluster_num: usize,
+    data: usize,
+) -> Vec<Option<u8>> {
+    let maximum_a_posterior = |xs: Vec<u8>| {
+        let mut counts: Vec<u32> = vec![0; cluster_num];
+        for x in xs {
+            counts[x as usize] += 1;
+        }
+        let (cluster, count): (usize, u32) = counts
+            .into_iter()
+            .enumerate()
+            .max_by_key(|e| e.1)
+            .unwrap_or((0, 0));
+        if count > IS_STABLE {
+            Some(cluster as u8)
+        } else {
+            None
+        }
+    };
+    predictions
+        .into_iter()
+        .fold(vec![vec![]; data], |mut acc, xs| {
+            assert_eq!(acc.len(), xs.len());
+            for (y, x) in acc.iter_mut().zip(xs) {
+                y.push(x)
+            }
+            acc
+        })
+        .into_iter()
+        .map(maximum_a_posterior)
+        .collect()
+}
+
+fn report_gibbs(asn: &[u8], _ans: &[u8], _lab: &[u8], lp: u32, id: u64, cl: usize, beta: f64) {
     let line: Vec<_> = (0..cl)
         .map(|c| asn.iter().filter(|&&a| a == c as u8).count())
         .map(|e| format!("{}", e))
         .collect();
     info!("Summary\t{}\t{}\t{:.3}\t{}", id, lp, beta, line.join("\t"));
-    let line: Vec<_> = (0..cl)
-        .flat_map(|pred| {
-            (0..cl)
-                .map(|correct| {
-                    asn.iter()
-                        .zip(label.iter().chain(answer))
-                        .filter(|&(&p, &a)| pred as u8 == p && correct as u8 == a)
-                        .count()
-                })
-                .collect::<Vec<_>>()
-        })
-        .map(|e| format!("{}", e))
-        .collect();
-    info!("Pred\t{}", line.join("\t"));
 }
 pub fn soft_clustering_poa<F>(
     data: &[ERead],
@@ -529,20 +617,6 @@ where
     let datasize = data.len() as f64;
     let border = label.len();
     let mut beta = INIT_BETA;
-    if log_enabled!(log::Level::Trace) {
-        let ws: Vec<f64> = (0..cluster_num)
-            .map(|i| weights_of_reads.iter().map(|g| g[i]).sum::<f64>() / datasize)
-            .collect();
-        let wor = &weights_of_reads;
-        mf.update_seeds(&mut rng);
-        let models: Vec<Vec<POA>> = (0..cluster_num)
-            .map(|cl| mf.generate_model(&wor, &data, cl, aln))
-            .collect();
-        for (idx, (read, ans)) in data.iter().skip(label.len()).zip(answer).enumerate() {
-            let lks = calc_lks(&models, &ws, read, config).join("\t");
-            debug!("FEATURE\tBEFORE\t{}\t{}\t{}\t{}", id, idx, ans, lks,);
-        }
-    }
     for loop_num in 1.. {
         let init: Vec<Vec<_>> = (0..cluster_num)
             .map(|k| (0..k).map(|_| vec![0.; chain_len]).collect())
@@ -589,22 +663,16 @@ where
             _ => BETA_DECREASE,
         };
     }
-    if log_enabled!(log::Level::Trace) {
-        let models: Vec<Vec<POA>> = (0..cluster_num)
-            .map(|cl| mf.generate_model(&weights_of_reads, &data, cl, aln))
-            .collect();
-        let ws: Vec<f64> = (0..cluster_num)
-            .map(|i| weights_of_reads.iter().map(|g| g[i]).sum::<f64>() / datasize)
-            .collect();
-        for (idx, (read, ans)) in data.iter().skip(border).zip(answer).enumerate() {
-            let lks = calc_lks(&models, &ws, read, config).join("\t");
-            debug!("FEATURE\tAFTER\t{}\t{}\t{}\t{}", id, idx, ans, lks,);
-        }
-    }
     weights_of_reads
 }
 
-fn calc_lks(models: &[Vec<POA>], ws: &[f64], read: &Read, c: &Config) -> Vec<String> {
+fn calc_lks(
+    models: &[Vec<POA>],
+    ws: &[f64],
+    read: &Read,
+    c: &Config,
+    _bs: &[Vec<Vec<f64>>],
+) -> Vec<String> {
     models
         .iter()
         .zip(ws)
@@ -621,22 +689,18 @@ fn calc_lks(models: &[Vec<POA>], ws: &[f64], read: &Read, c: &Config) -> Vec<Str
 
 fn select_variants(
     mut variants: Vec<Vec<Vec<f64>>>,
-    total: usize,
+    _total: usize,
     chain: usize,
 ) -> (Vec<Vec<Vec<f64>>>, Vec<bool>) {
-    let thr = {
-        let mut var: Vec<_> = variants
-            .iter()
-            .flat_map(|bs| bs.iter().flat_map(|bs| bs.iter()))
-            .copied()
-            .collect();
-        var.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let thr = 2. * chain as f64 * (chain as f64).ln() / total as f64;
-        var[var.len() * 9 / 10].min(thr)
-    };
     let mut position = vec![false; chain];
     for bss in variants.iter_mut() {
         for bs in bss.iter_mut() {
+            let thr = {
+                let mut var = bs.clone();
+                var.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                let pos = (var.len() as f64 * 0.92).floor() as usize;
+                var[pos]
+            };
             for (idx, b) in bs.iter_mut().enumerate() {
                 if *b < thr {
                     *b = 0.;
@@ -646,13 +710,18 @@ fn select_variants(
             }
         }
     }
-    let pos: Vec<_> = position
-        .iter()
-        .enumerate()
-        .filter(|e| *e.1)
-        .map(|e| e.0)
-        .collect();
-    debug!("{:?}", pos);
+    for (idx, bss) in variants.iter().enumerate() {
+        for (jdx, bs) in bss.iter().enumerate() {
+            let line: Vec<_> = bs
+                .iter()
+                .enumerate()
+                .filter(|&x| *x.1 > 0.001)
+                .map(|x| x.0)
+                .map(|e| format!("{}", e))
+                .collect();
+            debug!("POS\t{}\t{}\t{}", idx, jdx, line.join(","));
+        }
+    }
     (variants, position)
 }
 
@@ -664,7 +733,6 @@ fn normalize_weights(variants: &[Vec<Vec<f64>>], beta: f64) -> Vec<Vec<Vec<f64>>
     let mut betas = variants.to_vec();
     betas.iter_mut().for_each(|bss| {
         bss.iter_mut().for_each(|betas| {
-            // assert!((1. - betas.iter().sum::<f64>()).abs() < 0.001);
             betas.iter_mut().for_each(|b| *b *= beta / max);
         })
     });
@@ -1088,7 +1156,28 @@ pub fn construct_initial_weights(
 
 pub fn predict<F>(
     data: &[ERead],
-    labels: &[u8],
+    labels: &[Option<u8>],
+    cluster_num: usize,
+    c: &Config,
+    input: &[ERead],
+    seed: u64,
+    aln: &AlnParam<F>,
+) -> Vec<Option<u8>>
+where
+    F: Fn(u8, u8) -> i32 + std::marker::Sync,
+{
+    let predictions: std::collections::VecDeque<_> = (0..STABLE_LIMIT)
+        .map(|st| {
+            let seed = seed + st as u64;
+            predict_inner(data, labels, cluster_num, c, input, seed, aln)
+        })
+        .collect();
+    predictions_into_assignments(predictions, cluster_num, input.len())
+}
+
+fn predict_inner<F>(
+    data: &[ERead],
+    labels: &[Option<u8>],
     cluster_num: usize,
     c: &Config,
     input: &[ERead],
@@ -1098,29 +1187,28 @@ pub fn predict<F>(
 where
     F: Fn(u8, u8) -> i32 + std::marker::Sync,
 {
-    debug!("Predicting short reads:{}", input.len());
+    let (data, labels): (Vec<ERead>, Vec<_>) = data
+        .into_iter()
+        .zip(labels)
+        .filter_map(|(d, l)| l.map(|l| (d.clone(), l)))
+        .unzip();
     let param = (aln.ins, aln.del, &aln.score);
-    let (matrix_pos, chain_len) = to_pos(data);
-    debug!("Serialize dataset");
-    let data = serialize(data, &matrix_pos);
-    debug!("Serialize input");
+    let (matrix_pos, chain_len) = to_pos(&data);
+    let data = serialize(&data, &matrix_pos);
     let input = serialize(input, &matrix_pos);
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let rng = &mut rng;
     let beta = 20.;
     let falses = vec![false; data.len()];
     let tuple = (cluster_num, chain_len);
-    debug!("Get variants");
-    let (variants, _) = get_variants(&data, labels, tuple, rng, c, param);
+    let (variants, _) = get_variants(&data, &labels, tuple, rng, c, param);
     let total_unit = data.iter().map(|e| e.len()).sum::<usize>();
     let (variants, pos) = select_variants(variants, total_unit, chain_len);
     let betas = normalize_weights(&variants, beta);
-    let ws = get_cluster_fraction(labels, &falses, cluster_num);
-    debug!("Constructe model");
-    let clu_num = cluster_num;
-    let models = get_models(&data, labels, &falses, clu_num, chain_len, rng, param, &pos);
+    let ws = get_cluster_fraction(&labels, &falses, cluster_num);
+    let tuple = (cluster_num, chain_len);
+    let models = get_models(&data, &labels, &falses, tuple, rng, param, &pos, 0.);
     let choises: Vec<_> = (0..cluster_num).map(|e| e as u8).collect();
-    debug!("Predicting short reads:{}", input.len());
     input
         .iter()
         .filter_map(|read| {

@@ -92,8 +92,8 @@ pub fn initial_clusters(
         for i in 0..len {
             for j in (i + 1)..len {
                 let union = union_of(&crs[i], &crs[j]);
+                debug!("Cluster {} and {} share {} reads.", i, j, union);
                 if union > COVERAGE_THR {
-                    debug!("Cluster {} and {} share {} reads. Merging.", i, j, union);
                     merge(&mut crs, i, j);
                     continue 'merge;
                 }
@@ -117,7 +117,7 @@ pub fn initial_clusters(
 /// How many reads are needed to construct a separate class.
 /// Note that it should be more than 1, since there is a
 /// danger of chimeric reads.
-const CHECK_THR: u16 = 2;
+const CHECK_THR: u16 = 4;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CriticalRegion {
     CP(ContigPair),
@@ -241,7 +241,7 @@ impl Position {
         }
     }
     fn overlap(&self, (contig, start, end): (u16, u16, u16)) -> bool {
-        let overlap = !(end as u16 <= self.start_unit || self.end_unit <= start as u16);
+        let overlap = !(end as u16 <= self.start_unit || self.end_unit < start as u16);
         contig == self.contig && overlap
     }
     pub fn range(&self) -> (i32, i32) {
@@ -260,8 +260,8 @@ impl Position {
         format!("{}{}:{}:{}{}", header, s, name, t, footer)
     }
     fn is_spanned_by(&self, r: &ERead) -> bool {
-        let s = self.start_unit;
-        let t = self.end_unit;
+        let s = self.start_unit.max(CHECK_THR) - CHECK_THR;
+        let t = self.end_unit + CHECK_THR;
         let (s_thr, t_thr) = (s.max(CHECK_THR) - CHECK_THR, t + CHECK_THR);
         if t_thr < self.longest {
             r.does_touch(self.contig, s_thr, s) && r.does_touch(self.contig, t, t_thr)
@@ -384,6 +384,15 @@ impl ContigPair {
     fn overlap(&self, range: (u16, u16, u16)) -> bool {
         self.contig1.overlap(range) || self.contig2.overlap(range)
     }
+    fn overlap_with(&self, cr: &ConfluentRegion) -> bool {
+        let Position {
+            contig,
+            start_unit,
+            end_unit,
+            ..
+        } = cr.pos;
+        self.overlap((contig, start_unit - CHECK_THR, end_unit + CHECK_THR))
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -457,16 +466,18 @@ pub fn critical_regions(
     _repeats: &[RepeatPairs],
     alignments: &[LastTAB],
 ) -> Vec<CriticalRegion> {
-    let num_of_contig = contigs.get_num_of_contigs() as u16;
-    debug!("There are {} contigs", num_of_contig);
-    debug!("There are {} reads", reads.len());
     let contig_pairs = contigpair_position(reads, contigs);
     let confluent_regions = confluent_position(alignments, contigs, last_tiling::UNIT_SIZE);
-    let contig_pairs = contig_pairs.into_iter().map(CriticalRegion::CP);
-    let confluent_regions = confluent_regions
+    let confluent_regions: Vec<_> = confluent_regions
         .into_iter()
-        .map(CriticalRegion::CR);
-    contig_pairs.chain(confluent_regions).collect()
+        .filter(|cr| contig_pairs.iter().all(|cp| !cp.overlap_with(cr)))
+        .map(CriticalRegion::CR)
+        .collect();
+    contig_pairs
+        .into_iter()
+        .map(CriticalRegion::CP)
+        .chain(confluent_regions)
+        .collect()
 }
 
 pub fn contigpair_position(reads: &[ERead], contigs: &Contigs) -> Vec<ContigPair> {

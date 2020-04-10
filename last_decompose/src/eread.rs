@@ -10,6 +10,7 @@ const MARGIN: usize = 20;
 pub struct ERead {
     pub id: String,
     pub seq: Vec<CUnit>,
+    pub desc: Option<String>,
     pub has_head_clip: bool,
     pub has_tail_clip: bool,
 }
@@ -42,7 +43,7 @@ impl fmt::Display for ERead {
 impl ERead {
     pub fn new_no_gapfill(er: EncodedRead) -> Self {
         use last_tiling::unit::ChunkedUnit;
-        let EncodedRead { id, seq } = er;
+        let EncodedRead { id, seq, desc } = er;
         // Check whether it has head clip.
         let has_head_clip = match seq.first() {
             Some(ChunkedUnit::Gap(ref gap)) => gap.len() > CLIP_THR,
@@ -63,11 +64,12 @@ impl ERead {
             seq,
             has_head_clip,
             has_tail_clip,
+            desc,
         }
     }
     pub fn new(er: EncodedRead) -> Self {
         use last_tiling::unit::ChunkedUnit;
-        let EncodedRead { id, seq } = er;
+        let EncodedRead { id, seq, desc } = er;
         let mut e_seq = vec![];
         // Check whether it has head clip.
         let has_head_clip = match seq.first() {
@@ -136,6 +138,7 @@ impl ERead {
             seq: e_seq,
             has_head_clip,
             has_tail_clip,
+            desc,
         }
     }
     pub fn new_with_lowseq(raw_read: Vec<Vec<u8>>, id: &str) -> Self {
@@ -159,10 +162,14 @@ impl ERead {
             seq,
             has_head_clip,
             has_tail_clip,
+            desc: None,
         }
     }
     pub fn id(&self) -> &str {
         &self.id
+    }
+    pub fn desc(&self) -> Option<&String> {
+        self.desc.as_ref()
     }
     pub fn seq(&self) -> &[CUnit] {
         &self.seq
@@ -186,7 +193,7 @@ impl ERead {
         self.seq
             .iter()
             .filter(|unit| unit.contig == contig)
-            .any(|unit| start < unit.unit && unit.unit < end)
+            .any(|unit| start <= unit.unit && unit.unit < end)
     }
     pub fn include_units(&self, contig: u16, start: u16, end: u16) -> usize {
         self.seq
@@ -208,6 +215,7 @@ impl ERead {
             seq,
             has_head_clip: self.has_head_clip,
             has_tail_clip: self.has_tail_clip,
+            desc: self.desc.clone(),
         }
     }
     pub fn seq_mut(&mut self) -> &mut Vec<CUnit> {

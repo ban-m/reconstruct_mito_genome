@@ -17,7 +17,7 @@ pub fn variant_call_poa(
 ) -> (Vec<f64>, f64) {
     let (matrices, lk) = calc_matrix_poa(models, data, c, centrize, ws);
     let (row, column) = (models.len(), models[0].len());
-    (maximize_margin_of(&matrices, row, column), lk)
+    (maximize_margin_of(&matrices, row, column).unwrap(), lk)
 }
 
 fn calc_matrix_poa(
@@ -101,30 +101,30 @@ fn centrize(mut matrices: Vec<Vec<f64>>, row: usize, column: usize) -> Vec<Vec<f
     matrices
 }
 
-fn maximize_margin_of(matrices: &[Vec<f64>], row: usize, column: usize) -> Vec<f64> {
+fn maximize_margin_of(matrices: &[Vec<f64>], row: usize, column: usize) -> Option<Vec<f64>> {
     let matrix = matrices
-        .into_par_iter()
+        .into_iter()
         .map(|matrix| DMatrix::from_row_slice(row, column, &matrix))
-        .fold(
-            || DMatrix::zeros(column, column),
-            |x, l| {
-                let trans = l.clone().transpose();
-                let ones = DMatrix::repeat(row, row, 1.);
-                let unit = DMatrix::identity(row, row);
-                let reg = unit - ones / row as f64;
-                x + trans * reg * l
-            },
-        )
-        .reduce(|| DMatrix::zeros(column, column), |x, y| x + y);
+        .fold(DMatrix::zeros(column, column), |x, l| {
+            let trans = l.clone().transpose();
+            let ones = DMatrix::repeat(row, row, 1.);
+            let unit = DMatrix::identity(row, row);
+            let reg = unit - ones / row as f64;
+            x + trans * reg * l
+        });
     let eigens = matrix.symmetric_eigen();
+    use std::cmp::Ordering::Equal;
     let max = eigens
         .eigenvalues
         .iter()
         .map(|&e| e as f64)
         .enumerate()
-        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-        .unwrap();
-    eigens.eigenvectors.column(max.0).iter().copied().collect()
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Equal))?;
+    if max.1.is_nan() || max.1.is_infinite() {
+        None
+    } else {
+        Some(eigens.eigenvectors.column(max.0).iter().copied().collect())
+    }
 }
 
 // Return the centrize vector for matrices.
@@ -207,11 +207,25 @@ fn call_variants(i: usize, j: usize, matrices: &[Vec<f64>], column: usize) -> Ve
     let matrices: Vec<Vec<_>> = matrices
         .iter()
         .map(|matrix| {
-            let class_i = matrix[i * column..(i + 1) * column].iter();
-            let class_j = matrix[j * column..(j + 1) * column].iter();
-            class_i.chain(class_j).copied().collect()
+            let use_pos: Vec<_> = matrix[i * column..(i + 1) * column]
+                .iter()
+                .zip(matrix[j * column..(j + 1) * column].iter())
+                .map(|(&l1, &l2)| l1 > poa_hmm::DEFAULT_LK && l2 > poa_hmm::DEFAULT_LK)
+                .collect();
+            let class_i = matrix[i * column..(i + 1) * column]
+                .iter()
+                .zip(use_pos.iter())
+                .map(|(&lk, &b)| if b { lk } else { 0. });
+            let class_j = matrix[j * column..(j + 1) * column]
+                .iter()
+                .zip(use_pos.iter())
+                .map(|(&lk, &b)| if b { lk } else { 0. });
+            class_i.chain(class_j).collect()
         })
         .collect();
     let matrices = centrize(matrices, 2, column);
-    maximize_margin_of(&matrices, 2, column)
+    match maximize_margin_of(&matrices, 2, column) {
+        Some(res) => res,
+        None => vec![0.; column],
+    }
 }
