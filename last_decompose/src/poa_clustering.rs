@@ -12,7 +12,6 @@ const BETA_DECREASE: f64 = 1.2;
 const INIT_BETA: f64 = 0.2;
 const NUM_OF_BALL: usize = 100;
 const SMALL_WEIGHT: f64 = 0.000_000_000_0001;
-// const WEIGHT_PRIOR: f64 = 5.;
 const REP_NUM: usize = 4;
 const POA_PRIOR: f64 = 0.5;
 const PICK_PRIOR: f64 = 0.3;
@@ -404,8 +403,8 @@ where
         return vec![None; data.len()];
     }
     assert_eq!(f.len(), data.len());
-    let lim = limit / 2;
-    let times = vec![0.005, 0.10];
+    let lim = limit / 3;
+    let times = vec![0.005, 0.01, 0.10];
     let sum = data
         .iter()
         .flat_map(|e| e.id().bytes())
@@ -437,7 +436,6 @@ fn print_lk_gibbs<F>(
     F: Fn(u8, u8) -> i32 + std::marker::Sync,
 {
     let falses = vec![false; data.len()];
-    let ws = get_cluster_fraction(asns, &falses, cluster_num);
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(id);
     let rng = &mut rng;
     let tuple = (cluster_num, chain_len);
@@ -446,9 +444,36 @@ fn print_lk_gibbs<F>(
     let (variants, pos) = select_variants(variants, total_unit, chain_len);
     let betas = normalize_weights(&variants, 2.);
     let models = get_models(data, asns, &falses, tuple, rng, param, &pos, 0.);
+    let fraction_on_positions: Vec<Vec<f64>> = {
+        let cl = models[0].len();
+        let mut total_count = vec![0; cl];
+        let mut counts = vec![vec![0; cl]; cluster_num];
+        for (&asn, read) in asns.iter().zip(data) {
+            for &(pos, _) in read.iter() {
+                total_count[pos] += 1;
+                counts[asn as usize][pos] += 1;
+            }
+        }
+        counts
+            .iter()
+            .map(|cs| {
+                cs.iter()
+                    .zip(total_count.iter())
+                    .map(|(&c, &t)| c as f64 / t as f64 + SMALL_WEIGHT)
+                    .collect()
+            })
+            .collect()
+    };
     for (idx, (read, ans)) in data.iter().skip(label.len()).zip(answer).enumerate() {
-        let lks = calc_lks(&models, &ws, read, config, &betas).join("\t");
-        trace!("FEATURE\t{}\t{}\t{}\t{}\t{}", name, id, idx, ans, lks,);
+        let lks = calc_probs(&models, read, config, &betas, &fraction_on_positions);
+        trace!(
+            "FEATURE\t{}\t{}\t{}\t{}\t{}",
+            name,
+            id,
+            idx,
+            ans,
+            lks.join("\t")
+        );
     }
 }
 
@@ -666,25 +691,50 @@ where
     weights_of_reads
 }
 
-fn calc_lks(
+fn calc_probs(
     models: &[Vec<POA>],
-    ws: &[f64],
     read: &Read,
     c: &Config,
-    _bs: &[Vec<Vec<f64>>],
+    bs: &[Vec<Vec<f64>>],
+    fractions: &[Vec<f64>],
 ) -> Vec<String> {
-    models
-        .iter()
-        .zip(ws)
-        .map(|(ms, w)| {
-            w.ln()
-                + read
-                    .iter()
-                    .map(|&(pos, ref unit)| ms[pos].forward(unit, c))
-                    .sum::<f64>()
+    let likelihoods: Vec<(usize, Vec<_>)> = read
+        .par_iter()
+        .map(|&(pos, ref u)| {
+            let lks = models.par_iter().map(|ms| ms[pos].forward(u, c)).collect();
+            (pos, lks)
         })
-        .map(|lk| format!("{:.1}", lk))
-        .collect()
+        .collect();
+    let ws: Vec<_> = fractions
+        .iter()
+        .map(|ws| read.iter().map(|&(pos, _)| ws[pos]).sum::<f64>())
+        .map(|ws| ws / read.len() as f64)
+        .collect();
+    let cluster_num = ws.len();
+    let weights: Vec<_> = (0..cluster_num)
+        .into_par_iter()
+        .map(|l| {
+            (0..cluster_num)
+                .map(|k| {
+                    if k != l {
+                        let (i, j) = (l.max(k), l.min(k));
+                        let prior = ws[k].ln() - ws[l].ln();
+                        let lkdiff = likelihoods
+                            .iter()
+                            .map(|&(pos, ref lks)| bs[i][j][pos] * (lks[k] - lks[l]))
+                            .sum::<f64>();
+                        prior + lkdiff
+                    } else {
+                        0.
+                    }
+                })
+                .map(|lkdiff| lkdiff.exp())
+                .sum::<f64>()
+                .recip()
+        })
+        .collect();
+    let sum = weights.iter().sum::<f64>();
+    weights.iter().map(|w| format!("{}", w / sum)).collect()
 }
 
 fn select_variants(
@@ -710,18 +760,18 @@ fn select_variants(
             }
         }
     }
-    for (idx, bss) in variants.iter().enumerate() {
-        for (jdx, bs) in bss.iter().enumerate() {
-            let line: Vec<_> = bs
-                .iter()
-                .enumerate()
-                .filter(|&x| *x.1 > 0.001)
-                .map(|x| x.0)
-                .map(|e| format!("{}", e))
-                .collect();
-            debug!("POS\t{}\t{}\t{}", idx, jdx, line.join(","));
-        }
-    }
+    // for (idx, bss) in variants.iter().enumerate() {
+    //     for (jdx, bs) in bss.iter().enumerate() {
+    //         let line: Vec<_> = bs
+    //             .iter()
+    //             .enumerate()
+    //             .filter(|&x| *x.1 > 0.001)
+    //             .map(|x| x.0)
+    //             .map(|e| format!("{}", e))
+    //             .collect();
+    //         debug!("POS\t{}\t{}\t{}", idx, jdx, line.join(","));
+    //     }
+    // }
     (variants, position)
 }
 
