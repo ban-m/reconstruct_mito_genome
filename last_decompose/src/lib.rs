@@ -35,7 +35,7 @@ use poa_hmm::Config;
 pub mod variant_calling;
 const WINDOW_SIZE: usize = 200;
 const OVERLAP: usize = 25;
-const MIN_LEN: usize = 5_000;
+const MIN_LEN: usize = 6_000;
 const CONNECTION_THR: f64 = 0.7;
 const MERGE_THR: usize = 5;
 type Read = Vec<(usize, Vec<u8>)>;
