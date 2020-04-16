@@ -437,8 +437,8 @@ const kFormatter = (num)=> {
 };
 
 const contigToHTML = (contig) =>{
-    const start = kFormatter(contig["start_unit"]*150);
-    const end = kFormatter(contig["end_unit"]*150);
+    const start = kFormatter(contig["start_unit"]*100);
+    const end = kFormatter(contig["end_unit"]*100);
     const direction = contig["direction"];
     return `<ul>
 <li>Start:${start} bp</li>

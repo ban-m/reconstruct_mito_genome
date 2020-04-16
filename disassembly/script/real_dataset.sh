@@ -8,6 +8,7 @@ qsub -o ./logfiles/pacbio.log -j y ./script/disassembly.job\
      /data/ban-m/a_thaliana/sequel_reads/sequel.fasta\
      ${PWD}/result/pacbio\
      4 3600
+exit 0;
 
 READ_DIR=/grid/ban-m/arabidopsis_thaliana/sequel/MPI_dataset/
 # for accession in an1 c24 cvi eri kyo ler sha
@@ -17,10 +18,9 @@ do
          ${REFERENCE}\
          ${READ_DIR}/${accession}.fasta \
          ${PWD}/result/${accession}/ \
-         4 3600
+         4 6000
 done
 
-exit 0;
 READ_DIR=/grid/ban-m/Arimura/dataset/
 for accession in col0_1106_exp2 tal6111_1106_exp2 tal6144_1115_exp2 tal61up63_1106_exp2 tal6226_1115_exp2
 do
@@ -28,6 +28,6 @@ do
          ${REFERENCE}\
          ${READ_DIR}/${accession}.fasta \
          ${PWD}/result/${accession}/ \
-         4 10800
+         4 3600
 done
 

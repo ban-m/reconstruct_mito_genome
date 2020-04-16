@@ -33,9 +33,9 @@ fn main() {
     let coverage = 0;
     let chain_len = 90;
     let len = 100;
-    let errors: Vec<_> = (1..=5).collect();
+    let errors = [1, 1, 2, 2, 3, 3, 4, 4];
     let test_nums: Vec<_> = (80..=150).step_by(10).collect();
-    for error in errors {
+    for &error in errors.iter() {
         for &test_num in &test_nums {
             let seed = seed + (test_num + error) as u64;
             println!("TestNum:{}\tLabeled:{}", test_num, coverage);

@@ -17,23 +17,24 @@ generalplot <- function(g,name){
 
 ### ---- Two cluster -----
 dataset <- read_tsv("./result/lks_two.tsv",col_names=FALSE) %>%
-    rename(State = X1, ID=X2, ReadID =X3, Cluster=X4, LK1= X5, LK2=X6) %>%
+    rename(State = X2, ID=X3, ReadID =X4, Cluster=X5, Prob1= X6, Prob2=X7) %>%
     mutate(Cluster = factor(Cluster)) %>%
     mutate(State = ifelse(State == "B", "BEFORE", "AFTER"))
 
 g <- dataset %>%
-    ggplot() + geom_point(mapping = aes(x = LK1, y = LK2, color = Cluster)) +
-    facet_grid(State~.)
+    ggplot() + geom_point(mapping = aes(x = Prob1, y = Prob2, color = Cluster)) +
+    facet_grid(State~.) +
+    labs(x = "P(Read|Model1)", y = "P(Read|Model0)")
 generalplot(g,"two_clusters")
 
 
 
 ### ---- Six cluster -----
 dataset <- read_tsv("./result/lks_six.tsv",col_names=FALSE) %>%
-    rename(State = X1, ID=X2, ReadID =X3, Cluster=X4) %>%
-    rename(LK1= X5, LK2=X6, LK3=X7, LK4=X8,LK5 = X9,LK6 = X10) %>%
+    rename(State = X2, ID=X3, ReadID =X4, Cluster=X5) %>%
+    rename(LK1= X6, LK2=X7, LK3=X8, LK4=X9,LK5 = X10,LK6 = X11) %>%
     mutate(State = ifelse(State == "B", "BEFORE", "AFTER")) %>% 
-    select(-ID, -ReadID)
+    select(-ID, -ReadID, -X1)
 
 initial_state <- dataset %>% filter(State == "BEFORE") %>% select(-State, -Cluster)
 answer <- dataset %>% filter(State == "BEFORE") %>% pull(Cluster)

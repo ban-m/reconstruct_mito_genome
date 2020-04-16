@@ -42,8 +42,13 @@ g <- mean_accs %>%
     geom_raster(mapping = aes(x = Coverage, y = VariantSite, fill = Accuracy))  +
     labs(y = "Number of Variant Sites") +
     scale_fill_continuous(limits =c(0.5,1))
-
 generalplot(g,paste0(outname))
+
+g <- accs %>%
+    filter(X10 <= 4) %>%
+    ggplot() + geom_smooth(mapping = aes(x = X9, y = acc, color = factor(X10))) + 
+    labs(x = "Total Coverage", y = "Accuracy")
+generalplot(g,paste0(outname,"_smooth"))
 
 g <- accs %>% 
     nest(-X8) %>%
@@ -51,3 +56,11 @@ g <- accs %>%
     unnest() %>% 
     ggplot() + geom_point(mapping = aes(x = X8, y = Accuracy))
 generalplot(g,paste0(outname,"_point"))
+
+g <- accs %>%
+    filter(X10 <= 4) %>%
+    ggplot() + geom_boxplot(mapping = aes(x = factor(X9), y = acc, fill = factor(X10))) + 
+    labs(x = "Total Coverage", y = "Accuracy") +
+    scale_fill_discrete(name="Number of Variants\nout of 9Kbp")
+generalplot(g,paste0(outname,"_boxplot"))
+   

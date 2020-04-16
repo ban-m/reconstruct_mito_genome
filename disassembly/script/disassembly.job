@@ -11,14 +11,14 @@ READ=$2
 OUTPUT=$3
 CORES=24
 MIN_CLUSTER=$4
-LIMIT=${5:-1200}
+LIMIT=${5:-4000}
 ROOT=${PWD}
 
 # ---- Clean up -----
-# if [ -d ${OUTPUT} ]
-# then
-#     rm -r ${OUTPUT}
-# fi
+if [ -d ${OUTPUT} ]
+then
+    rm -r ${OUTPUT}
+fi
 
 
 # ---- Filtering ----

@@ -31,11 +31,9 @@ pub mod annotate_contigs_to_reference;
 pub mod d3_data;
 pub mod error_profile;
 pub mod poa_clustering;
-pub use poa_clustering::soft_clustering_poa;
 use poa_hmm::Config;
-mod digamma;
 pub mod variant_calling;
-const WINDOW_SIZE: usize = 100;
+const WINDOW_SIZE: usize = 200;
 const OVERLAP: usize = 25;
 const MIN_LEN: usize = 5_000;
 const CONNECTION_THR: f64 = 0.7;
@@ -52,10 +50,87 @@ pub fn decompose(
     contigs: &last_tiling::Contigs,
     repeats: &[RepeatPairs],
     config: &Config,
-    answer: &HashMap<String, u8>,
     cluster_num: usize,
     limit: u64,
 ) -> Vec<(String, Option<u8>)> {
+    let (mut dataset, lab_ans, masked_region, forbidden) =
+        initial_clustering(encoded_reads, initial_clusters, contigs, repeats);
+    let (labels, answer) = lab_ans;
+    let total_units = dataset.iter().map(|read| read.seq().len()).sum::<usize>();
+    debug!("{} reads and {} units.", dataset.len(), total_units);
+    let forbids = forbidden.values().filter(|e| !e.is_empty()).count();
+    debug!("Forbids:{}", forbids);
+    assert_eq!(answer.len() + labels.len(), dataset.len());
+    let contigs: Vec<_> = (0..contigs.get_num_of_contigs())
+        .map(|e| contigs.get_last_unit(e as u16).unwrap() as usize + 1)
+        .collect();
+    let windows: Vec<_> = contigs
+        .iter()
+        .zip(masked_region.iter())
+        .enumerate()
+        .flat_map(|(idx, (len, mask))| create_windows(idx, *len, mask))
+        .collect();
+    // Remove chunks from masked region.
+    dataset.iter_mut().for_each(|read| {
+        read.seq = read
+            .seq
+            .iter()
+            .filter(|u| !masked_region[u.contig()][u.unit()])
+            .cloned()
+            .collect();
+    });
+    let predicts = clustering_chunking(
+        &dataset,
+        (&labels, &answer),
+        &forbidden,
+        initial_clusters,
+        cluster_num,
+        &contigs,
+        config,
+        limit,
+        &windows,
+    );
+    dataset
+        .into_iter()
+        .zip(predicts.iter())
+        .map(|(read, cl)| (read.id().to_string(), *cl))
+        .collect()
+}
+
+pub fn resume_decompose(
+    encoded_reads: Vec<ERead>,
+    initial_clusters: &[Cluster],
+    contigs: &last_tiling::Contigs,
+    repeats: &[RepeatPairs],
+    resume: Vec<Vec<HashSet<String>>>,
+) -> Vec<(String, Option<u8>)> {
+    let (dataset, _, masked_region, forbidden) =
+        initial_clustering(encoded_reads, initial_clusters, contigs, repeats);
+    let windowlen = (0..contigs.get_num_of_contigs())
+        .map(|e| contigs.get_last_unit(e as u16).unwrap() as usize + 1)
+        .zip(masked_region.iter())
+        .enumerate()
+        .flat_map(|(idx, (len, mask))| create_windows(idx, len, mask))
+        .count();
+    let predicts = resume_clustering(resume, windowlen, &forbidden, initial_clusters, &dataset);
+    dataset
+        .into_iter()
+        .zip(predicts.iter())
+        .map(|(read, cl)| (read.id().to_string(), *cl))
+        .collect()
+}
+
+fn initial_clustering(
+    encoded_reads: Vec<ERead>,
+    initial_clusters: &[Cluster],
+    contigs: &last_tiling::Contigs,
+    repeats: &[RepeatPairs],
+) -> (
+    Vec<ERead>,
+    (Vec<u8>, Vec<u8>),
+    Vec<Vec<bool>>,
+    HashMap<String, Vec<u8>>,
+) {
     let datasize = encoded_reads.len();
     let masked_region = get_masked_region(&initial_clusters, &contigs, repeats);
     let mut forbidden: HashMap<String, _> = HashMap::new();
@@ -95,50 +170,9 @@ pub fn decompose(
         "Unassigned reads before removing contained:{}",
         unassigned_reads.len()
     );
-    let answer: Vec<_> = unassigned_reads
-        .iter()
-        .map(|read| match answer.get(read.id()) {
-            Some(cl) => *cl,
-            None => 0,
-        })
-        .collect();
+    let answer = vec![0; unassigned_reads.len()];
     let dataset = vec![assigned_reads, unassigned_reads].concat();
-    let total_units = dataset.iter().map(|read| read.seq().len()).sum::<usize>();
-    debug!(
-        "There are {} reads and {} units.",
-        dataset.len(),
-        total_units
-    );
-    debug!(
-        "Nonempty forbbidens are {}",
-        forbidden.values().filter(|e| !e.is_empty()).count()
-    );
-    assert_eq!(answer.len() + labels.len(), dataset.len());
-    let contigs: Vec<_> = (0..contigs.get_num_of_contigs())
-        .map(|e| contigs.get_last_unit(e as u16).unwrap() as usize + 1)
-        .collect();
-    let windows: Vec<_> = contigs
-        .iter()
-        .zip(masked_region.iter())
-        .enumerate()
-        .flat_map(|(idx, (len, mask))| create_windows(idx, *len, mask))
-        .collect();
-    let predicts = clustering_chunking(
-        &dataset,
-        (&labels, &answer),
-        &forbidden,
-        initial_clusters,
-        cluster_num,
-        &contigs,
-        &config,
-        limit,
-        &windows,
-    );
-    dataset
-        .into_iter()
-        .zip(predicts.iter())
-        .map(|(read, cl)| (read.id().to_string(), *cl))
-        .collect()
+    (dataset, (labels, answer), masked_region, forbidden)
 }
 
 fn get_masked_region(
@@ -321,9 +355,21 @@ fn find_matching(
     after: &[HashSet<String>],
     forbidden: &HashMap<String, Vec<u8>>,
     initial_clusters: &[Cluster],
+    lengths: &HashMap<String, usize>,
 ) -> Vec<(usize, usize)> {
     let node1 = prev.len();
     let node2 = after.len();
+    let filter_short = |hm: &HashSet<String>| {
+        hm.iter()
+            .filter(|&id| match lengths.get(id) {
+                Some(&res) => res > MIN_LEN / last_tiling::UNIT_SIZE,
+                None => false,
+            })
+            .cloned()
+            .collect::<HashSet<_>>()
+    };
+    let prev: Vec<HashSet<String>> = prev.iter().map(filter_short).collect();
+    let after: Vec<HashSet<String>> = after.iter().map(filter_short).collect();
     debug!("Dump graph");
     let prev_boundary: Vec<HashSet<_>> = prev
         .iter()
@@ -352,13 +398,15 @@ fn find_matching(
                 .iter()
                 .zip(after_boundary.iter())
                 .enumerate()
-                .filter(|(_, (cl2, _))| is_mergiable(cl1, cl2, forbidden, initial_clusters))
+                .filter(|&(to, (cl2, _))| {
+                    is_mergiable(from, to, cl1, cl2, forbidden, initial_clusters)
+                })
                 .filter_map(|(to, (cl2, cl2_boundary))| {
                     let intersect = cl1.intersection(cl2).count();
                     let union = cl1_boundary.union(cl2_boundary).count();
                     let sim = intersect as f64 / union as f64;
+                    debug!("{}->({:.3}={}/{})->{}", from, sim, intersect, union, to);
                     if sim > CONNECTION_THR {
-                        debug!("{}->({:.3})->{}", from, sim, to);
                         Some((to, sim))
                     } else {
                         None
@@ -376,6 +424,8 @@ fn find_matching(
 }
 
 fn is_mergiable(
+    from: usize,
+    to: usize,
     cl1: &HashSet<String>,
     cl2: &HashSet<String>,
     forbidden: &HashMap<String, Vec<u8>>,
@@ -413,7 +463,24 @@ fn is_mergiable(
         .filter_map(|id| forbidden.get(id))
         .filter(|forbid| forbid.iter().any(|f| cl1_cluster.contains(f)))
         .count();
-    cl1_violate < 5 && cl2_violate < 5
+    if cl1_violate < 10 && cl2_violate < 10 {
+        true
+    } else {
+        debug!("{}({:?})-{}({:?})", from, cl1_cluster, to, cl2_cluster);
+        debug!("Violates:{}/{}", cl1_violate, cl2_violate);
+        false
+    }
+}
+
+fn map_labels(label: &[u8]) -> HashMap<u8, u8> {
+    let mut clusters: Vec<_> = label.iter().copied().collect();
+    clusters.sort();
+    clusters.dedup();
+    clusters
+        .into_iter()
+        .enumerate()
+        .map(|(to, from)| (from, to as u8))
+        .collect()
 }
 
 /// Clustering after chunking the reference into several chunks.
@@ -444,16 +511,7 @@ pub fn clustering_chunking(
             debug!("Number of Reads:{}", data.len());
             assert_eq!(data.len(), forbidden.len());
             assert_eq!(data.len(), label.len() + answer.len());
-            let cluster_map: HashMap<u8, u8> = {
-                let mut clusters: Vec<_> = label.iter().copied().collect();
-                clusters.sort();
-                clusters.dedup();
-                clusters
-                    .into_iter()
-                    .enumerate()
-                    .map(|(to, from)| (from, to as u8))
-                    .collect()
-            };
+            let cluster_map: HashMap<u8, u8> = map_labels(&label);
             let cluster_num = cluster_map.len().max(cluster_num - 1) + 1;
             debug!("Number of clusters:{}", cluster_num);
             debug!("Mapping:{:?}", cluster_map);
@@ -476,6 +534,7 @@ pub fn clustering_chunking(
                 pred.extend(pred_short);
                 pred
             };
+            dump_pred(&predictions, &data, &short, idx);
             (0..cluster_num)
                 .map(|cluster_idx| {
                     let cluster_idx = cluster_idx as u8;
@@ -490,27 +549,45 @@ pub fn clustering_chunking(
                 .collect()
         })
         .collect();
+    resume_clustering(
+        clusterings,
+        windows.len(),
+        forbidden,
+        initial_clusters,
+        data,
+    )
+}
+
+fn resume_clustering(
+    clusterings: Vec<Vec<HashSet<String>>>,
+    windowlen: usize,
+    forbidden: &HashMap<String, Vec<u8>>,
+    initial_clusters: &[Cluster],
+    data: &[ERead],
+) -> Vec<Option<u8>> {
     let max_cluster_num = clusterings.iter().map(|e| e.len()).max().unwrap_or(0);
-    // Merging.
-    let mut fu = find_union::FindUnion::new(max_cluster_num * windows.len());
+    let lengths: HashMap<String, usize> = data
+        .iter()
+        .map(|r| (r.id().to_string(), r.seq.len()))
+        .collect();
+    let mut fu = find_union::FindUnion::new(max_cluster_num * windowlen);
     for idx in 0..clusterings.len() {
         let prev_idx = idx;
         let after_idx = (idx + 1) % clusterings.len();
         let prev = &clusterings[prev_idx];
         let after = &clusterings[after_idx];
-        for (i, j) in find_matching(prev, after, forbidden, initial_clusters) {
+        for (i, j) in find_matching(prev, after, forbidden, initial_clusters, &lengths) {
             let i = i + prev_idx * max_cluster_num;
             let j = j + after_idx * max_cluster_num;
             fu.unite(i, j).unwrap();
         }
     }
     // Then, iteratively take components.
-    let mut components: Vec<HashSet<String>> = (0..(max_cluster_num * windows.len()))
+    let mut components: Vec<HashSet<String>> = (0..(max_cluster_num * windowlen))
         .filter_map(|parent| {
             if fu.find(parent).unwrap() != parent {
                 return None;
             }
-            debug!("find_cluseter");
             let component = clusterings
                 .iter()
                 .enumerate()
@@ -557,6 +634,19 @@ pub fn clustering_chunking(
         }
         break;
     }
+    // Filtering out clusters which do not overlap any initial clusters.
+    let components: Vec<HashSet<String>> = if initial_clusters.is_empty() {
+        components
+    } else {
+        components
+            .into_iter()
+            .filter(|component| {
+                initial_clusters
+                    .iter()
+                    .any(|cl| cl.ids().intersection(component).count() > 10)
+            })
+            .collect()
+    };
     debug!("Resulting in {} clusters.", components.len());
     let result: HashMap<String, u8> =
         components
@@ -569,6 +659,18 @@ pub fn clustering_chunking(
                 acc
             });
     data.iter().map(|r| result.get(r.id()).cloned()).collect()
+}
+
+fn dump_pred(assignments: &[Option<u8>], data: &[ERead], data2: &[ERead], idx: usize) {
+    for (asn, data) in assignments.iter().zip(data.iter().chain(data2.iter())) {
+        let no_desc = String::from("None");
+        let desc = data.desc().unwrap_or(&no_desc);
+        let id = data.id();
+        match asn {
+            Some(res) => debug!("PRED\t{}\t{}\t{}\t{}", idx, res, id, desc),
+            None => debug!("PRED\t{}\tNone\t{}\t{}", idx, id, desc),
+        }
+    }
 }
 
 /// Return clustering. If the value is None,

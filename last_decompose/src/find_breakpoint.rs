@@ -186,6 +186,18 @@ impl CriticalRegion {
             CriticalRegion::CR(ref cr) => cr.overlap(range),
         }
     }
+    pub fn contig_pair(&self) -> Option<&ContigPair> {
+        match self {
+            CriticalRegion::CP(ref cp) => Some(cp),
+            CriticalRegion::CR(_) => None,
+        }
+    }
+    pub fn confluent_region(&self) -> Option<&ConfluentRegion> {
+        match self {
+            CriticalRegion::CP(_) => None,
+            CriticalRegion::CR(ref cr) => Some(cr),
+        }
+    }
 }
 
 /// The position at contigs.
@@ -392,6 +404,9 @@ impl ContigPair {
             ..
         } = cr.pos;
         self.overlap((contig, start_unit - CHECK_THR, end_unit + CHECK_THR))
+    }
+    pub fn reads(&self) -> &HashSet<String> {
+        &self.reads
     }
 }
 
