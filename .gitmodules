@@ -1,0 +1,3 @@
+[submodule "poa_hmm"]
+	path = poa_hmm
+	url = git@github.com:ban-m/partial_order_alignment.git

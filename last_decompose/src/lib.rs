@@ -34,8 +34,8 @@ pub mod poa_clustering;
 use poa_hmm::Config;
 pub mod variant_calling;
 const WINDOW_SIZE: usize = 200;
-const OVERLAP: usize = 25;
-const MIN_LEN: usize = 6_000;
+const OVERLAP: usize = 50;
+const MIN_LEN: usize = 5_000;
 const CONNECTION_THR: f64 = 0.7;
 const MERGE_THR: usize = 5;
 type Read = Vec<(usize, Vec<u8>)>;
@@ -585,55 +585,55 @@ fn resume_clustering(
     // Then, iteratively take components.
     let mut components: Vec<HashSet<String>> = (0..(max_cluster_num * windowlen))
         .filter_map(|parent| {
-            if fu.find(parent).unwrap() != parent {
-                return None;
+            if fu.find(parent).unwrap() == parent {
+                let component = clusterings
+                    .iter()
+                    .enumerate()
+                    .map(|(w, clusters)| {
+                        clusters
+                            .iter()
+                            .enumerate()
+                            .filter(|(j, _)| {
+                                let p = fu.find(j + w * max_cluster_num);
+                                parent == p.unwrap_or(std::usize::MAX)
+                            })
+                            .fold(HashSet::new(), |mut acc, (_, cluster)| {
+                                acc.extend(cluster.clone());
+                                acc
+                            })
+                    })
+                    .fold(HashSet::new(), |mut acc, cluster| {
+                        acc.extend(cluster);
+                        acc
+                    });
+                Some(component)
+            } else {
+                None
             }
-            let component = clusterings
-                .iter()
-                .enumerate()
-                .map(|(w, clusters)| {
-                    clusters
-                        .iter()
-                        .enumerate()
-                        .filter(|(j, _)| {
-                            let p = fu.find(j + w * max_cluster_num);
-                            parent == p.unwrap_or(std::usize::MAX)
-                        })
-                        .fold(HashSet::new(), |mut acc, (_, cluster)| {
-                            acc.extend(cluster.clone());
-                            acc
-                        })
-                })
-                .fold(HashSet::new(), |mut acc, cluster| {
-                    acc.extend(cluster);
-                    acc
-                });
-            Some(component)
         })
         .filter(|component| component.len() > find_breakpoint::COVERAGE_THR)
         .collect();
     // And futher merging.
-    'merge: loop {
-        let len = components.len();
-        debug!("Current Cluster:{}", len);
-        for i in 0..len {
-            for j in (i + 1)..len {
-                for (k, initial_cluster) in initial_clusters.iter().enumerate() {
-                    let reads = initial_cluster.ids();
-                    let inter_i = components[i].intersection(&reads).count();
-                    let inter_j = components[j].intersection(&reads).count();
-                    if inter_i > MERGE_THR && inter_j > MERGE_THR {
-                        debug!("{} shares {} reads with the init-cluster {}", i, inter_i, k);
-                        debug!("{} shares {} reads with the init-cluster {}", j, inter_j, k);
-                        let from = components.remove(j);
-                        components[i].extend(from);
-                        continue 'merge;
-                    }
-                }
-            }
-        }
-        break;
-    }
+    // 'merge: loop {
+    //     let len = components.len();
+    //     debug!("Current Cluster:{}", len);
+    //     for i in 0..len {
+    //         for j in (i + 1)..len {
+    //             for (k, initial_cluster) in initial_clusters.iter().enumerate() {
+    //                 let inter_i = get_overlap(&components[i], initial_cluster, forbidden);
+    //                 let inter_j = get_overlap(&components[j], initial_cluster, forbidden);
+    //                 if inter_i > MERGE_THR && inter_j > MERGE_THR {
+    //                     debug!("{} shares {} reads with the init-cluster {}", i, inter_i, k);
+    //                     debug!("{} shares {} reads with the init-cluster {}", j, inter_j, k);
+    //                     let from = components.remove(j);
+    //                     components[i].extend(from);
+    //                     continue 'merge;
+    //                 }
+    //             }
+    //         }
+    //     }
+    //     break;
+    // }
     // Filtering out clusters which do not overlap any initial clusters.
     let components: Vec<HashSet<String>> = if initial_clusters.is_empty() {
         components
@@ -659,6 +659,25 @@ fn resume_clustering(
                 acc
             });
     data.iter().map(|r| result.get(r.id()).cloned()).collect()
+}
+
+fn get_overlap(
+    component: &HashSet<String>,
+    cluster: &Cluster,
+    _forbids: &HashMap<String, Vec<u8>>,
+) -> usize {
+    // use std::convert::identity;
+    // let forbiddens: HashSet<u8> = component
+    //     .iter()
+    //     .filter_map(|id| forbids.get(id))
+    //     .flat_map(identity)
+    //     .copied()
+    //     .collect();
+    // if forbiddens.contains(&(cluster.id as u8)) {
+    //     0
+    // } else {
+    component.iter().filter(|id| cluster.has(id)).count()
+    // }
 }
 
 fn dump_pred(assignments: &[Option<u8>], data: &[ERead], data2: &[ERead], idx: usize) {

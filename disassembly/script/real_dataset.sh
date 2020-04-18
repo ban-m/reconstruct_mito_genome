@@ -3,22 +3,21 @@ set -ue
 REFERENCE=${PWD}/data/NC_037304_1_split.fa
 
 ROOT=${PWD}
-qsub -o ./logfiles/pacbio.log -j y ./script/disassembly.job\
-     ${REFERENCE} \
-     /data/ban-m/a_thaliana/sequel_reads/sequel.fasta\
-     ${PWD}/result/pacbio\
-     4 3600
-exit 0;
+# qsub -o ./logfiles/pacbio.log -j y ./script/disassembly.job\
+#      ${REFERENCE} \
+#      /data/ban-m/a_thaliana/sequel_reads/sequel.fasta\
+#      ${PWD}/result/pacbio\
+#      4 5000
+# exit 0;
 
 READ_DIR=/grid/ban-m/arabidopsis_thaliana/sequel/MPI_dataset/
-# for accession in an1 c24 cvi eri kyo ler sha
-for accession in an1 c24 eri kyo
+for accession in an1 c24 cvi eri kyo ler sha
 do
     qsub -o ./logfiles/${accession}.log -j y ./script/disassembly.job \
          ${REFERENCE}\
          ${READ_DIR}/${accession}.fasta \
          ${PWD}/result/${accession}/ \
-         4 6000
+         4 5000
 done
 
 READ_DIR=/grid/ban-m/Arimura/dataset/
@@ -28,6 +27,6 @@ do
          ${REFERENCE}\
          ${READ_DIR}/${accession}.fasta \
          ${PWD}/result/${accession}/ \
-         4 3600
+         4 5000
 done
 

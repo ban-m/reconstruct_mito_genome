@@ -67,10 +67,12 @@ pub fn initial_clusters(
     repeats: &[RepeatPairs],
     alignments: &[LastTAB],
 ) -> Vec<Cluster> {
-    let mut crs: Vec<_> = critical_regions(reads, contigs, repeats, alignments)
-        .into_iter()
-        .map(|e| vec![e])
-        .collect();
+    let crs: Vec<_> = critical_regions(reads, contigs, repeats, alignments);
+    debug!("{:?}", crs[10]);
+    for read in reads.iter().filter(|e| crs[10].has(e.id())) {
+        debug!("{}", read);
+    }
+    let mut crs: Vec<_> = crs.into_iter().map(|e| vec![e]).collect();
     let union_of = |xs: &[CriticalRegion], ys: &[CriticalRegion]| {
         let xs = xs
             .iter()
@@ -92,8 +94,8 @@ pub fn initial_clusters(
         for i in 0..len {
             for j in (i + 1)..len {
                 let union = union_of(&crs[i], &crs[j]);
-                debug!("Cluster {} and {} share {} reads.", i, j, union);
                 if union > COVERAGE_THR {
+                    debug!("Cluster {} and {} share {} reads.", i, j, union);
                     merge(&mut crs, i, j);
                     continue 'merge;
                 }

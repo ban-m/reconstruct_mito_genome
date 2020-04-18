@@ -388,14 +388,32 @@ const criticalpairToPath = (cp, handle_points, bp_scale,start_pos, unit_length)=
 };
 
 const confluentregionToPath = (cr, handle_points, bp_scale,start_pos, unit_length)=>{
-    const r = read_radius + 50;
+    const to_r = read_radius + 50;
+    const over_r = read_radius + 60;
     let path = d3.path();
     const contig = cr["pos"];
     const contig_start_angle = start_pos[contig["contig"]] - Math.PI/2;
     const start_angle = contig_start_angle + bp_scale(unit_length*contig["start_unit"]) - confluent_margin;
     const end_angle = contig_start_angle + bp_scale(unit_length*contig["end_unit"]) + confluent_margin;
-    path.moveTo(r * Math.cos(start_angle), r * Math.sin(start_angle));
-    path.lineTo(r * Math.cos(end_angle), r * Math.sin(end_angle));
+    if (contig["direction"] == "UpStream"){
+        const overshoot = start_angle - Math.PI/70;
+        path.moveTo(read_radius * Math.cos(start_angle), read_radius * Math.sin(start_angle));
+        path.lineTo(to_r * Math.cos(start_angle), to_r * Math.sin(start_angle));
+        path.arc(0,0,to_r, start_angle, overshoot, true);
+        path.lineTo(over_r * Math.cos(overshoot), over_r * Math.sin(overshoot));
+        path.arc(0,0,over_r, overshoot, end_angle, false);
+        path.lineTo(read_radius * Math.cos(end_angle), read_radius * Math.sin(end_angle));
+        path.closePath();
+    }else if (contig["direction"] == "DownStream"){
+        const overshoot = end_angle + Math.PI/70;
+        path.moveTo(read_radius * Math.cos(start_angle), read_radius * Math.sin(start_angle));
+        path.lineTo(over_r * Math.cos(start_angle), over_r * Math.sin(start_angle));
+        path.arc(0,0, over_r, start_angle, overshoot, false);
+        path.lineTo(to_r * Math.cos(overshoot), to_r * Math.sin(overshoot));
+        path.arc(0,0, to_r, overshoot, end_angle, true);
+        path.lineTo(read_radius * Math.cos(end_angle), read_radius * Math.sin(end_angle));
+        path.closePath();
+    }
     return path.toString();
 };
 
@@ -630,7 +648,7 @@ const plotData = (dataset, repeats, unit_length) =>
               .attr("class", "cr")
               .attr("d", d => crToPath(d.cr, handle_points, bp_scale, start_pos, unit_length))
               .attr("stroke", d => d3.schemeCategory10[(d.cluster+1)%10])
-              .attr("stroke-width", member => (member.cr.hasOwnProperty("CP")) ? 5 : 100)
+              .attr("stroke-width", member => (member.cr.hasOwnProperty("CP")) ? 5 : 5)
               .attr("stroke-linecap", memmer => (memmer.cr.hasOwnProperty("CP")) ? "round" : "none")
               .attr("opacity",member => (member.cr.hasOwnProperty("CP")) ? 0.4 : 0.5)
               .attr("fill",  member => d3.schemeCategory10[(member.cluster+1)%10])

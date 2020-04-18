@@ -1,5 +1,6 @@
 extern crate env_logger;
 extern crate last_decompose;
+#[macro_use]
 extern crate log;
 extern crate serde;
 extern crate serde_json;
@@ -16,6 +17,9 @@ pub fn dump_viewer(
     contigs: &Contigs,
 ) -> std::io::Result<String> {
     let clusters = summarize_clusters(clusters, results);
+    for cl in clusters.iter() {
+        debug!("{:?}", cl);
+    }
     let summary = convert_to_d3_data_with_assign(&contigs, &reads, &clusters, &results);
     Ok(serde_json::ser::to_string(&summary).unwrap())
 }

@@ -303,12 +303,6 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
     debug!("Profiled Error Rates:{}", config);
     let contigs = last_tiling::contig::Contigs::new(reference);
     let repeats = last_tiling::into_repeats(&self_aln, &contigs);
-    // Please remove this
-    // let (_, reads): (Vec<_>, Vec<_>) = reads
-    //     .into_iter()
-    //     .enumerate()
-    //     .filter(|(n, _)| n % 3 == 0)
-    //     .unzip();
     let encoded_reads = last_tiling::encoding(&reads, &contigs, &alignments);
     let start_stop = last_tiling::get_start_stop(&encoded_reads, &contigs);
     let encoded_reads: Vec<_> = encoded_reads
@@ -655,13 +649,6 @@ fn reconstruct(res: File) -> Vec<Vec<HashSet<String>>> {
             }
         }
         clusters[cluster].insert(id);
-    }
-    for (idx, cls) in assignments.iter().enumerate() {
-        let count = cls
-            .iter()
-            .fold(HashSet::new(), |x, y| x.union(y).cloned().collect())
-            .len();
-        debug!("{}\t{}", idx, count);
     }
     assignments
 }

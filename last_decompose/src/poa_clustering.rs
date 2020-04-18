@@ -13,7 +13,7 @@ const REP_NUM: usize = 4;
 const GIBBS_PRIOR: f64 = 0.00;
 const STABLE_LIMIT: u32 = 8;
 const IS_STABLE: u32 = 5;
-const VARIANT_FRACTION: f64 = 0.95;
+const VARIANT_FRACTION: f64 = 0.90;
 
 // Serialize units in read. In other words,
 // We serialize the (contig, unit):(usize, usize) pair into position:usize.

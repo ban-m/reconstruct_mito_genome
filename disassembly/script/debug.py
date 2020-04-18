@@ -1,7 +1,7 @@
 import json
 import itertools
 
-f = './result/pacbio_no/viewer/data.json'
+f = './result/pacbio_resume/viewer/data.json'
 f = open(f,'r')
 dataset = json.load(f)
 

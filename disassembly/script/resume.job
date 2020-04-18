@@ -11,7 +11,7 @@ REFERENCE=${PWD}/data/NC_037304_1_split.fa
 RESUME_DIR=${PWD}/result/pacbio
 mmmm resume --alignments ${RESUME_DIR}/last_db/alignments.tab\
      --dump_file ${PWD}/logfiles/pacbio.log\
-     --output ${PWD}/result/pacbio_resume/\
+     --output ${PWD}/result/pacbio_resume2/\
      --reads ${RESUME_DIR}/filtered_read/filtered_read.fa\
      --contigs ${REFERENCE}\
      --self_alignments ${RESUME_DIR}/last_db/self.tab\
