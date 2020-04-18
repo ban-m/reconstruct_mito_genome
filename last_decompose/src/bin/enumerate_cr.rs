@@ -16,7 +16,7 @@ fn main() -> std::io::Result<()> {
     let contigs = last_tiling::Contigs::from_file(&args[3])?;
     let reads = last_tiling::encoding(&reads, &contigs, &alignments);
     let reads: Vec<_> = reads.into_iter().map(ERead::new_no_gapfill).collect();
-    let res = last_decompose::find_breakpoint::confluent_position(&alignments, &contigs, 150);
+    let res = last_decompose::find_breakpoint::confluent_position(&reads, &contigs, 150);
     for e in res {
         debug!("{:?}", e);
     }

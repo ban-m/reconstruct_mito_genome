@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::cmp::{Ord, Ordering, PartialOrd};
 use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
-const MERGE_THR: usize = 500;
+//const MERGE_THR: usize = 500;
+const MERGE_THR: usize = 5;
 pub const COVERAGE_THR: usize = 25;
 const WINDOW: usize = 3;
 use std::collections::HashMap;
@@ -61,6 +62,69 @@ pub struct Member {
     pub cluster: usize,
 }
 
+fn get_forbids_cluster<'a>(
+    reads: &'a [ERead],
+    clusters: &[Vec<CriticalRegion>],
+) -> HashMap<&'a str, Vec<usize>> {
+    reads
+        .iter()
+        .map(|r| {
+            let forbs: Vec<_> = clusters
+                .iter()
+                .enumerate()
+                .filter(|(_, clsuters)| clsuters.iter().any(|c| c.is_spanned_by(r)))
+                .map(|(id, _)| id)
+                .collect();
+            (r.id(), forbs)
+        })
+        .collect()
+}
+
+fn intersection_of(
+    crs: &[Vec<CriticalRegion>],
+    (i, j): (usize, usize),
+    forbids: &HashMap<&str, Vec<usize>>,
+) -> usize {
+    let xs: HashSet<_> = crs[i]
+        .iter()
+        .flat_map(|cr| cr.reads())
+        .filter(|&id| !forbids[id.as_str()].contains(&j))
+        .collect();
+    let ys: HashSet<_> = crs[j]
+        .iter()
+        .flat_map(|cr| cr.reads())
+        .filter(|&id| !forbids[id.as_str()].contains(&i))
+        .collect();
+    xs.intersection(&ys).count()
+}
+
+fn merge(
+    crs: &mut Vec<Vec<CriticalRegion>>,
+    (i, j): (usize, usize),
+    forbiddens: &HashMap<&str, Vec<usize>>,
+) {
+    let mut j_clusters = crs.remove(j);
+    for j_cluster in j_clusters.iter_mut() {
+        let reads: HashSet<String> = j_cluster
+            .reads()
+            .iter()
+            .filter(|id| !forbiddens[id.as_str()].contains(&i))
+            .cloned()
+            .collect();
+        j_cluster.replace_reads(reads);
+    }
+    for i_cluster in crs[i].iter_mut() {
+        let reads: HashSet<String> = i_cluster
+            .reads()
+            .iter()
+            .filter(|id| !forbiddens[id.as_str()].contains(&j))
+            .cloned()
+            .collect();
+        i_cluster.replace_reads(reads);
+    }
+    crs[i].extend(j_clusters);
+}
+
 pub fn initial_clusters(
     reads: &[ERead],
     contigs: &Contigs,
@@ -68,35 +132,17 @@ pub fn initial_clusters(
     alignments: &[LastTAB],
 ) -> Vec<Cluster> {
     let crs: Vec<_> = critical_regions(reads, contigs, repeats, alignments);
-    debug!("{:?}", crs[10]);
-    for read in reads.iter().filter(|e| crs[10].has(e.id())) {
-        debug!("{}", read);
-    }
     let mut crs: Vec<_> = crs.into_iter().map(|e| vec![e]).collect();
-    let union_of = |xs: &[CriticalRegion], ys: &[CriticalRegion]| {
-        let xs = xs
-            .iter()
-            .map(|cr| cr.reads())
-            .fold(HashSet::new(), |x, y| x.union(y).cloned().collect());
-        let ys = ys
-            .iter()
-            .map(|cr| cr.reads())
-            .fold(HashSet::new(), |x, y| x.union(y).cloned().collect());
-        xs.intersection(&ys).count()
-    };
-    let merge = |crs: &mut Vec<Vec<CriticalRegion>>, i: usize, j: usize| {
-        let from = crs.remove(j);
-        crs[i].extend(from);
-    };
     'merge: loop {
         let len = crs.len();
+        let forbiddens = get_forbids_cluster(reads, &crs);
         debug!("Current Cluster:{}", len);
         for i in 0..len {
             for j in (i + 1)..len {
-                let union = union_of(&crs[i], &crs[j]);
-                if union > COVERAGE_THR {
-                    debug!("Cluster {} and {} share {} reads.", i, j, union);
-                    merge(&mut crs, i, j);
+                let intersection = intersection_of(&crs, (i, j), &forbiddens);
+                if intersection > COVERAGE_THR {
+                    debug!("Cluster {} and {} share {} reads.", i, j, intersection);
+                    merge(&mut crs, (i, j), &forbiddens);
                     continue 'merge;
                 }
             }
@@ -180,6 +226,12 @@ impl CriticalRegion {
         match self {
             CriticalRegion::CP(ref cp) => &cp.reads,
             CriticalRegion::CR(ref cr) => &cr.reads,
+        }
+    }
+    pub fn replace_reads(&mut self, reads: HashSet<String>) {
+        match self {
+            CriticalRegion::CP(cp) => cp.reads = reads,
+            CriticalRegion::CR(cr) => cr.reads = reads,
         }
     }
     fn overlap(&self, range: (u16, u16, u16)) -> bool {
@@ -481,10 +533,10 @@ pub fn critical_regions(
     reads: &[ERead],
     contigs: &Contigs,
     _repeats: &[RepeatPairs],
-    alignments: &[LastTAB],
+    _alignments: &[LastTAB],
 ) -> Vec<CriticalRegion> {
     let contig_pairs = contigpair_position(reads, contigs);
-    let confluent_regions = confluent_position(alignments, contigs, last_tiling::UNIT_SIZE);
+    let confluent_regions = confluent_position(reads, contigs, last_tiling::UNIT_SIZE);
     let confluent_regions: Vec<_> = confluent_regions
         .into_iter()
         .filter(|cr| contig_pairs.iter().all(|cp| !cp.overlap_with(cr)))
@@ -773,39 +825,35 @@ fn is_jumping(w: &&[super::CUnit]) -> bool {
 
 /// Enumerate confluent region in the references.
 pub fn confluent_position(
-    alignments: &[LastTAB],
+    reads: &[ERead],
     contigs: &Contigs,
-    unit_size: usize,
+    _unit_size: usize,
 ) -> Vec<ConfluentRegion> {
-    let references: Vec<_> = {
-        let mut reference: Vec<_> = alignments
-            .iter()
-            .map(|r| (r.seq1_name(), r.seq1_len()))
-            .collect();
-        reference.sort_by_key(|&e| e.1);
-        reference.dedup();
-        reference
-    };
-    let mut start_stop_count: HashMap<String, Vec<(usize, usize)>> = references
+    let mut start_stop_count: HashMap<u16, Vec<_>> = contigs
+        .get_last_units()
         .into_iter()
-        .map(|(id, len)| (id.to_string(), vec![(0, 0); len + 1]))
+        .enumerate()
+        .map(|(id, len)| (id as u16, vec![(0, 0); len as usize + 1]))
         .collect();
-    let mut reads: HashMap<_, Vec<_>> = HashMap::new();
-    for tab in alignments {
-        reads
-            .entry(tab.seq2_name().to_string())
-            .or_insert_with(Vec::new)
-            .push(tab);
-    }
-    for (_, tabs) in reads.iter() {
-        if let Some((ref_name, position)) = get_first_alignment(&tabs) {
-            if let Some(res) = start_stop_count.get_mut(ref_name) {
-                res[position].0 += 1;
+    for read in reads.iter().filter(|r| r.seq().len() > 1) {
+        if let Some((first, last)) = read.get_edges() {
+            {
+                let (first, is_downstream) = first;
+                let res = start_stop_count.get_mut(&first.contig).unwrap();
+                if is_downstream {
+                    res[first.unit as usize].0 += 1;
+                } else {
+                    res[first.unit as usize].1 += 1;
+                }
             }
-        }
-        if let Some((ref_name, position)) = get_last_alignment(&tabs) {
-            if let Some(res) = start_stop_count.get_mut(ref_name) {
-                res[position].1 += 1;
+            {
+                let (last, is_downstream) = last;
+                let res = start_stop_count.get_mut(&last.contig).unwrap();
+                if is_downstream {
+                    res[last.unit as usize].0 += 1;
+                } else {
+                    res[last.unit as usize].1 += 1;
+                }
             }
         }
     }
@@ -814,23 +862,20 @@ pub fn confluent_position(
         let downstream: Vec<_> = counts.iter().map(|x| x.0).collect();
         let chunks = peak_call(&downstream).into_iter().map(|(s, e)| {
             let count = downstream[s..e].iter().sum::<usize>();
-            (id.clone(), s, e, true, count)
+            (id, s, e, true, count)
         });
         result.extend(chunks);
         let upstream: Vec<_> = counts.iter().map(|x| x.1).collect();
         let chunks = peak_call(&upstream).into_iter().map(|(s, e)| {
             let count = upstream[s..e].iter().sum::<usize>();
-            (id.clone(), s, e, false, count)
+            (id, s, e, false, count)
         });
         result.extend(chunks);
     }
     result
         .iter()
-        .filter_map(|&(ref id, start, end, to_downstream, count)| {
+        .filter_map(|&(id, start, end, to_downstream, _)| {
             let reads = get_confluent_reads(&reads, (id, start, end, to_downstream));
-            assert_eq!(count, reads.len());
-            let id = contigs.get_id(id).unwrap();
-            let (start, end) = (start / unit_size, end / unit_size);
             let (start, end) = (start as u16, end as u16);
             let max = contigs.get_last_unit(id).unwrap();
             use Direction::*;
@@ -846,56 +891,45 @@ pub fn confluent_position(
         })
         .collect()
 }
+
 fn get_confluent_reads(
-    reads: &HashMap<String, Vec<&LastTAB>>,
-    (id, start, end, to_down): (&String, usize, usize, bool),
+    reads: &[ERead],
+    (id, start, end, to_down): (u16, usize, usize, bool),
 ) -> HashSet<String> {
-    let is_match = |&(_, tabs): &(&String, &Vec<&LastTAB>)| {
-        if to_down {
-            match get_first_alignment(tabs) {
-                Some((ref_name, pos)) => ref_name == id && start <= pos && pos < end,
-                None => false,
-            }
-        } else {
-            match get_last_alignment(tabs) {
-                Some((ref_name, pos)) => ref_name == id && start <= pos && pos < end,
-                None => false,
-            }
-        }
+    let is_unit_match = |(unit, is_downstream): (&crate::CUnit, bool)| {
+        unit.contig == id
+            && start as u16 <= unit.unit
+            && unit.unit < end as u16
+            && to_down == is_downstream
+    };
+    let is_match = |r: &&ERead| match r.get_edges() {
+        Some((first, last)) => is_unit_match(first) || is_unit_match(last),
+        None => false,
     };
     reads
         .iter()
         .filter(is_match)
-        .map(|x| x.0)
-        .cloned()
+        .map(|x| x.id().to_string())
         .collect()
 }
 
-fn get_first_alignment<'a>(tabs: &[&'a LastTAB]) -> Option<(&'a str, usize)> {
-    let tab = tabs.iter().min_by_key(|t| t.seq2_start_from_forward())?;
-    let id = tab.seq1_name();
-    let position = tab.seq1_start_from_forward();
-    Some((id, position))
-}
-
-fn get_last_alignment<'a>(tabs: &[&'a LastTAB]) -> Option<(&'a str, usize)> {
-    let tab = tabs.iter().min_by_key(|t| t.seq2_end_from_forward())?;
-    let id = tab.seq1_name();
-    let position = tab.seq1_end_from_forward();
-    Some((id, position))
-}
-
 fn peak_call(counts: &[usize]) -> Vec<(usize, usize)> {
+    let average = counts.iter().sum::<usize>() / counts.len() * 2;
+    debug!("AVE:{}", average);
+    let thr = average.max(COVERAGE_THR);
     let positions: Vec<_> = counts
-        .windows(WINDOW)
+        .iter()
         .enumerate()
-        .filter(|(_, w)| w.iter().sum::<usize>() >= COVERAGE_THR)
+        .filter(|(_, &count)| count >= thr)
         .map(|(idx, _)| idx)
         .collect();
-    merge(positions, MERGE_THR)
+    merge_neighbors(positions, MERGE_THR)
+        .into_iter()
+        .filter(|&(s, t)| counts[s..t].iter().sum::<usize>() / (t - s + 1) > thr)
+        .collect()
 }
 
-fn merge(positions: Vec<usize>, thr: usize) -> Vec<(usize, usize)> {
+fn merge_neighbors(positions: Vec<usize>, thr: usize) -> Vec<(usize, usize)> {
     let mut result: Vec<(usize, usize)> = vec![];
     let mut start = 0;
     while start < positions.len() {

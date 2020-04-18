@@ -38,6 +38,7 @@ const OVERLAP: usize = 50;
 const MIN_LEN: usize = 5_000;
 const CONNECTION_THR: f64 = 0.7;
 const MERGE_THR: usize = 5;
+const NG_THR: usize = 5;
 type Read = Vec<(usize, Vec<u8>)>;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
@@ -614,26 +615,39 @@ fn resume_clustering(
         .filter(|component| component.len() > find_breakpoint::COVERAGE_THR)
         .collect();
     // And futher merging.
-    // 'merge: loop {
-    //     let len = components.len();
-    //     debug!("Current Cluster:{}", len);
-    //     for i in 0..len {
-    //         for j in (i + 1)..len {
-    //             for (k, initial_cluster) in initial_clusters.iter().enumerate() {
-    //                 let inter_i = get_overlap(&components[i], initial_cluster, forbidden);
-    //                 let inter_j = get_overlap(&components[j], initial_cluster, forbidden);
-    //                 if inter_i > MERGE_THR && inter_j > MERGE_THR {
-    //                     debug!("{} shares {} reads with the init-cluster {}", i, inter_i, k);
-    //                     debug!("{} shares {} reads with the init-cluster {}", j, inter_j, k);
-    //                     let from = components.remove(j);
-    //                     components[i].extend(from);
-    //                     continue 'merge;
-    //                 }
-    //             }
-    //         }
-    //     }
-    //     break;
-    // }
+    'merge: loop {
+        let len = components.len();
+        debug!("Current Cluster:{}", len);
+        for i in 0..len {
+            for j in (i + 1)..len {
+                for (k, initial_cluster) in initial_clusters.iter().enumerate() {
+                    let (share_i, ng_i) = get_overlap(&components[i], initial_cluster, forbidden);
+                    let (share_j, ng_j) = get_overlap(&components[j], initial_cluster, forbidden);
+                    if share_i > MERGE_THR && share_j > MERGE_THR && ng_i < NG_THR && ng_i < NG_THR
+                    {
+                        debug!("{} shares/ng {}/{} reads with {}", i, share_i, ng_j, k);
+                        debug!("{} shares/ng {}/{} reads with {}", j, share_j, ng_j, k);
+
+                        let from = components.remove(j);
+                        components[i].extend(from);
+                        let ngs: Vec<_> = components[i]
+                            .iter()
+                            .filter(|id| match forbidden.get(id.as_str()) {
+                                Some(forbids) => forbids.contains(&(initial_cluster.id as u8)),
+                                None => false,
+                            })
+                            .cloned()
+                            .collect();
+                        for id in ngs {
+                            components[i].remove(&id);
+                        }
+                        continue 'merge;
+                    }
+                }
+            }
+        }
+        break;
+    }
     // Filtering out clusters which do not overlap any initial clusters.
     let components: Vec<HashSet<String>> = if initial_clusters.is_empty() {
         components
@@ -664,20 +678,15 @@ fn resume_clustering(
 fn get_overlap(
     component: &HashSet<String>,
     cluster: &Cluster,
-    _forbids: &HashMap<String, Vec<u8>>,
-) -> usize {
-    // use std::convert::identity;
-    // let forbiddens: HashSet<u8> = component
-    //     .iter()
-    //     .filter_map(|id| forbids.get(id))
-    //     .flat_map(identity)
-    //     .copied()
-    //     .collect();
-    // if forbiddens.contains(&(cluster.id as u8)) {
-    //     0
-    // } else {
-    component.iter().filter(|id| cluster.has(id)).count()
-    // }
+    forbids: &HashMap<String, Vec<u8>>,
+) -> (usize, usize) {
+    let ngs: usize = component
+        .iter()
+        .filter_map(|id| forbids.get(id))
+        .filter(|forbid| forbid.contains(&(cluster.id as u8)))
+        .count();
+    let share = component.iter().filter(|id| cluster.has(id)).count();
+    (share, ngs)
 }
 
 fn dump_pred(assignments: &[Option<u8>], data: &[ERead], data2: &[ERead], idx: usize) {

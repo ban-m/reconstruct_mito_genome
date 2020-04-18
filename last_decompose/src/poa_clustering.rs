@@ -469,9 +469,11 @@ where
         predictions.push_back(asn.clone());
         if predictions.len() as u32 > STABLE_LIMIT {
             predictions.pop_front();
+            assert_eq!(predictions.len(), STABLE_LIMIT as usize);
         }
         report_gibbs(asn, answer, label, count, id, cluster_num, pick_prob);
-        if (std::time::Instant::now() - start).as_secs() > limit && count < STABLE_LIMIT / 2 {
+        let elapsed = (std::time::Instant::now() - start).as_secs();
+        if elapsed > limit && count < STABLE_LIMIT / 2 && predictions.len() as u32 == STABLE_LIMIT {
             info!("Break by timelimit:{:?}", std::time::Instant::now() - start);
             let result = predictions_into_assignments(predictions, cluster_num, data.len());
             return (result, false);

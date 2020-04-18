@@ -5,6 +5,7 @@ use last_tiling::UNIT_SIZE;
 use std::fmt;
 const CLIP_THR: usize = 2000;
 const MARGIN: usize = 20;
+const DIRECTION_MERGIN: usize = 5;
 /// A simple repr for EncodedRead.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ERead {
@@ -220,6 +221,42 @@ impl ERead {
     }
     pub fn seq_mut(&mut self) -> &mut Vec<CUnit> {
         self.seq.as_mut()
+    }
+    pub fn get_edges(&self) -> Option<((&CUnit, bool), (&CUnit, bool))> {
+        if self.seq.len() > DIRECTION_MERGIN * 2 {
+            let first_direction = {
+                let (count, to_down) = self
+                    .seq
+                    .windows(2)
+                    .take(DIRECTION_MERGIN)
+                    .filter(|w| w[0].contig == w[1].contig)
+                    .map(|w| w[0].unit < w[1].unit)
+                    .fold(
+                        (0, 0),
+                        |(c, tod), b| if b { (c + 1, tod + 1) } else { (c + 1, tod) },
+                    );
+                to_down > count / 2
+            };
+            let last_direction = {
+                let (count, to_down) = self
+                    .seq
+                    .windows(2)
+                    .rev()
+                    .take(DIRECTION_MERGIN)
+                    .filter(|w| w[0].contig == w[1].contig)
+                    .map(|w| w[0].unit > w[1].unit)
+                    .fold(
+                        (0, 0),
+                        |(c, tot), b| if b { (c + 1, tot + 1) } else { (c + 1, tot) },
+                    );
+                to_down > count / 2
+            };
+            let first = (self.seq.first()?, first_direction);
+            let last = (self.seq.last()?, last_direction);
+            Some((first, last))
+        } else {
+            None
+        }
     }
 }
 
