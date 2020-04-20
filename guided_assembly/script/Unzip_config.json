@@ -1,6 +1,0 @@
-{
-  "input_fofn": "./script/input.fofn",
-  "polish_include_zmw_all_subreads": false,
-  "polish_vc_ignore_error": false,
-  "polish_use_blasr": false
-}

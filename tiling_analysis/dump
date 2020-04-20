@@ -1,4 +1,0 @@
-   Compiling tiling_analysis v0.1.0 (/work/ban-m/arabidopsis_mitochondria/tiling_analysis)
-    Finished release [optimized] target(s) in 2.65s
-     Running `target/release/de_bruijn_graph /grid/ban-m/arabidopsis_thaliana/sequel/tiling/canu/tiling.entire.txt`
-there are 8182 nodes, 312253 edges. 304071 are non-canonical.
