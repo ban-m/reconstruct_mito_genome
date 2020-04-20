@@ -42,7 +42,6 @@ lastal -f tab -P${CORES} -R00 -Q0 -p self.matrix reference ${REFERENCE} > self.t
 cd ${ROOT}
 
 
-
 # ----- Prediction ------
 RUST_BACKTRACE=1 mmmm decompose --alignments ${OUTPUT}/last_db/alignments.tab --output ${OUTPUT} \
               --reads ${READ} --contigs ${REFERENCE} \
@@ -50,32 +49,17 @@ RUST_BACKTRACE=1 mmmm decompose --alignments ${OUTPUT}/last_db/alignments.tab --
               --cluster_num ${MIN_CLUSTER} --threads ${CORES} \
               --limit ${LIMIT}\
               -vv
-
-set +e 
 # ---- Assembly(by Flye) ----
-for reads in $( find ${OUTPUT} -maxdepth 1 -size +1M -name "*.fasta" )
+for reads in $( find ${OUTPUT} -maxdepth 1 -name "*.fasta" )
 do
     ASM_PATH=${reads%%.fasta}
     INDEX=${ASM_PATH##*/}
     mkdir -p ${ASM_PATH}
+    genomesize=$(cargo run --release --bin estimate_genome_size -- ${reads} ${REFERENCE} ${OUTPUT}/last_db/alignments.tab)
     flye \
         --pacbio-raw \
         $reads \
-	    --genome-size 200K \
-        --threads ${CORES} \
-        --iterations 10 \
-        --plasmids \
-        --out-dir $ASM_PATH 
-done
-for reads in $( find ${OUTPUT} -maxdepth 1 -size 1M -name "*.fasta" )
-do
-    ASM_PATH=${reads%%.fasta}
-    INDEX=${ASM_PATH##*/}
-    mkdir -p ${ASM_PATH}
-    flye \
-        --pacbio-raw \
-        $reads \
-	    --genome-size 10K \
+	    --genome-size ${genomesize} \
         --threads ${CORES} \
         --iterations 10 \
         --plasmids \
@@ -98,17 +82,17 @@ do
     cd ${ROOT}
 done
 
-cat ${OUTPUT}/*.reads.aln.tab > ${OUTPUT}/reads.aln.tab
-cat ${OUTPUT}/*.contigs.aln.tab > ${OUTPUT}/contigs.aln.tab
-
+cat ${OUTPUT}/*.reads.aln.tab > ${OUTPUT}/allreads.aln.tab
+cat ${OUTPUT}/*.contigs.aln.tab > ${OUTPUT}/allcontigs.aln.tab
+rm ${OUTPUT}/*.reads.aln.tab ${OUTPUT}/*.contigs.aln.tab
 
 
 # ---- Create viewer files -----
 mmmm create_viewer --assignments ${OUTPUT}/readlist.tsv \
-     --contig_aln ${OUTPUT}/contigs.aln.tab \
+     --contig_aln ${OUTPUT}/allcontigs.aln.tab \
      --contigs ${OUTPUT}/multipartite.fasta \
      --output_dir ${OUTPUT}/viewer/ \
-     --read_aln ${OUTPUT}/reads.aln.tab \
+     --read_aln ${OUTPUT}/allreads.aln.tab \
      --reads ${READ} \
      --reference ${REFERENCE}
 

@@ -13,7 +13,6 @@ fn main() -> std::io::Result<()> {
         .filter_map(|entry| {
             let index = entry.path();
             let index = index.file_stem()?.to_str()?.to_string();
-            use std::str::FromStr;
             let mut contig = std::path::PathBuf::new();
             contig.push(&args[1]);
             contig.push(&index);

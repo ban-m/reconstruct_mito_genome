@@ -350,10 +350,11 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
     }
     let readlist = format!("{}/readlist.tsv", output_dir);
     let mut readlist = BufWriter::new(std::fs::File::create(readlist)?);
-    for (&cluster_id, reads) in decomposed
-        .iter()
-        .filter(|&(_, rs)| rs.len() > last_decompose::find_breakpoint::COVERAGE_THR)
-    {
+    let decomposed: HashMap<u8, Vec<_>> = decomposed
+        .into_iter()
+        .filter(|(_, rs)| rs.len() > last_decompose::find_breakpoint::COVERAGE_THR)
+        .collect();
+    for (&cluster_id, reads) in decomposed.iter() {
         let outpath = format!("{}/{}.fasta", output_dir, cluster_id);
         let wtr = match std::fs::File::create(&outpath) {
             Ok(res) => res,

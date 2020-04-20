@@ -187,7 +187,7 @@ impl GapUnit {
     }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
 pub struct Encode {
     pub contig: u16,
     pub unit: u16,

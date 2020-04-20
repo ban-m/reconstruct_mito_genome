@@ -249,7 +249,7 @@ impl LastTAB {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum Op {
     /// Match of `usize` length.
     Match(usize),
