@@ -1,0 +1,47 @@
+.title{
+    font-family: sans-serif;
+    font-size: large;
+}
+
+.scale{
+    font-family: sans-serif;
+}
+
+.scale text{
+    font-size: medium;
+}
+
+.tick{
+    stroke-width:1;
+}
+
+.contig{
+    opacity:0.5;
+}
+
+.repeats{
+    opacity:0.4;
+}
+
+
+.numofgapread{
+    font-family: sans-serif;
+    font-size: medium;
+}
+
+.critical_region{
+}
+
+.tooltip {
+    position: absolute;			
+    text-align: left;
+    padding: 2px;				
+    font: 14px sans-serif;
+    font-weight: bold;
+    border-color: gray;
+    border-style: solid;
+    border-radius: 8px;
+    border-width: 2px;
+    pointer-events: none;
+}
+

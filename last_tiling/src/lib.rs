@@ -108,11 +108,11 @@ pub fn remove_repeats(alns: Vec<LastTAB>, defs: &Contigs, rep: &[RepeatPairs]) -
 pub fn encoding(fasta: &[fasta::Record], defs: &Contigs, alns: &[LastTAB]) -> Vec<EncodedRead> {
     // Distribute alignments to each reads.
     // bucket[i] is the alignment for fasta[i].
-    let buckets = distribute(fasta, alns);
     // debug!("There are {} buckets.", buckets.len());
-    let buckets: Vec<_> = buckets.into_iter().zip(fasta.iter()).collect();
-    buckets
+    //     let buckets: Vec<_> = buckets.into_iter().zip(fasta.iter()).collect();
+    distribute(fasta, alns)
         .into_iter()
+        .zip(fasta.iter())
         .map(|(bucket, seq)| {
             if bucket.is_empty() {
                 let read = vec![ChunkedUnit::Gap(GapUnit::new(seq.seq(), None))];

@@ -6,4 +6,4 @@ edition = "2018"
 
 [dependencies]
 rust-htslib = "*"
-bio_utils = {path = "../../bio_utils"}
+bio_utils = {path = "../bio_utils"}

@@ -6,13 +6,9 @@ fn main() -> std::io::Result<()> {
     use std::path::PathBuf;
     let contigs: Vec<(usize, PathBuf)> = fs::read_dir(&args[1])?
         .filter_map(|e| e.ok())
-        .filter(|entry| match entry.path().extension() {
-            Some(ext) => ext == "fasta",
-            None => false,
-        })
         .filter_map(|entry| {
             let index = entry.path();
-            let index = index.file_stem()?.to_str()?.to_string();
+            let index = index.file_name()?.to_str()?.to_string();
             let mut contig = std::path::PathBuf::new();
             contig.push(&args[1]);
             contig.push(&index);
@@ -35,7 +31,7 @@ fn main() -> std::io::Result<()> {
                 })
                 .collect();
             let mut wtr_path = PathBuf::new();
-            wtr_path.push(&args[1]);
+            wtr_path.push(&args[2]);
             wtr_path.push(&format!("{}.contigs.fasta", index));
             let wtr = fs::File::create(wtr_path).ok()?;
             let mut wtr = fasta::Writer::new(wtr);
@@ -46,7 +42,7 @@ fn main() -> std::io::Result<()> {
         })
         .flat_map(|c| c)
         .collect();
-    let wtr = format!("{}/multipartite.fasta", &args[1]);
+    let wtr = format!("{}/multipartite.fasta", &args[2]);
     let wtr = fs::File::create(wtr)?;
     let mut wtr = fasta::Writer::new(wtr);
     for c in contigs {

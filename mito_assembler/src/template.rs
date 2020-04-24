@@ -80,15 +80,16 @@ pub const STYLE: &str = r#".title{
 
 .critical_region{
 }
-
 .tooltip {
     position: absolute;			
     text-align: left;
     padding: 2px;				
-    font: 14px sans-serif;		
-    background: lightsteelblue;	
-    border: 0px;		
-    border-radius: 8px;			
-    pointer-events: none;			
+    font: 14px sans-serif;
+    font-weight: bold;
+    border-color: gray;
+    border-style: solid;
+    border-radius: 8px;
+    border-width: 2px;
+    pointer-events: none;
 }
 "#;

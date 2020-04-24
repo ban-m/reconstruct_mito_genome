@@ -8,8 +8,10 @@ edition = "2018"
 
 [dependencies]
 bio = "*"
-bio_utils = {path = "../../bio_utils"}
+bio_utils = {path = "../bio_utils"}
 rayon = "*"
 last_tiling = {path = "../last_tiling"}
 log = "*"
 env_logger = "*"
+rust-htslib = "*"
+clap = "*"

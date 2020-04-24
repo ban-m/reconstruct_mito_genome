@@ -82,12 +82,21 @@ fn subcommand_create_viewer() -> App<'static, 'static> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("min_align_length")
+                .long("min_align_length")
+                .default_value(&"5000")
+                .value_name("MINIMUM LENGTH")
+                .help("Minimum alignment length")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("verbose")
                 .short("v")
                 .multiple(true)
                 .help("Output debug to the standard error."),
         )
 }
+
 fn subcommand_decompose() -> App<'static, 'static> {
     SubCommand::with_name("decompose")
         .version("0.1")
@@ -173,6 +182,12 @@ fn subcommand_decompose() -> App<'static, 'static> {
                 .default_value(&"7200")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("no_merge")
+                .long("no_merge")
+                .required(false)
+                .help("Do not exec decompose. Just detects SVs."),
+        )
 }
 
 fn subcommand_resume() -> App<'static, 'static> {
@@ -239,6 +254,12 @@ fn subcommand_resume() -> App<'static, 'static> {
                 .short("v")
                 .multiple(true)
                 .help("Output debug to the standard error."),
+        )
+        .arg(
+            Arg::with_name("no_merge")
+                .long("no_merge")
+                .required(false)
+                .help("Do not exec decompose. Just detects SVs."),
         )
 }
 
@@ -317,18 +338,33 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
         debug!("{:?} having {} reads.", c, counts);
     }
     let cl = cluster_num;
-    let results: HashMap<String, u8> = last_decompose::decompose(
-        encoded_reads,
-        &initial_clusters,
-        &contigs,
-        &repeats,
-        &config,
-        cl,
-        limit,
-    )
-    .into_iter()
-    .filter_map(|(id, c)| c.map(|c| (id, c)))
-    .collect();
+    let no_merge = matches.is_present("no_merge");
+    let results: HashMap<String, u8> = if !no_merge {
+        last_decompose::decompose(
+            encoded_reads,
+            &initial_clusters,
+            &contigs,
+            &repeats,
+            &config,
+            cl,
+            limit,
+        )
+        .into_iter()
+        .filter_map(|(id, c)| c.map(|c| (id, c)))
+        .collect()
+    } else {
+        use last_decompose::find_breakpoint::ReadClassify;
+        encoded_reads
+            .iter()
+            .filter_map(|r| {
+                initial_clusters
+                    .iter()
+                    .filter(|cl| cl.has(r.id()))
+                    .nth(0)
+                    .map(|cl| (r.id().to_string(), cl.id as u8))
+            })
+            .collect()
+    };
     use bio_utils::fasta;
     let mut decomposed: HashMap<u8, Vec<&fasta::Record>> = HashMap::new();
     let unassigned = results.values().map(|&c| c).max().unwrap_or(0) + 1;
@@ -354,23 +390,25 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
         .into_iter()
         .filter(|(_, rs)| rs.len() > last_decompose::find_breakpoint::COVERAGE_THR)
         .collect();
-    for (&cluster_id, reads) in decomposed.iter() {
-        let outpath = format!("{}/{}.fasta", output_dir, cluster_id);
-        let wtr = match std::fs::File::create(&outpath) {
-            Ok(res) => res,
-            Err(why) => {
-                error!("Error Occured while creating a file:{:?},{}", why, outpath);
-                continue;
-            }
-        };
-        let mut wtr = fasta::Writer::new(wtr);
-        for read in reads {
-            let line = match read.desc() {
-                Some(desc) => format!("{}\t{}\t{}", cluster_id, read.id(), desc),
-                None => format!("{}\t{}\tNoDesc", cluster_id, read.id()),
+    if !no_merge {
+        for (&cluster_id, reads) in decomposed.iter() {
+            let outpath = format!("{}/{}.fasta", output_dir, cluster_id);
+            let wtr = match std::fs::File::create(&outpath) {
+                Ok(res) => res,
+                Err(why) => {
+                    error!("Error Occured while creating a file:{:?},{}", why, outpath);
+                    continue;
+                }
             };
-            writeln!(&mut readlist, "{}", line)?;
-            wtr.write_record(read)?;
+            let mut wtr = fasta::Writer::new(wtr);
+            for read in reads {
+                let line = match read.desc() {
+                    Some(desc) => format!("{}\t{}\t{}", cluster_id, read.id(), desc),
+                    None => format!("{}\t{}\tNoDesc", cluster_id, read.id()),
+                };
+                writeln!(&mut readlist, "{}", line)?;
+                wtr.write_record(read)?;
+            }
         }
     }
     let encoded_reads = last_tiling::encoding(&reads, &contigs, &alignments);
@@ -391,7 +429,6 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
             writeln!(&mut writer, "{}\t{}\t{}\t{}\t{}", s1, e1, s2, e2, count)?;
         }
     }
-
     let dir = format!("{}/viewer", output_dir);
     if let Err(why) = std::fs::create_dir_all(&dir) {
         error!("Error Occured while outputing reads.");
@@ -480,6 +517,10 @@ fn create_viewer(matches: &clap::ArgMatches) -> std::io::Result<()> {
                 .collect()
         })
         .unwrap();
+    let thr: usize = matches
+        .value_of("min_align_length")
+        .and_then(|num| num.parse().ok())
+        .unwrap();
     let output_dir = matches.value_of("output_dir").unwrap();
     let dir = format!("{}", output_dir);
     if let Err(why) = std::fs::create_dir_all(&dir) {
@@ -490,7 +531,7 @@ fn create_viewer(matches: &clap::ArgMatches) -> std::io::Result<()> {
         std::process::exit(1);
     }
     use last_decompose::annotate_contigs_to_reference::annotate_aln_contigs_to_ref;
-    let contigs_to_ref = annotate_aln_contigs_to_ref(&reference, &contig_aln);
+    let contigs_to_ref = annotate_aln_contigs_to_ref(&reference, &contig_aln, thr);
     let file = format!("{}/contig_alns.json", output_dir);
     let mut writer = BufWriter::new(std::fs::File::create(&file)?);
     let contigs_to_ref = serde_json::ser::to_string(&contigs_to_ref)?;
@@ -556,16 +597,31 @@ fn resume(matches: &clap::ArgMatches) -> std::io::Result<()> {
         let counts = c.ids().len();
         debug!("{:?} having {} reads.", c, counts);
     }
-    let results: HashMap<String, u8> = last_decompose::resume_decompose(
-        encoded_reads,
-        &initial_clusters,
-        &contigs,
-        &repeats,
-        resume,
-    )
-    .into_iter()
-    .filter_map(|(id, c)| c.map(|c| (id, c)))
-    .collect();
+    let no_merge = matches.is_present("no_merge");
+    let results: HashMap<String, u8> = if !no_merge {
+        last_decompose::resume_decompose(
+            encoded_reads,
+            &initial_clusters,
+            &contigs,
+            &repeats,
+            resume,
+        )
+        .into_iter()
+        .filter_map(|(id, c)| c.map(|c| (id, c)))
+        .collect()
+    } else {
+        use last_decompose::find_breakpoint::ReadClassify;
+        encoded_reads
+            .iter()
+            .filter_map(|r| {
+                initial_clusters
+                    .iter()
+                    .filter(|cl| cl.has(r.id()))
+                    .nth(0)
+                    .map(|cl| (r.id().to_string(), cl.id as u8))
+            })
+            .collect()
+    };
     use bio_utils::fasta;
     let mut decomposed: HashMap<u8, Vec<&fasta::Record>> = HashMap::new();
     let unassigned = results.values().map(|&c| c).max().unwrap_or(0) + 1;

@@ -21,9 +21,10 @@ pub struct Alignment {
     query_start: usize,
     query_end: usize,
 }
-pub fn annotate_aln_contigs_to_ref(refs: &[Record], alns: &[LastTAB]) -> Summary {
+pub fn annotate_aln_contigs_to_ref(refs: &[Record], alns: &[LastTAB], thr: usize) -> Summary {
     let alignments: Vec<_> = alns
         .into_iter()
+        .filter(|aln| (aln.seq1_matchlen() + aln.seq2_matchlen()) / 2 > thr)
         .map(|aln| {
             let reference_name = aln.seq1_name().to_string();
             let ref_start = aln.seq1_start_from_forward();

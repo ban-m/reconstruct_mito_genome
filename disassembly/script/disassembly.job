@@ -15,59 +15,73 @@ LIMIT=${5:-4000}
 ROOT=${PWD}
 
 # ---- Clean up -----
-if [ -d ${OUTPUT} ]
-then
-    rm -r ${OUTPUT}
-fi
+# if [ -d ${OUTPUT} ]
+# then
+#     rm -r ${OUTPUT}
+# fi
 
 
 # ---- Filtering ----
-mkdir -p ${OUTPUT}/filtered_read
-cd ../mito_assembler/
-minimap2 -t 24 -x map-pb ${REFERENCE} ${READ} |\
-    ./target/release/select_mito_reads ${READ} |\
-    ./target/release/filter_low_quality > ${OUTPUT}/filtered_read/filtered_read.fa
+# mkdir -p ${OUTPUT}/filtered_read
+# cd ../mito_assembler/
+# minimap2 -t 24 -x map-pb ${REFERENCE} ${READ} |\
+#     ./target/release/select_mito_reads ${READ} |\
+#     ./target/release/filter_low_quality > ${OUTPUT}/filtered_read/filtered_read.fa
 READ=${OUTPUT}/filtered_read/filtered_read.fa
 
 
 # ---- Alignment -----
-mkdir -p ${OUTPUT}/last_db
-cd ${OUTPUT}/last_db
-lastdb -R00 -Q0 reference ${REFERENCE}
-last-train -P${CORES} -Q0 reference ${READ} > score.matrix
-lastal -f maf -P${CORES} -R00 -Q0 -p score.matrix reference ${READ} |\
-    last-split | maf-convert tab --join 1000 > alignments.tab
-last-train -P${CORES} -Q0 reference ${REFERENCE} > self.matrix
-lastal -f tab -P${CORES} -R00 -Q0 -p self.matrix reference ${REFERENCE} > self.tab
-cd ${ROOT}
+# mkdir -p ${OUTPUT}/last_db
+# cd ${OUTPUT}/last_db
+# lastdb -R00 -Q0 reference ${REFERENCE}
+# last-train -P${CORES} -Q0 reference ${READ} > score.matrix
+# lastal -f maf -P${CORES} -R00 -Q0 -p score.matrix reference ${READ} |\
+#     last-split | maf-convert tab --join 1000 > alignments.tab
+# last-train -P${CORES} -Q0 reference ${REFERENCE} > self.matrix
+# lastal -f tab -P${CORES} -R00 -Q0 -p self.matrix reference ${REFERENCE} > self.tab
+# cd ${ROOT}
+
 
 
 # ----- Prediction ------
-RUST_BACKTRACE=1 mmmm decompose --alignments ${OUTPUT}/last_db/alignments.tab --output ${OUTPUT} \
-              --reads ${READ} --contigs ${REFERENCE} \
-              --self_alignments ${OUTPUT}/last_db/self.tab \
-              --cluster_num ${MIN_CLUSTER} --threads ${CORES} \
-              --limit ${LIMIT}\
-              -vv
+# RUST_BACKTRACE=1 mmmm decompose --alignments ${OUTPUT}/last_db/alignments.tab --output ${OUTPUT} \
+#               --reads ${READ} --contigs ${REFERENCE} \
+#               --self_alignments ${OUTPUT}/last_db/self.tab \
+#               --cluster_num ${MIN_CLUSTER} --threads ${CORES} \
+#               --limit ${LIMIT}\
+#               -vv
+
+mkdir -p ${OUTPUT}/no_merge
+mmmm decompose --alignments ${OUTPUT}/last_db/alignments.tab \
+     --output ${OUTPUT}/no_merge \
+     --reads ${READ} --contigs ${REFERENCE} \
+     --self_alignments ${OUTPUT}/last_db/self.tab \
+     --threads ${CORES} \
+     --no_merge -vv 
+
 # ---- Assembly(by Flye) ----
+set +e
+mkdir -p ${OUTPUT}/assemblies/
 for reads in $( find ${OUTPUT} -maxdepth 1 -name "*.fasta" )
 do
     ASM_PATH=${reads%%.fasta}
     INDEX=${ASM_PATH##*/}
-    mkdir -p ${ASM_PATH}
-    genomesize=$(cargo run --release --bin estimate_genome_size -- ${reads} ${REFERENCE} ${OUTPUT}/last_db/alignments.tab)
+    mkdir -p ${OUTPUT}/assemblies/${INDEX}
+    genomesize=$(cargo run --release --bin estimate_genome_size -- ${reads} ${REFERENCE} ${OUTPUT}/last_db/alignments.tab ${OUTPUT}/assemblies/${INDEX}/temp.fa)
     flye \
         --pacbio-raw \
-        $reads \
+        ${OUTPUT}/assemblies/${INDEX}/temp.fa \
 	    --genome-size ${genomesize} \
         --threads ${CORES} \
         --iterations 10 \
         --plasmids \
-        --out-dir $ASM_PATH 
+        --out-dir ${OUTPUT}/assemblies/${INDEX}
+    rm ${OUTPUT}/assemblies/${INDEX}/temp.fa
 done
+set -e
 
 # ---- Align back all reads ----
-cargo run --release --bin collect_contigs -- ${OUTPUT}
+cargo run --release --bin collect_contigs -- ${OUTPUT}/assemblies/ ${OUTPUT}
 for contigs in  $( find ${OUTPUT} -maxdepth 1 -name "*contigs.fasta" )
 do
     reads=${contigs%%.contigs.fasta}.fasta

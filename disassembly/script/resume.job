@@ -16,21 +16,39 @@ RESUME=${PWD}/result/pacbio_resume/
 CORES=12
 ROOT=${PWD}
 
+
+### ---- Decompose --- 
+mmmm decompose --alignments ${OUTPUT}/last_db/alignments.tab --output ${RESUME} \
+          --reads ${READ} --contigs ${REFERENCE} \
+          --self_alignments ${OUTPUT}/last_db/self.tab \
+          --threads ${CORES} \
+          --no_merge -vv 
+exit 0;
+
 # ---- Assembly(by Flye) ----
 for reads in $( find ${OUTPUT} -maxdepth 1 -name "*.fasta")
 do
     ASM_PATH=${reads%%.fasta}
     INDEX=${ASM_PATH##*/}
     mkdir -p ${RESUME}/${INDEX}
-    genomesize=$(cargo run --release --bin estimate_genome_size -- ${reads} ${REFERENCE} ${OUTPUT}/last_db/alignments.tab)
-    flye \
-        --pacbio-raw \
-        $reads \
-	    --genome-size ${genomesize} \
-        --threads ${CORES} \
-        --iterations 3 \
-        --out-dir ${RESUME}/${INDEX}
+    genomesize=$(cargo run --release --bin estimate_genome_size -- ${reads} ${REFERENCE} ${OUTPUT}/last_db/alignments.tab ${RESUME}/${INDEX}/reads.fa)
+    canu \
+        -p $INDEX\
+        -d ${RESUME}/${INDEX} \
+        genomeSize=${genomesize}\
+        useGrid=false\
+        -pacbio-raw \
+        ${RESUME}/${INDEX}/reads.fa
+    # flye \
+    #     --asm-coverage 40\
+    #     --pacbio-raw $reads \
+    #     --meta \
+	#     --genome-size ${genomesize} \
+    #     --threads ${CORES} \
+    #     --iterations 3 \
+    #     --out-dir ${RESUME}/${INDEX}
 done
+exit 0;
 
 # ---- Align back all reads ----
 cargo run --release --bin collect_contigs -- ${RESUME}

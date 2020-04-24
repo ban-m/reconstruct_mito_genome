@@ -1,4 +1,4 @@
 fn main() {
-    let args: Vec<_> = std::env::args().collect();
-    println!("{}", args[1]);
+    let test = "3.6e-4";
+    println!("{:?}", test.parse::<f64>());
 }
