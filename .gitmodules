@@ -4,3 +4,6 @@
 [submodule "bio_utils"]
 	path = bio_utils
 	url = git@github.com:ban-m/bio_utils.git
+[submodule "edlib-sys"]
+	path = edlib-sys
+	url = git@github.com:ban-m/edlib-sys.git

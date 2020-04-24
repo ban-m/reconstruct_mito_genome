@@ -10,7 +10,7 @@ edition = "2018"
 bio_utils = {path = "../bio_utils"}
 last_tiling = {path = "../last_tiling"}
 poa_hmm = {path = "../poa_hmm"}
-edlib_sys = {path = "../../edlib-sys"}  
+edlib_sys = {path = "../edlib-sys"}  
 rand = "0.7.2"
 log = "*"
 env_logger = "*"

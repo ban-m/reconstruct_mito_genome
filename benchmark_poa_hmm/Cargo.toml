@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 
 poa_hmm = {path = "../poa_hmm"}
-edlib_sys = {path = "../../edlib-sys"}
+edlib_sys = {path = "../edlib-sys"}
 last_decompose = {path = "../last_decompose"}
 rand = "*"
 rand_xoshiro = "*"

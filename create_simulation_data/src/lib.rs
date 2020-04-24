@@ -1,25 +1,14 @@
-extern crate dbg_hmm;
 extern crate last_tiling;
 #[macro_use]
 extern crate log;
 extern crate rand_xoshiro;
-use rand_xoshiro::Xoshiro256StarStar;
+extern crate poa_hmm;
+use poa_hmm::gen_sample;
 extern crate rand;
-use rand::{Rng, SeedableRng};
+use rand::{Rng};
 extern crate rayon;
-use dbg_hmm::*;
 use last_tiling::EncodedRead;
 use rayon::prelude::*;
-pub const BADREAD_CONFIG: dbg_hmm::Config = dbg_hmm::Config {
-    mismatch: 0.0344,
-    p_match: 0.88,
-    p_ins: 0.0549,
-    p_del: 0.0651,
-    p_extend_ins: 0.0337,
-    p_extend_del: 0.1787,
-    p_del_to_ins: 0.0,
-    base_freq: [0.25, 0.25, 0.25, 0.25],
-};
 
 /// A simple repr for EncodedRead.
 #[derive(Debug, Clone)]
@@ -168,14 +157,6 @@ pub fn construct_predictor<'a>(
     chunks
 }
 
-pub fn unit_predict(query: &[u8], templates: &[&[u8]], k: usize) -> f64 {
-    DBGHMM::new_from_ref(templates, k).forward(&query, &DEFAULT_CONFIG)
-}
-
-pub fn unit_predict_by(query: &[u8], refs: &[&[u8]], k: usize, c: &Config) -> f64 {
-    DBGHMM::new_from_ref(refs, k).forward(&query, c)
-}
-
 /// Conpute Log (w0 * exp(l0) + w1 * exp(l1)). If you want to do the same thing for
 /// two vectors, see calc_logsum_vec
 pub fn calc_logsum(l0: f64, l1: f64, w0: f64, w1: f64) -> f64 {
@@ -281,72 +262,6 @@ pub fn generate_dataset<T: Rng>(
     (dataset, assignment, answer, l)
 }
 
-pub fn naive_solve(dataset: &[Vec<Vec<u8>>], label: &[u8], border: usize, k: usize) -> Vec<u8> {
-    let (d1, d2): (Vec<_>, Vec<_>) = dataset
-        .iter()
-        .take(border)
-        .zip(label)
-        .partition(|&(_, &ans)| ans == 0);
-    let mut d1: Vec<_> = d1.into_iter().map(|(x, _)| x).collect();
-    let mut d2: Vec<_> = d2.into_iter().map(|(x, _)| x).collect();
-    let mut model1 = construct_from_reads(&d1, k);
-    let mut model2 = construct_from_reads(&d2, k);
-    let mut pred = vec![0; dataset.len() - border];
-    let mut is_updated = true;
-    while is_updated {
-        is_updated = pred
-            .iter_mut()
-            .enumerate()
-            .map(|(idx, p)| {
-                let lkdiff = dataset[idx + border]
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, chunk)| {
-                        model1[idx].forward(chunk, &DEFAULT_CONFIG)
-                            - model2[idx].forward(chunk, &DEFAULT_CONFIG)
-                    })
-                    .sum::<f64>()
-                    .is_sign_positive();
-                let up = if lkdiff { 0 } else { 1 };
-                let res = *p != up;
-                *p = up;
-                res
-            })
-            .fold(false, |p, q| p | q);
-        d1 = dataset
-            .iter()
-            .zip(label.iter().chain(pred.iter()))
-            .filter(|&(_, &b)| b == 0)
-            .map(|(e, _)| e)
-            .collect();
-        d2 = dataset
-            .iter()
-            .zip(label.iter().chain(pred.iter()))
-            .filter(|&(_, &b)| b == 1)
-            .map(|(e, _)| e)
-            .collect();
-        model1 = construct_from_reads(&d1, k);
-        model2 = construct_from_reads(&d2, k);
-    }
-    pred
-}
-
-pub fn random_seed(data: &[Vec<Vec<u8>>], label: &[u8], border: usize) -> Vec<u8> {
-    let (w0, tot) = label.iter().fold((1, 2), |(w0, tot), &b| {
-        if b == 0 {
-            (w0 + 1, tot + 1)
-        } else {
-            (w0, tot + 1)
-        }
-    });
-    let prob = w0 as f64 / tot as f64;
-    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(242349);
-    data.iter()
-        .skip(border)
-        .map(|_| if rng.gen_bool(prob) { 0 } else { 1 })
-        .collect()
-}
-
 pub fn align_solve(data: &[Vec<Vec<u8>>], label: &[u8], border: usize) -> Vec<u8> {
     let data = data
         .iter()
@@ -398,246 +313,8 @@ pub fn align_solve(data: &[Vec<Vec<u8>>], label: &[u8], border: usize) -> Vec<u8
     assign.into_iter().skip(border).collect()
 }
 
-pub fn init_gammas(init: &[bool], border: usize, len: usize) -> (Vec<f64>, Vec<f64>) {
-    let (mut gamma0, mut gamma1) = (vec![], vec![]);
-    for i in 0..len {
-        let p = if i < border && init[i] {
-            1.
-        } else if i < border {
-            0.
-        } else {
-            let p = if init[i] { 0.6 } else { 0.4 };
-            p
-        };
-        gamma0.push(p);
-        gamma1.push(1. - p);
-    }
-    (gamma0, gamma1)
-}
-
-/// Predict by EM algorithm. the length of return value is the number of test case.
-pub fn em_solve(
-    data: &[Vec<Vec<u8>>],
-    label: &[u8],
-    border: usize,
-    k: usize,
-    ans: &[u8],
-) -> Vec<u8> {
-    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64((border + data.len()) as u64);
-    let weight: Vec<_> = (0..data.len() - border)
-        .map(|_| rng.gen_bool(0.5))
-        .collect();
-    let mut gamma0: Vec<_> = label
-        .iter()
-        .map(|&e| if e == 0 { 1. } else { 0. })
-        .chain(weight.iter().map(|&e| if e { 0.6 } else { 0.4 }))
-        .collect();
-    let mut gamma1: Vec<_> = label
-        .iter()
-        .map(|&e| if e == 1 { 1. } else { 0. })
-        .chain(weight.iter().map(|&e| if e { 0.4 } else { 0.6 }))
-        .collect();
-    let mut w0: f64 = gamma0.iter().sum::<f64>() / gamma0.len() as f64;
-    let mut w1: f64 = gamma1.iter().sum::<f64>() / gamma1.len() as f64;
-    let mut model0: Vec<_> = construct_with_weights(data, &gamma0, k);
-    let mut model1: Vec<_> = construct_with_weights(data, &gamma1, k);
-    for (m0, m1) in model0.iter().zip(model1.iter()) {
-        debug!("{}\t{}", m0, m1);
-    }
-    let mut lks: Vec<f64> = vec![];
-    let mut beta = 0.03;
-    let step = 1.2;
-    while beta < 1. {
-        debug!("Beta:{:.4}", beta);
-        for i in 0..30 {
-            debug!(
-                "{:.4}\t{:.4}",
-                gamma0.iter().sum::<f64>(),
-                gamma1.iter().sum::<f64>()
-            );
-            eprintln!("W:{}\t{}", w0, w1);
-            let next_lk = data
-                .par_iter()
-                .zip(gamma0.par_iter_mut())
-                .zip(gamma1.par_iter_mut())
-                .skip(border)
-                .zip(ans.par_iter())
-                .map(|(((read, g0), g1), _ans)| {
-                    let mut log_m0 = read
-                        .iter()
-                        .enumerate()
-                        .map(|(i, s)| model0[i].forward(s, &DEFAULT_CONFIG))
-                        .sum::<f64>()
-                        + w0.ln();
-                    let mut log_m1 = read
-                        .iter()
-                        .enumerate()
-                        .map(|(i, s)| model1[i].forward(s, &DEFAULT_CONFIG))
-                        .sum::<f64>()
-                        + w1.ln();
-                    let lk = logsumexp(log_m0, log_m1);
-                    log_m0 *= beta;
-                    log_m1 *= beta;
-                    let w = logsumexp(log_m0, log_m1);
-                    *g0 = (log_m0 - w).exp();
-                    *g1 = (log_m1 - w).exp();
-                    lk
-                })
-                .sum::<f64>();
-            w0 = gamma0.iter().sum::<f64>() / data.len() as f64;
-            w1 = gamma1.iter().sum::<f64>() / data.len() as f64;
-            let acc = gamma0
-                .iter()
-                .skip(border)
-                .zip(ans.iter())
-                .filter(|&(&g, &a)| (a == 0 && g > 0.5) || (a == 1 && g < 0.5))
-                .count();
-            debug!("Acc:{} out of {}", acc, ans.len());
-            model0 = construct_with_weights(data, &gamma0, k);
-            model1 = construct_with_weights(data, &gamma1, k);
-            info!("LK\t{:.4}\t{}", next_lk, i);
-            let min: f64 = lks
-                .iter()
-                .map(|&e| (e - next_lk).abs())
-                .fold(1., |x, y| x.min(y));
-            if min < 0.001 {
-                break;
-            } else {
-                lks.push(next_lk);
-            }
-        }
-        beta *= step;
-    }
-    gamma0
-        .iter()
-        .skip(border)
-        .map(|&w| if w > 0.5 { 0 } else { 1 })
-        .collect()
-}
-
-pub fn em_solve_with(data: &[Vec<Vec<u8>>], label: &[u8], border: usize, k: usize) -> Vec<u8> {
-    let init: Vec<_> = label
-        .iter()
-        .chain(align_solve(data, label, border).iter())
-        .copied()
-        .map(|e| e == 0)
-        .collect();
-    let (mut gamma0, mut gamma1) = init_gammas(&init, border, data.len());
-    let mut w0: f64 = gamma0.iter().sum::<f64>() / label.len() as f64;
-    let mut w1: f64 = gamma1.iter().sum::<f64>() / label.len() as f64;
-    let mut model0: Vec<_> = construct_with_weights(data, &gamma0, k);
-    let mut model1: Vec<_> = construct_with_weights(data, &gamma1, k);
-    let mut lks: Vec<f64> = vec![];
-    let mut beta = 0.18;
-    let step = 1.4;
-    while beta < 1. {
-        debug!("Beta:{:.4}", beta);
-        for _ in 0..30 {
-            let next_lk = data
-                .par_iter()
-                .zip(gamma0.par_iter_mut())
-                .zip(gamma1.par_iter_mut())
-                .skip(border)
-                .map(|((read, g0), g1)| {
-                    let mut log_m0 = read
-                        .iter()
-                        .enumerate()
-                        .map(|(i, s)| model0[i].forward(s, &DEFAULT_CONFIG))
-                        .sum::<f64>()
-                        + w0.ln();
-                    let mut log_m1 = read
-                        .iter()
-                        .enumerate()
-                        .map(|(i, s)| model1[i].forward(s, &DEFAULT_CONFIG))
-                        .sum::<f64>()
-                        + w1.ln();
-                    let lk = logsumexp(log_m0, log_m1);
-                    log_m0 *= beta;
-                    log_m1 *= beta;
-                    let w = logsumexp(log_m0, log_m1);
-                    *g0 = (log_m0 - w).exp();
-                    *g1 = (log_m1 - w).exp();
-                    lk
-                })
-                .sum::<f64>();
-            w0 = gamma0.iter().sum::<f64>() / data.len() as f64;
-            w1 = gamma1.iter().sum::<f64>() / data.len() as f64;
-            model0 = construct_with_weights(data, &gamma0, k);
-            model1 = construct_with_weights(data, &gamma1, k);
-            let min: f64 = lks
-                .iter()
-                .map(|&e| (e - next_lk).abs())
-                .fold(1., |x, y| x.min(y));
-            if min < 0.001 {
-                break;
-            } else {
-                lks.push(next_lk);
-            }
-        }
-        beta *= step;
-    }
-    gamma0
-        .iter()
-        .skip(border)
-        .map(|&w| if w > 0.5 { 0 } else { 1 })
-        .collect()
-}
-
 /// Return log ( x.exp() + y.exp())
 pub fn logsumexp(x: f64, y: f64) -> f64 {
     let max = x.max(y);
     max + ((x - max).exp() + (y - max).exp()).ln()
-}
-
-pub fn calc_lk(ds: &[Vec<Vec<u8>>], m0: &[DBGHMM], m1: &[DBGHMM], w0: f64, w1: f64) -> f64 {
-    ds.par_iter()
-        .map(|read| {
-            let m0 = read
-                .iter()
-                .enumerate()
-                .map(|(idx, chunk)| m0[idx].forward(chunk, &DEFAULT_CONFIG))
-                .sum::<f64>()
-                + w0.ln();
-            let m1 = read
-                .iter()
-                .enumerate()
-                .map(|(idx, chunk)| m1[idx].forward(chunk, &DEFAULT_CONFIG))
-                .sum::<f64>()
-                + w1.ln();
-            logsumexp(m0, m1)
-        })
-        .sum::<f64>()
-}
-
-pub fn construct_from_reads(ds: &[&Vec<Vec<u8>>], k: usize) -> Vec<DBGHMM> {
-    let len = ds[0].len();
-    let mut res: Vec<Vec<&[u8]>> = vec![vec![]; len];
-    assert!(ds.iter().all(|e| e.len() == len));
-    for read in ds {
-        for (idx, chunk) in read.iter().enumerate() {
-            res[idx].push(chunk);
-        }
-    }
-    let mut f = Factory::new();
-    res.into_iter()
-        .map(|e| f.generate_from_ref(&e, k))
-        .collect()
-}
-
-pub fn construct_with_weights(ds: &[Vec<Vec<u8>>], ws: &[f64], k: usize) -> Vec<DBGHMM> {
-    let len = ds[0].len();
-    assert!(ds.iter().all(|r| r.len() == len));
-    let mut chunks: Vec<Vec<&[u8]>> = vec![vec![]; len];
-    for read in ds.into_iter() {
-        for (idx, chunk) in read.iter().enumerate() {
-            chunks[idx].push(chunk);
-        }
-    }
-    chunks
-        .into_par_iter()
-        .map(|cs| {
-            let mut f = Factory::new();
-            f.generate_with_weight(&cs, &ws, k, &mut vec![])
-        })
-        .collect()
 }

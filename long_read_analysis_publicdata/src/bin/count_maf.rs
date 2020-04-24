@@ -1,6 +1,5 @@
 extern crate bio_utils;
 extern crate rust_htslib;
-use bio_utils::fasta;
 use rust_htslib::{bam, bam::Read};
 const THR: f64 = 0.09;
 fn main() {

@@ -2,11 +2,9 @@ extern crate edlib_sys;
 extern crate poa_hmm;
 extern crate rand;
 use poa_hmm::gen_sample::*;
-use poa_hmm::*;
 use rand::{rngs::StdRng, SeedableRng};
 fn main() {
     let len = 150;
-    let test = 1000;
     let time = 4;
     let coverage = 5;
     for i in 0..100 {

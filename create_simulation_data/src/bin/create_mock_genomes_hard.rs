@@ -1,8 +1,8 @@
 extern crate bio_utils;
-extern crate dbg_hmm;
+extern crate poa_hmm;
 extern crate rand;
 extern crate rand_xoshiro;
-use dbg_hmm::*;
+use poa_hmm::*;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 fn main() -> std::io::Result<()> {

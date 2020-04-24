@@ -97,11 +97,11 @@ fn main() {
         eprintln!("REF:{}", String::from_utf8_lossy(&template2));
         eprintln!(
             "MOD:{}",
-            String::from_utf8_lossy(&model1.consensus().unwrap())
+            String::from_utf8_lossy(&model1.consensus())
         );
         eprintln!(
             "MOD:{}",
-            String::from_utf8_lossy(&model2.consensus().unwrap())
+            String::from_utf8_lossy(&model2.consensus())
         );
     }
     //    });

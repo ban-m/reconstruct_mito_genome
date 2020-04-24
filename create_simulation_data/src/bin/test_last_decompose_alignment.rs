@@ -1,6 +1,6 @@
 // extern crate bio;
 extern crate create_simulation_data;
-extern crate dbg_hmm;
+extern crate poa_hmm;
 extern crate edlib_sys;
 extern crate last_decompose;
 extern crate rand;
@@ -9,7 +9,7 @@ extern crate rand_xoshiro;
 extern crate log;
 extern crate env_logger;
 extern crate rayon;
-use dbg_hmm::gen_sample;
+use poa_hmm::gen_sample;
 use last_decompose::clustering_via_alignment;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;

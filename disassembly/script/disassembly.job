@@ -22,11 +22,13 @@ ROOT=${PWD}
 
 
 # ---- Filtering ----
+# cd ..
 # mkdir -p ${OUTPUT}/filtered_read
-# cd ../mito_assembler/
 # minimap2 -t 24 -x map-pb ${REFERENCE} ${READ} |\
-#     ./target/release/select_mito_reads ${READ} |\
-#     ./target/release/filter_low_quality > ${OUTPUT}/filtered_read/filtered_read.fa
+#     ./target/release/select_mito_reads -- ${READ} |\
+#     ./target/release/filter_low_quality |\
+#     ./target/release/clip_self_chimera > \
+#           ${OUTPATH}/filtered_read/filtered_read.fasta
 READ=${OUTPUT}/filtered_read/filtered_read.fa
 
 

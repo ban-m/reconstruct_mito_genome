@@ -70,10 +70,18 @@ fn main() {
                 chunks[idx].push(chunk.as_slice());
             }
         }
-        let mock = vec![vec![]; total_coverage];
-        use last_decompose::poa_clustering::construct_initial_weights;
-        let weights_of_reads =
-            construct_initial_weights(&vec![], &mock, num_cluster, total_coverage, 2);
+        let weights_of_reads = {
+            let cluster: Vec<usize> = (0..num_cluster).collect();
+            let mut weights = vec![];
+            for _ in 0..total_coverage {
+                let mut ws = vec![0.; num_cluster];
+                use rand::seq::SliceRandom;
+                let ans = cluster.choose(&mut rng).unwrap();
+                ws[*ans] = 1.;
+                weights.push(ws);
+            }
+            weights
+        };
         let mut weights = vec![vec![]; num_cluster];
         for weights_each_cluster in weights_of_reads {
             for (cluster, &w) in weights_each_cluster.iter().enumerate() {
