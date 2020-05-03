@@ -1,15 +1,15 @@
 extern crate create_simulation_data;
-extern crate poa_hmm;
 extern crate edlib_sys;
 extern crate last_decompose;
+extern crate poa_hmm;
 extern crate rand;
 extern crate rand_xoshiro;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
-const LIMIT: u64 = 2400;
+const LIMIT: u64 = 3600;
+use last_decompose::{poa_clustering::gibbs_sampling, ERead};
 use poa_hmm::gen_sample;
-use last_decompose::{clustering, ERead};
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 fn main() {
@@ -130,7 +130,18 @@ fn benchmark(
         debug!("Probs:[{}]", probs.join(","));
     };
     let forbidden = vec![vec![]; data.len()];
-    let em_pred = clustering(&data, (&label, &answer), &forbidden, clusters, LIMIT, c);
+    use last_decompose::poa_clustering::DEFAULT_ALN;
+    let coverage = data.iter().map(|r| r.seq.len()).sum::<usize>() / chain_len;
+    let em_pred = gibbs_sampling(
+        &data,
+        (&label, &answer),
+        &forbidden,
+        clusters,
+        LIMIT,
+        c,
+        &DEFAULT_ALN,
+        coverage,
+    );
     assert_eq!(em_pred.len(), label.len() + answer.len());
     let mut result = vec![vec![0; clusters]; clusters];
     //let mut result = vec![vec![0; clusters + 1]; clusters + 1];

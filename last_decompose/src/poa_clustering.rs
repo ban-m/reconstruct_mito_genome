@@ -7,11 +7,11 @@ use rand::{seq::SliceRandom, thread_rng, Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
 const BETA_INCREASE: f64 = 0.9;
-const BETA_DECREASE: f64 = 1.2;
+const BETA_DECREASE: f64 = 1.1;
 const SMALL_WEIGHT: f64 = 0.000_000_000_0001;
-const REP_NUM: usize = 4;
-const GIBBS_PRIOR: f64 = 0.00;
-const STABLE_LIMIT: u32 = 8;
+const REP_NUM: usize = 3;
+const GIBBS_PRIOR: f64 = 0.02;
+const STABLE_LIMIT: u32 = 9;
 const IS_STABLE: u32 = 5;
 const VARIANT_FRACTION: f64 = 0.90;
 
@@ -168,13 +168,13 @@ fn update_assignments<R: Rng>(
     assignments: &mut [u8],
     data: &[Read],
     sampled: &[bool],
-    rng: &mut R,
+    _rng: &mut R,
     cluster_num: usize,
     betas: &[Vec<Vec<f64>>],
     config: &Config,
     forbidden: &[Vec<u8>],
 ) -> u32 {
-    let choises: Vec<_> = (0..cluster_num).map(|e| e as u8).collect();
+    // let choises: Vec<_> = (0..cluster_num).map(|e| e as u8).collect();
     let fraction_on_positions: Vec<Vec<f64>> = {
         let cl = models[0].len();
         let mut total_count = vec![0; cl];
@@ -195,15 +195,13 @@ fn update_assignments<R: Rng>(
             })
             .collect()
     };
-    let seeds: Vec<u64> = rng.sample_iter(Standard).take(data.len()).collect();
     assignments
         .iter_mut()
         .zip(data.iter())
         .zip(forbidden.iter())
-        .zip(seeds.into_iter())
         .zip(sampled.iter())
         .filter(|&(_, &b)| b)
-        .map(|((((asn, read), f), s), _)| {
+        .map(|(((asn, read), f), _)| {
             let likelihoods: Vec<(usize, Vec<_>)> = read
                 .par_iter()
                 .map(|&(pos, ref u)| {
@@ -241,16 +239,27 @@ fn update_assignments<R: Rng>(
                         .recip()
                 })
                 .collect();
-            let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(s);
-            let chosen = *choises
-                .choose_weighted(&mut rng, |k| {
-                    if f.contains(k) {
-                        0.
-                    } else {
-                        weights[*k as usize] + SMALL_WEIGHT
+            let chosen = {
+                let (mut max, mut argmax) = (0., 0);
+                for (cl, &p) in weights.iter().enumerate() {
+                    if !f.contains(&(cl as u8)) && max < p {
+                        max = p;
+                        argmax = cl as u8;
                     }
-                })
-                .unwrap();
+                }
+                argmax
+            };
+            // let line: Vec<_> = weights.iter().map(|e| format!("{:.2}", e)).collect();
+            // debug!("[{}]", line.join(","));
+            // let chosen = *choises
+            //     .choose_weighted(rng, |&k| {
+            //         if f.contains(&k) {
+            //             0.
+            //         } else {
+            //             weights[k as usize] + SMALL_WEIGHT
+            //         }
+            //     })
+            //     .unwrap();
             let is_the_same = if *asn == chosen { 0 } else { 1 };
             *asn = chosen;
             is_the_same
@@ -309,6 +318,7 @@ pub fn gibbs_sampling<F>(
     limit: u64,
     config: &poa_hmm::Config,
     aln: &AlnParam<F>,
+    coverage: usize,
 ) -> Vec<Option<u8>>
 where
     F: Fn(u8, u8) -> i32 + std::marker::Sync,
@@ -317,24 +327,22 @@ where
         return vec![None; data.len()];
     }
     assert_eq!(f.len(), data.len());
-    let lim = limit / 3;
-    let times = vec![0.005, 0.05, 0.10];
+    let per_cluster_coverage = coverage / cluster_num;
+    let pick_prob = if per_cluster_coverage < 40 {
+        0.005
+    } else if per_cluster_coverage < 100 {
+        0.045 / 60. * (per_cluster_coverage - 40) as f64 + 0.005
+    } else {
+        0.05
+    };
     let sum = data
         .iter()
         .flat_map(|e| e.id().bytes())
         .map(|e| e as u64)
         .sum::<u64>()
         + 1;
-    let mut assignments = vec![];
-    for (seed, pick_prob) in times.into_iter().enumerate() {
-        let params = (lim, pick_prob, seed as u64 * sum);
-        let (res, end) = gibbs_sampling_inner(data, labels, f, cluster_num, params, config, aln);
-        assignments = res;
-        if end {
-            break;
-        }
-    }
-    assignments
+    let params = (limit, pick_prob, sum);
+    gibbs_sampling_inner(data, labels, f, cluster_num, params, config, aln).0
 }
 
 fn print_lk_gibbs<F>(
@@ -426,7 +434,7 @@ where
             }
         })
         .collect();
-    let mut beta = (cluster_num as f64).powi(2) / 2.;
+    let mut beta = (cluster_num as f64).powi(2);
     let mut count = 0;
     let mut predictions = std::collections::VecDeque::new();
     let asn = &mut assignments;
@@ -461,7 +469,7 @@ where
             })
             .sum::<u32>();
         debug!("CHANGENUM\t{}", changed_num);
-        if changed_num <= (data.len() as u32 / 50).max(2) {
+        if changed_num <= (data.len() as f64 * pick_prob / 3.).max(2.) as u32 {
             count += 1;
         } else {
             count = 0;
@@ -526,7 +534,7 @@ fn report_gibbs(asn: &[u8], _ans: &[u8], _lab: &[u8], lp: u32, id: u64, cl: usiz
         .map(|c| asn.iter().filter(|&&a| a == c as u8).count())
         .map(|e| format!("{}", e))
         .collect();
-    info!("Summary\t{}\t{}\t{:.3}\t{}", id, lp, beta, line.join("\t"));
+    info!("Summary\t{}\t{}\t{:.4}\t{}", id, lp, beta, line.join("\t"));
 }
 
 fn calc_probs(

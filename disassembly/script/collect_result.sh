@@ -1,11 +1,11 @@
 #!/bin/bash
-set -ue 
+# set -ue 
 mkdir -p ${PWD}/result/viewer
-cp ${PWD}/result/pacbio/viewer/circos.js ${PWD}/result/viewer/circos.js
+cp ${PWD}/script/circos.js ${PWD}/result/viewer/circos.js
 cp ${PWD}/result/pacbio/viewer/style.css ${PWD}/result/viewer/style.css
-cp ${PWD}/result/pacbio/viewer/linear.js ${PWD}/result/viewer/linear.js
+cp ${PWD}/script/linear.js ${PWD}/result/viewer/linear.js
 ROOT="./.."
-for accession in pacbio an1 c24 cvi eri kyo ler sha col0_1106_exp2 tal6111_1106_exp2 tal6144_1115_exp2 tal61up63_1106_exp2 tal6226_1115_exp2
+for accession in pacbio an1 c24 cvi eri kyo ler sha col0_1106_exp2 tal6111_1106_exp2 tal6144_1115_exp2 tal61up63_1106_exp2 tal6226_1115_exp2 pacbio_ler ler_ler c24_c24
 do
     DIST=${PWD}/result/viewer/${accession}
     mkdir -p ${PWD}/result/viewer/${accession}

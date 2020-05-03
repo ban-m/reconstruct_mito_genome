@@ -1,6 +1,6 @@
 #!/bin/bash
 set -ue
-REFERENCE=${PWD}/data/NC_037304_1_split.fa
+REFERENCE=${PWD}/data/NC_037304_1.fa
 
 ROOT=${PWD}
 qsub -o ./logfiles/pacbio.log -j y ./script/disassembly.job\

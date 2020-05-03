@@ -7,8 +7,8 @@ use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 //const MERGE_THR: usize = 500;
 const MERGE_THR: usize = 5;
-pub const COVERAGE_THR: usize = 25;
-const WINDOW: usize = 3;
+pub const COVERAGE_THR: usize = 20;
+// const WINDOW: usize = 3;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +38,12 @@ impl Cluster {
     }
     pub fn overlap(&self, range: (u16, u16, u16)) -> bool {
         self.members.iter().any(|m| m.cr.overlap(range))
+    }
+    pub fn locally_forbids(&self, range: (u16, u16, u16), r: &ERead) -> bool {
+        self.members
+            .iter()
+            .filter(|m| m.cr.overlap(range))
+            .all(|m| m.cr.locally_forbids(range, r))
     }
 }
 
@@ -240,6 +246,26 @@ impl CriticalRegion {
             CriticalRegion::CR(ref cr) => cr.overlap(range),
         }
     }
+    pub fn locally_forbids(&self, (contig, start, end): (u16, u16, u16), r: &ERead) -> bool {
+        assert!(self.overlap((contig, start, end)));
+        let (max, min) = r
+            .seq
+            .iter()
+            .filter(|u| u.contig == contig && start <= u.unit && u.unit < end)
+            .map(|u| u.unit)
+            .fold((std::u16::MAX, std::u16::MIN), |(min, max), u| {
+                (u.min(min), u.max(max))
+            });
+        if max == std::u16::MIN && min == std::u16::MAX {
+            false
+        } else {
+            let range = (contig, start, end);
+            match self {
+                CriticalRegion::CP(ref cp) => cp.locally_forbids(range, (min, max)),
+                CriticalRegion::CR(ref cr) => cr.locally_forbids(range, (min, max)),
+            }
+        }
+    }
     pub fn contig_pair(&self) -> Option<&ContigPair> {
         match self {
             CriticalRegion::CP(ref cp) => Some(cp),
@@ -309,6 +335,12 @@ impl Position {
     fn overlap(&self, (contig, start, end): (u16, u16, u16)) -> bool {
         let overlap = !(end as u16 <= self.start_unit || self.end_unit < start as u16);
         contig == self.contig && overlap
+    }
+    fn locally_forbids(&self, (min, max): (u16, u16)) -> bool {
+        match self.direction {
+            Direction::DownStream => self.start_unit > max,
+            Direction::UpStream => min > self.end_unit,
+        }
     }
     pub fn range(&self) -> (i32, i32) {
         (self.start_unit as i32, self.end_unit as i32)
@@ -450,6 +482,20 @@ impl ContigPair {
     fn overlap(&self, range: (u16, u16, u16)) -> bool {
         self.contig1.overlap(range) || self.contig2.overlap(range)
     }
+    fn locally_forbids(&self, range: (u16, u16, u16), mm: (u16, u16)) -> bool {
+        assert!(self.overlap(range));
+        let contig1 = if self.contig1.overlap(range) {
+            self.contig1.locally_forbids(mm)
+        } else {
+            true
+        };
+        let contig2 = if self.contig2.overlap(range) {
+            self.contig2.locally_forbids(mm)
+        } else {
+            true
+        };
+        contig1 && contig2
+    }
     fn overlap_with(&self, cr: &ConfluentRegion) -> bool {
         let Position {
             contig,
@@ -504,6 +550,10 @@ impl ConfluentRegion {
     }
     fn overlap(&self, range: (u16, u16, u16)) -> bool {
         self.pos.overlap(range)
+    }
+    fn locally_forbids(&self, range: (u16, u16, u16), mm: (u16, u16)) -> bool {
+        assert!(self.pos.overlap(range));
+        self.pos.locally_forbids(mm)
     }
 }
 
@@ -914,9 +964,15 @@ fn get_confluent_reads(
 }
 
 fn peak_call(counts: &[usize]) -> Vec<(usize, usize)> {
-    let average = counts.iter().sum::<usize>() / counts.len() * 2;
-    debug!("AVE:{}", average);
-    let thr = average.max(COVERAGE_THR);
+    let (sum, sumsq) = counts.iter().fold((0., 0.), |(sum, sumsq), &x| {
+        (sum + x as f64, sumsq + (x * x) as f64)
+    });
+    let len = counts.iter().filter(|&&x| x > 0).count() as f64;
+    let mean = sum / len;
+    let sd = (sumsq / len - mean * mean).sqrt();
+    let four_sigma = mean + 4. * sd;
+    debug!("MEAN:{:.2}\tSD:{:.2}\t4Sigma:{:.2}", mean, sd, four_sigma);
+    let thr = (four_sigma.floor() as usize).max(COVERAGE_THR);
     let positions: Vec<_> = counts
         .iter()
         .enumerate()
@@ -940,8 +996,8 @@ fn merge_neighbors(positions: Vec<usize>, thr: usize) -> Vec<(usize, usize)> {
             end += 1;
         }
         let start_pos = positions[start];
-        let end_pos = positions[end - 1] + WINDOW;
-        result.push((start_pos, end_pos));
+        let end_pos = positions[end - 1];
+        result.push((start_pos, end_pos + 1));
         start = end;
     }
     result

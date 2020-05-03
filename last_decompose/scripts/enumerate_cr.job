@@ -7,18 +7,10 @@
 #$ -o ./logfiles/enumerate_cr.log
 #$ -V
 #$ -m e
-# READ=../create_dataset_and_circos_plots/result/pacbio/filtered_read.fasta
-# ALIGN=../mito_assembler/result/pacbio/last_db/test2.tab
-# CONTIG=/data/ban-m/a_thaliana/genome/mitochondria_enhanced_reference.fa
-# REPEAT=../create_dataset_and_circos_plots/result/pacbio/circos/repeats.json
-# cargo run --release --bin enumerate_cr -- ${READ} ${ALIGN} ${CONTIG} ${REPEAT} \
-#       > ./logfiles/cr.json 2> ./logfiles/cr.log
-
-
-READ=../create_simulation_data/data/complex/read_complex1.fa
-ALIGN=../disassembly/result/complex1/last_db/alignments.tab
-CONTIG=../create_simulation_data/data/complex/reference.fa
-REPEAT=../disassembly/result/complex1/last_db/self.tab
+READ=../disassembly/result/pacbio/filtered_read/filtered_read.fa
+ALIGN=../disassembly/result/pacbio/last_db/alignments.tab
+CONTIG=../disassembly/data/NC_037304_1.fa
+REPEAT=../disassembly/result/pacbio/last_db/self.tab
 cargo run --release --bin enumerate_cr -- ${READ} ${ALIGN} ${CONTIG} ${REPEAT} \
       > ./logfiles/cr.json 2> ./logfiles/cr.log
 

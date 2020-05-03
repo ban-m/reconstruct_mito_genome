@@ -9,7 +9,7 @@
 #$ -m e
 set -ue
 
-REFERENCE=${PWD}/data/NC_037304_1_split.fa
+REFERENCE=${PWD}/data/NC_037304_1.fa
 READ=${PWD}/result/pacbio/filtered_read/filtered_read.fa
 OUTPUT=${PWD}/result/pacbio/
 RESUME=${PWD}/result/pacbio_resume/
@@ -18,11 +18,11 @@ ROOT=${PWD}
 
 
 ### ---- Decompose --- 
-mmmm decompose --alignments ${OUTPUT}/last_db/alignments.tab --output ${RESUME} \
-          --reads ${READ} --contigs ${REFERENCE} \
-          --self_alignments ${OUTPUT}/last_db/self.tab \
-          --threads ${CORES} \
-          --no_merge -vv 
+mmmm resume --alignments ${OUTPUT}/last_db/alignments.tab --output ${RESUME} \
+     --reads ${READ} --contigs ${REFERENCE} \
+     --dump_file ${PWD}/logfiles/pacbio.log\
+     --self_alignments ${OUTPUT}/last_db/self.tab \
+     -vv 
 exit 0;
 
 # ---- Assembly(by Flye) ----

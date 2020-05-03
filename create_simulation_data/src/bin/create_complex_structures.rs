@@ -13,9 +13,9 @@ fn main() -> std::io::Result<()> {
     let seed = 2312789;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let p = &gen_sample::Profile {
-        sub: 0.003,
-        ins: 0.003,
-        del: 0.003,
+        sub: 0.002,
+        ins: 0.002,
+        del: 0.002,
     };
     let reference_len: usize = args[1].parse::<usize>().unwrap() / 4;
     let outpath = &args[2];
@@ -38,7 +38,7 @@ fn main() -> std::io::Result<()> {
     );
 
     {
-        let mut wtr = Writer::new(File::create(&format!("{}/reference.fa",outpath))?);
+        let mut wtr = Writer::new(File::create(&format!("{}/reference.fa", outpath))?);
         wtr.write_record(&mc)?;
     }
     let looping_structure: Vec<_> = seq_a
@@ -50,11 +50,11 @@ fn main() -> std::io::Result<()> {
     let looping_structure = gen_sample::introduce_randomness(&looping_structure, &mut rng, p);
     let ls = Record::with_data(
         &format!("looped:{}", seed),
-        &Some("depth=0.4 circular=false".to_string()),
+        &Some("depth=0.6 circular=false".to_string()),
         &looping_structure,
     );
     {
-        let mut wtr = Writer::new(File::create(&format!("{}/complex1.fa",outpath))?);
+        let mut wtr = Writer::new(File::create(&format!("{}/complex1.fa", outpath))?);
         wtr.write_record(&mc)?;
         wtr.write_record(&ls)?;
     }
@@ -62,7 +62,7 @@ fn main() -> std::io::Result<()> {
     let a_to_d_circle = gen_sample::introduce_randomness(&a_to_d_circle, &mut rng, p);
     let ad = Record::with_data(
         &format!("AtoD:{}", seed),
-        &Some("depth=0.3 circular=true".to_string()),
+        &Some("depth=0.6 circular=true".to_string()),
         &a_to_d_circle,
     );
     let c_to_d_circle = seq_c
@@ -73,11 +73,11 @@ fn main() -> std::io::Result<()> {
     let c_to_d_circle = gen_sample::introduce_randomness(&c_to_d_circle, &mut rng, p);
     let cd = Record::with_data(
         &format!("CtoD:{}", seed),
-        &Some("depth=0.35 circular=true".to_string()),
+        &Some("depth=0.6 circular=true".to_string()),
         &c_to_d_circle,
     );
     {
-        let mut wtr = Writer::new(File::create(&format!("{}/complex2.fa",outpath))?);
+        let mut wtr = Writer::new(File::create(&format!("{}/complex2.fa", outpath))?);
         wtr.write_record(&mc)?;
         wtr.write_record(&ad)?;
         wtr.write_record(&cd)?;

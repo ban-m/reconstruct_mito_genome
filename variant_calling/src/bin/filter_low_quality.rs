@@ -16,6 +16,7 @@ fn main() -> std::io::Result<()> {
         .filter(|read| calc_entropy(read.seq(), K) > THR)
         .filter(|read| read.seq().len() > LEN_THR)
         .collect();
+    eprintln!("Records:{}", reads.len());
     for read in reads {
         stdout.write_record(&read)?;
     }

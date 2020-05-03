@@ -5,7 +5,6 @@ members = [
 "poa_hmm",
 "benchmark_poa_hmm",
 "edlib-sys",
-"read_filtering",
 "bio_utils",
 "last_decompose",
 "last_tiling",

@@ -3,12 +3,15 @@
 // Current "mapped" criteria is "Mapped region is more than 80 percent of entire read."
 extern crate bio_utils;
 use bio_utils::fasta;
-use std::collections::{HashSet,HashMap};
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
 const THR: f64 = 0.8;
 fn main() -> std::io::Result<()> {
     let args: Vec<_> = std::env::args().collect();
-    let reads: Vec<_> = fasta::parse_into_vec(&args[1])?;
+    let reads: Vec<_> = match fasta::parse_into_vec(&args[1]) {
+        Ok(res) => res,
+        Err(why) => panic!("{},{:?}", args[1], why),
+    };
     let mut mapped_region: HashMap<_, _> = reads
         .iter()
         .map(|e| (e.id().to_string(), vec![false; e.seq().len()]))
