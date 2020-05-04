@@ -77,7 +77,7 @@
 // }
 // ```
 
-const width = 1000;
+const width = 900;
 const height = 1000;
 // Margin in radian
 const theta_margin = 0.01;
@@ -148,7 +148,7 @@ const tooltip = d3
   .attr("class", "tooltip")
   .style("opacity", 0);
 const info = d3.select("#info");
-
+const cr_info = d3.select("#cp-info");
 const calcScale = (contigs) => {
   // Input: Array of JSON object
   // Output: d3 Scale object
@@ -540,22 +540,22 @@ const contigToHTML = (contig) => {
 const criticalpairToHTML = (cp, idx, reads) => {
   const count = reads.length;
   const meangap = calcGap(reads);
-  const header = `<div>Cluster:${idx}</div>`;
+  const header = `<div class = critical-region>CP:${idx}`;
   const contig1 = contigToHTML(cp["contig1"]);
   const contig2 = contigToHTML(cp["contig2"]);
   const support = `Supporing Reads:${count}<br>`;
   const gap = `Mean gap length:${meangap.toFixed(1)}`;
-  return header + contig1 + contig2 + support + gap;
+  return header + contig1 + contig2 + support + gap + "</div>";
 };
 
 const confluentregionToHTML = (cr, idx, reads) => {
   const count = reads.length;
   const meangap = calcGap(reads);
-  const header = `<div>Cluster:${idx}</div>`;
+  const header = `<div class = critical-region>CR:${idx}`;
   const contig = contigToHTML(cr["pos"]);
   const support = `Supporing Reads:${count}<br>`;
   const gap = `Mean gap length:${meangap.toFixed(1)}`;
-  return header + contig + support + gap;
+  return header + contig + support + gap + "</div>";
 };
 
 const crToHTML = (cr, cluster, reads) => {
@@ -720,6 +720,8 @@ const plotData = (dataset, repeats, unit_length) =>
         .attr("opacity", 0.3)
         .attr("stroke", (read) => "black");
       // Draw critical regions.
+      const max_cluster_id = Math.max(...clusters.map((d) => d.id));
+      let is_active = Array.from({ length: max_cluster_id }, (_) => false);
       const critical_regions = clusters.flatMap((d) => d.members);
       cr_layer
         .selectAll(".cr")
@@ -744,40 +746,59 @@ const plotData = (dataset, repeats, unit_length) =>
           "fill",
           (member) => d3.schemeCategory10[(member.cluster + 1) % 10]
         )
-        .on("mouseover", function (member) {
+        .on("click", function (member) {
+          // Check if the cluster is already clicked.
           const cluster = member.cluster;
-          console.log(cluster);
-          const supporting_reads = reads.filter((r) => r.cluster == cluster);
-          tooltip.style("opacity", 0.9);
-          const contents = crToHTML(member.cr, cluster, supporting_reads);
-          tooltip
-            .html(contents)
-            .style("left", d3.event.pageX + "px")
-            .style("top", d3.event.pageY + "px");
-          const coverages = calcCoverageOf(supporting_reads, contigs);
-          temp_coverage_layer
-            .selectAll(".tempcoverage")
-            .data(coverages)
-            .enter()
-            .append("path")
-            .attr("class", "tempcoverage")
-            .attr("d", (coverage) => {
-              const start = start_pos[coverage.id];
-              const arc = d3
-                .lineRadial()
-                .angle((d, i) => start + bp_scale(i * unit_length))
-                .radius((d) => coverage_scale(d));
-              return arc(coverage.cov);
-            })
-            .attr("fill", "none")
-            .attr("opacity", 0.9)
-            .attr("stroke-width", 1)
-            .attr("stroke", d3.schemeCategory10[(cluster + 1) % 10]);
-        })
-        .on("mouseout", (d) => {
-          temp_coverage_layer.selectAll(".tempcoverage").remove();
-          tooltip.style("opacity", 0);
+          const active = is_active[cluster];
+          if (active) {
+            is_active[cluster] = false;
+            temp_coverage_layer.selectAll(".tempcoverage").remove();
+            cr_info.html("");
+            //cr_info.select(`cluster-${cluster}`).html("");
+            //tooltip.style("opacity", 0);
+          } else {
+            is_active[cluster] = true;
+            const supporting_reads = reads.filter((r) => r.cluster == cluster);
+            //const contents = crToHTML(member.cr, cluster, supporting_reads);
+            let contents = critical_regions
+              .filter((m) => m.cluster == cluster)
+              .map((d, idx) => crToHTML(member.cr, idx, supporting_reads))
+              .reduce((acc, html) => {
+                acc += html;
+                return acc;
+              }, `<div class="cluster-${cluster} cluster-parent">`);
+            contents += "</div>";
+            cr_info.html(contents);
+            tooltip.style("opacity", 0.9);
+            // tooltip
+            //   .html(contents)
+            //   .style("left", d3.event.pageX + "px")
+            //   .style("top", d3.event.pageY + "px");
+            const coverages = calcCoverageOf(supporting_reads, contigs);
+            temp_coverage_layer
+              .selectAll(".tempcoverage")
+              .data(coverages)
+              .enter()
+              .append("path")
+              .attr("class", "tempcoverage")
+              .attr("d", (coverage) => {
+                const start = start_pos[coverage.id];
+                const arc = d3
+                  .lineRadial()
+                  .angle((d, i) => start + bp_scale(i * unit_length))
+                  .radius((d) => coverage_scale(d));
+                return arc(coverage.cov);
+              })
+              .attr("fill", "none")
+              .attr("opacity", 0.9)
+              .attr("stroke-width", 1)
+              .attr("stroke", d3.schemeCategory10[(cluster + 1) % 10]);
+          }
         });
+      //     .on("mouseout", (d) => {
+      //   temp_coverage_layer.selectAll(".tempcoverage").remove();
+      //   tooltip.style("opacity", 0);
+      // });
       info
         .append("div")
         .attr("class", "numofgapread")

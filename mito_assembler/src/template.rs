@@ -1,4 +1,5 @@
-pub const TEMPLATE: &str = r#"<!DOCTYPE html>
+pub const TEMPLATE: &str = r#"
+<!DOCTYPE html>
 <meta charset="utf-8">
 <html>
   <head>
@@ -6,13 +7,17 @@ pub const TEMPLATE: &str = r#"<!DOCTYPE html>
     <link rel="stylesheet" type="text/css" href="/viewer/style.css">
   </head>
   <body>
-    <div class = "title">
-      Circos plot of Plant mitochondria.
+    <div class = "figure">
+      <div class = "title">
+        Circos plot of Plant mitochondria.
+      </div>
+      <div id = "plot"></div>
+      <div id = "info"></div>
     </div>
-    <div id = "plot"></div>
-    <div id = "info"></div>
+    <div id = "cp-info">
+    </div>
     <script src="/viewer/circos.js"></script>
-    <script>
+    <script> 
       const dataset = "/viewer/data.json";
       const repeats = "/viewer/repeats.json";
       const unit_length = 100;

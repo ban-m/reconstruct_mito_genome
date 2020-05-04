@@ -3,6 +3,11 @@
     font-size: large;
 }
 
+body {
+    display: flex;
+    justify-content: flex-start;
+}
+
 .scale{
     font-family: sans-serif;
 }
@@ -29,7 +34,15 @@
     font-size: medium;
 }
 
-.critical_region{
+.critical-region{
+    border-bottom: thin solid gray; 
+}
+
+.cluster-parent{
+    border-style: solid;
+    border-radius: 8px;
+    border-width: 2px;
+    padding: 10px;
 }
 
 .tooltip {
@@ -44,4 +57,5 @@
     border-width: 2px;
     pointer-events: none;
 }
+
 
