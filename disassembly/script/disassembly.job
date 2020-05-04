@@ -80,7 +80,6 @@ do
         --out-dir ${OUTPUT}/assemblies/${INDEX}
     rm ${OUTPUT}/assemblies/${INDEX}/temp.fa
 done
-set -e
 
 # ---- Align back all reads ----
 cargo run --release --bin collect_contigs -- ${OUTPUT}/assemblies/ ${OUTPUT}
@@ -92,8 +91,8 @@ do
     last-train -P${CORES} -Q0 temp ${reads} > temp.matrix
     lastal -f maf -P${CORES} -R00 -Q0 -p temp.matrix temp ${reads} |\
         last-split | maf-convert tab --join 1000 > ${reads%%.fasta}.reads.aln.tab
-    last-train -P${CORES} -Q0 reference ${contigs} > temp.matrix
-    lastal -f tab -P ${CORES} -R00 -Q0 -p temp.matrix reference ${contigs} \
+    //last-train -P${CORES} -Q0 reference ${contigs} > temp.matrix
+    lastal -f tab -P ${CORES} -R00 -Q0 reference ${contigs} \
            > ${contigs%%.fasta}.aln.tab
     cd ${ROOT}
 done

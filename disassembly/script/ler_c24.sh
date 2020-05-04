@@ -18,7 +18,6 @@ do
          ${PWD}/result/${accession}_ler/ \
          4 3600
 done
-exit 0;
 
 REFERENCE=/grid/ban-m/arabidopsis_thaliana/genome/JF729200.fasta
 for accession in c24

@@ -19,7 +19,7 @@ COVERAGE=0
 PROBS="0.5 0.5"
 seed=1213
 seed=$(( $seed * $SGE_TASK_ID ))
-./target/release/test_last_decompose_multiple_varying_errorate \
+./../target/release/test_last_decompose_multiple_varying_errorate \
     ${seed} ${PROBS} >> ${OUTPUT} \
     2>> ${OUTLOG_PREFIX}.log
 

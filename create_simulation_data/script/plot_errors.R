@@ -59,7 +59,7 @@ generalplot(g,paste0(outname,"_point"))
 
 g <- accs %>%
     filter(X10 <= 4) %>%
-    ggplot() + geom_boxplot(mapping = aes(x = factor(X9), y = acc, fill = factor(X10))) + 
+    ggplot() + geom_boxplot(mapping = aes(x = factor(X9), y = acc, color = factor(X10))) + 
     labs(x = "Total Coverage", y = "Accuracy") +
     scale_fill_discrete(name="Number of Variants\nout of 9Kbp")
 generalplot(g,paste0(outname,"_boxplot"))

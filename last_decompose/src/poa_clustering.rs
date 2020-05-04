@@ -163,12 +163,11 @@ where
         .collect()
 }
 
-fn update_assignments<R: Rng>(
+fn update_assignments(
     models: &[Vec<POA>],
     assignments: &mut [u8],
     data: &[Read],
     sampled: &[bool],
-    _rng: &mut R,
     cluster_num: usize,
     betas: &[Vec<Vec<f64>>],
     config: &Config,
@@ -465,7 +464,7 @@ where
                     .collect();
                 let ms = get_models(&data, asn, &s, tuple, rng, param, &pos, GIBBS_PRIOR);
                 let f = forbidden;
-                update_assignments(&ms, asn, &data, &s, rng, cluster_num, &betas, config, f)
+                update_assignments(&ms, asn, &data, &s, cluster_num, &betas, config, f)
             })
             .sum::<u32>();
         debug!("CHANGENUM\t{}", changed_num);
