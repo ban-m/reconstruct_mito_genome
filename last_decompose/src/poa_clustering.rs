@@ -627,6 +627,7 @@ pub fn predict<F>(
     cluster_num: usize,
     c: &Config,
     input: &[ERead],
+    forbs: &[Vec<u8>],
     seed: u64,
     aln: &AlnParam<F>,
 ) -> Vec<Option<u8>>
@@ -636,7 +637,7 @@ where
     let predictions: std::collections::VecDeque<_> = (0..STABLE_LIMIT)
         .map(|st| {
             let seed = seed + st as u64;
-            predict_inner(data, labels, cluster_num, c, input, seed, aln)
+            predict_inner(data, labels, cluster_num, c, input, forbs, seed, aln)
         })
         .collect();
     predictions_into_assignments(predictions, cluster_num, input.len())
@@ -648,6 +649,7 @@ fn predict_inner<F>(
     cluster_num: usize,
     c: &Config,
     input: &[ERead],
+    forbids: &[Vec<u8>],
     seed: u64,
     aln: &AlnParam<F>,
 ) -> Vec<u8>
@@ -671,23 +673,47 @@ where
     let (variants, _) = get_variants(&data, &labels, tuple, rng, c, param);
     let (variants, pos) = select_variants(variants, chain_len);
     let betas = normalize_weights(&variants, beta);
-    let ws = get_cluster_fraction(&labels, &falses, cluster_num);
     let tuple = (cluster_num, chain_len);
     let models = get_models(&data, &labels, &falses, tuple, rng, param, &pos, 0.);
-    let choises: Vec<_> = (0..cluster_num).map(|e| e as u8).collect();
+    let fraction_on_positions: Vec<Vec<f64>> = {
+        let mut total_count = vec![0; chain_len];
+        let mut counts = vec![vec![0; chain_len]; cluster_num];
+        for (&asn, read) in labels.iter().zip(data) {
+            for &(pos, _) in read.iter() {
+                total_count[pos] += 1;
+                counts[asn as usize][pos] += 1;
+            }
+        }
+        counts
+            .iter()
+            .map(|cs| {
+                cs.iter()
+                    .zip(total_count.iter())
+                    .map(|(&c, &t)| c as f64 / t as f64 + SMALL_WEIGHT)
+                    .collect()
+            })
+            .collect()
+    };
+    assert_eq!(input.len(), forbids.len());
     input
         .iter()
-        .filter_map(|read| {
+        .zip(forbids)
+        .filter_map(|(read, f)| {
+            let likelihoods: Vec<(usize, Vec<_>)> = read
+                .par_iter()
+                .map(|&(pos, ref u)| {
+                    let lks = models.par_iter().map(|ms| ms[pos].forward(u, c)).collect();
+                    (pos, lks)
+                })
+                .collect();
+            let ws: Vec<_> = fraction_on_positions
+                .iter()
+                .map(|ws| read.iter().map(|&(pos, _)| ws[pos]).sum::<f64>())
+                .map(|ws| ws / read.len() as f64)
+                .collect();
             let weights: Vec<_> = (0..cluster_num)
                 .into_par_iter()
                 .map(|l| {
-                    let likelihoods: Vec<(usize, Vec<_>)> = read
-                        .par_iter()
-                        .map(|&(pos, ref u)| {
-                            let lks = models.par_iter().map(|ms| ms[pos].forward(u, c)).collect();
-                            (pos, lks)
-                        })
-                        .collect();
                     (0..cluster_num)
                         .map(|k| {
                             if k != l {
@@ -707,8 +733,17 @@ where
                         .recip()
                 })
                 .collect();
-            choises.choose_weighted(rng, |k| weights[*k as usize]).ok()
+            let chosen = {
+                let (mut max, mut argmax) = (0., 0);
+                for (cl, &p) in weights.iter().enumerate() {
+                    if !f.contains(&(cl as u8)) && max < p {
+                        max = p;
+                        argmax = cl as u8;
+                    }
+                }
+                argmax
+            };
+            Some(chosen)
         })
-        .copied()
         .collect()
 }

@@ -9,20 +9,38 @@
 #$ -m e
 set -ue
 
-REFERENCE=${PWD}/data/NC_037304_1.fa
-READ=${PWD}/result/pacbio/filtered_read/filtered_read.fa
-OUTPUT=${PWD}/result/pacbio/
-RESUME=${PWD}/result/pacbio_resume/
+# REFERENCE=${PWD}/data/NC_037304_1.fa
+# READ=${PWD}/result/pacbio/filtered_read/filtered_read.fa
+# OUTPUT=${PWD}/result/pacbio/
+# RESUME=${PWD}/result/pacbio_resume/
+# CORES=12
+# ROOT=${PWD}
+
+REFERENCE=/grid/ban-m/arabidopsis_thaliana/genome/JF729202.fasta
+READ=${PWD}/result/ler_ler/filtered_read/filtered_read.fa
+RESUME=${PWD}/result/ler_ler_2
+OUTPUT=${PWD}/result/ler_ler/
 CORES=12
 ROOT=${PWD}
-
+LIMIT=2000
+MIN_CLUSTER=4
 
 ### ---- Decompose --- 
-mmmm resume --alignments ${OUTPUT}/last_db/alignments.tab --output ${RESUME} \
+mmmm decompose --alignments ${OUTPUT}/last_db/alignments.tab \
+     --output ${RESUME} \
      --reads ${READ} --contigs ${REFERENCE} \
-     --dump_file ${PWD}/logfiles/pacbio.log\
      --self_alignments ${OUTPUT}/last_db/self.tab \
-     -vv 
+     --cluster_num ${MIN_CLUSTER} --threads ${CORES} \
+     --limit ${LIMIT}\
+     -vv
+mmmm decompose --alignments ${OUTPUT}/last_db/alignments.tab \
+     --output ${RESUME}/no_merge \
+     --no_merge \
+     --reads ${READ} --contigs ${REFERENCE} \
+     --self_alignments ${OUTPUT}/last_db/self.tab \
+     --cluster_num ${MIN_CLUSTER} --threads ${CORES} \
+     --limit ${LIMIT}\
+     -vv
 exit 0;
 
 # ---- Assembly(by Flye) ----

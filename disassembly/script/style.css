@@ -35,7 +35,8 @@ body {
 }
 
 .critical-region{
-    border-bottom: thin solid gray; 
+    border-bottom: thin solid gray;
+    margin: 10px;
 }
 
 .cluster-parent{
@@ -43,6 +44,11 @@ body {
     border-radius: 8px;
     border-width: 2px;
     padding: 10px;
+}
+
+.info-tip-clustercolor{
+    display: flex;
+    justify-content: center;
 }
 
 .tooltip {
@@ -58,4 +64,6 @@ body {
     pointer-events: none;
 }
 
-
+#cr-info ul{
+    margin: 0 0 5px 0;
+}

@@ -323,10 +323,16 @@ fn select_within(
     label: &[u8],
     forbidden: &HashMap<String, Vec<u8>>,
     init_cluster: &[Cluster],
-) -> ((Vec<ERead>, Vec<ERead>), Vec<u8>, Vec<Vec<u8>>) {
+) -> (Vec<ERead>, Vec<u8>, Vec<Vec<u8>>)
+// (
+//     (Vec<ERead>, Vec<ERead>),
+//     Vec<u8>,
+//     (Vec<Vec<u8>>, Vec<Vec<u8>>),
+// )
+{
     let (mut s_data, mut s_label, mut s_forbid) = (vec![], vec![], vec![]);
+    // let (mut shorter_reads, mut short_forbs) = (vec![], vec![]);
     debug!("Selecting {}\t{}\t{}...", contig, start, end);
-    let mut shorter_reads = vec![];
     let additional_forbiddens = {
         let range = (contig, start, end);
         let clusters: Vec<_> = init_cluster.iter().filter(|cr| cr.overlap(range)).collect();
@@ -340,22 +346,27 @@ fn select_within(
     };
     let border = label.len();
     for (idx, read) in data.iter().enumerate() {
-        let original_len = read.seq().len();
+        //        let original_len = read.seq().len();
         let read = read.clone_within(contig, start, end);
-        if read.seq().len() > MIN_LEN / last_tiling::UNIT_SIZE {
-            let mut forbid = forbidden.get(read.id()).cloned().unwrap_or(vec![]);
-            forbid.extend(additional_forbiddens(&read));
-            s_forbid.push(forbid);
-            s_data.push(read);
-            if idx < border {
-                s_label.push(label[idx]);
-            }
-        } else if read.seq().len() > original_len / 2 {
-            shorter_reads.push(read);
+        // let is_long = read.seq().len() > MIN_LEN / last_tiling::UNIT_SIZE;
+        // if is_long && idx < border {
+        let mut forbid = forbidden.get(read.id()).cloned().unwrap_or(vec![]);
+        forbid.extend(additional_forbiddens(&read));
+        s_forbid.push(forbid);
+        s_data.push(read);
+        if idx < border {
+            s_label.push(label[idx]);
         }
+        // } else if read.seq().len() > original_len / 2 {
+        // let mut forbid = forbidden.get(read.id()).cloned().unwrap_or(vec![]);
+        // forbid.extend(additional_forbiddens(&read));
+        // shorter_reads.push(read);
+        // short_forbs.push(forbid);
+        // }
     }
     assert_eq!(s_data.len(), s_forbid.len());
-    ((s_data, shorter_reads), s_label, s_forbid)
+    //((s_data, shorter_reads), s_label, (s_forbid, short_forbs))
+    (s_data, s_label, s_forbid)
 }
 
 fn find_matching(
@@ -505,8 +516,8 @@ pub fn clustering_chunking(
 ) -> Vec<Option<u8>> {
     debug!("The contig lengths:{:?}", contigs);
     debug!("There are {} windows in total.", windows.len());
-    for w in windows {
-        debug!("{:?}", w);
+    for (idx, w) in windows.iter().enumerate() {
+        debug!("{}:{:?}", idx, w);
     }
     let clusterings: Vec<Vec<HashSet<String>>> = windows
         .iter()
@@ -514,7 +525,8 @@ pub fn clustering_chunking(
         .map(|(idx, &region)| {
             let (contig, start, end) = region;
             debug!("{}/{}:{}-{}", idx, contig, start, end);
-            let ((data, short), label, forbidden) =
+            //let ((data, short), label, (forbidden, short_f)) =
+            let (data, label, forbidden) =
                 select_within(region, data, label, forbidden, initial_clusters);
             debug!("Number of Reads:{}", data.len());
             assert_eq!(data.len(), forbidden.len());
@@ -532,6 +544,15 @@ pub fn clustering_chunking(
                         .collect()
                 })
                 .collect();
+            // let short_forbs: Vec<Vec<_>> = short_f
+            //     .iter()
+            //     .map(|f| {
+            //         f.iter()
+            //             .filter_map(|c| cluster_map.get(c))
+            //             .copied()
+            //             .collect()
+            //     })
+            //     .collect();
             let forbs = forbidden.iter().filter(|e| !e.is_empty()).count();
             let len = (end - start) as usize;
             let coverage = data.iter().map(|r| r.seq.len()).sum::<usize>() / len;
@@ -539,18 +560,18 @@ pub fn clustering_chunking(
             debug!("Coverage is {}", coverage);
             let predictions = {
                 let (da, la, fo) = (&data, &label, &forbidden);
-                let mut pred = clustering(da, la, fo, cluster_num, limit, c, coverage);
-                let pred_short = predict(da, &pred, cluster_num, c, &short, 0);
-                pred.extend(pred_short);
-                pred
+                clustering(da, la, fo, cluster_num, limit, c, coverage)
+                //let pred_short = predict(da, &pred, cluster_num, c, &short, 0, short_forbs);
+                //     pred.extend(pred_short);
+                //     pred
             };
-            dump_pred(&predictions, &data, &short, idx);
+            dump_pred(&predictions, &data, idx);
             (0..cluster_num)
                 .map(|cluster_idx| {
                     let cluster_idx = cluster_idx as u8;
                     predictions
                         .iter()
-                        .zip(data.iter().chain(short.iter()))
+                        .zip(data.iter())
                         .filter_map(|(p, x)| p.map(|p| (p, x)))
                         .filter(|&(p, _)| p == cluster_idx)
                         .map(|(_, read)| read.id().to_string())
@@ -623,29 +644,6 @@ fn resume_clustering(
         })
         .filter(|component| component.len() > find_breakpoint::COVERAGE_THR)
         .collect();
-    // let components: Vec<_> = components
-    //     .into_iter()
-    //     .filter(|component| {
-    //         let count: Vec<_> = initial_clusters
-    //             .iter()
-    //             .filter(|cl| get_overlap(component, cl, forbidden).0 > 5)
-    //             .collect();
-    //         if count.len() > 1 {
-    //             for c in count {
-    //                 debug!("DD:{:?}:{:?}", c, get_overlap(component, c, forbidden));
-    //                 for r in data.iter() {
-    //                     if component.contains(r.id()) && c.ids().contains(r.id()) {
-    //                         debug!("{}", r);
-    //                     }
-    //                 }
-    //             }
-    //             true
-    //         } else {
-    //             false
-    //         }
-    //     })
-    //     .collect();
-    // And futher merging.
     'merge: loop {
         let len = components.len();
         debug!("Current Cluster:{}", len);
@@ -719,8 +717,8 @@ fn get_overlap(
     (share, ngs)
 }
 
-fn dump_pred(assignments: &[Option<u8>], data: &[ERead], data2: &[ERead], idx: usize) {
-    for (asn, data) in assignments.iter().zip(data.iter().chain(data2.iter())) {
+fn dump_pred(assignments: &[Option<u8>], data: &[ERead], idx: usize) {
+    for (asn, data) in assignments.iter().zip(data.iter()) {
         let no_desc = String::from("None");
         let desc = data.desc().unwrap_or(&no_desc);
         let id = data.id();
@@ -764,8 +762,18 @@ pub fn predict(
     cluster_num: usize,
     c: &Config,
     input: &[ERead],
+    forbs: &[Vec<u8>],
     seed: u64,
 ) -> Vec<Option<u8>> {
-    use poa_clustering::DEFAULT_ALN;
-    poa_clustering::predict(data, labels, cluster_num, c, input, seed, &DEFAULT_ALN)
+    use poa_clustering::{predict, DEFAULT_ALN};
+    predict(
+        data,
+        labels,
+        cluster_num,
+        c,
+        input,
+        forbs,
+        seed,
+        &DEFAULT_ALN,
+    )
 }

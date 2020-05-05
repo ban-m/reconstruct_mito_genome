@@ -148,7 +148,7 @@ const tooltip = d3
   .attr("class", "tooltip")
   .style("opacity", 0);
 const info = d3.select("#info");
-const cr_info = d3.select("#cp-info");
+const cr_info = d3.select("#cr-info");
 const calcScale = (contigs) => {
   // Input: Array of JSON object
   // Output: d3 Scale object
@@ -530,31 +530,32 @@ const contigToHTML = (contig) => {
   const start = kFormatter(contig["start_unit"] * 100);
   const end = kFormatter(contig["end_unit"] * 100);
   const direction = contig["direction"];
-  return `<ul>
+  return `<div><ul>
 <li>Start:${start} bp</li>
 <li>End:${end} bp</li>
 <li>Direction:${direction} </li>
-</ul>`;
+</ul>
+</div>`;
 };
 
 const criticalpairToHTML = (cp, idx, reads) => {
   const count = reads.length;
   const meangap = calcGap(reads);
-  const header = `<div class = critical-region>CP:${idx}`;
+  const header = `<div class = critical-region><div>CP:${idx}</div>`;
   const contig1 = contigToHTML(cp["contig1"]);
   const contig2 = contigToHTML(cp["contig2"]);
-  const support = `Supporing Reads:${count}<br>`;
-  const gap = `Mean gap length:${meangap.toFixed(1)}`;
+  const support = `<div>Supporing Reads:${count}</div>`;
+  const gap = `<div>Mean gap length:${meangap.toFixed(1)}</div>`;
   return header + contig1 + contig2 + support + gap + "</div>";
 };
 
 const confluentregionToHTML = (cr, idx, reads) => {
   const count = reads.length;
   const meangap = calcGap(reads);
-  const header = `<div class = critical-region>CR:${idx}`;
+  const header = `<div class = critical-region><div>CR:${idx}</div>`;
   const contig = contigToHTML(cr["pos"]);
-  const support = `Supporing Reads:${count}<br>`;
-  const gap = `Mean gap length:${meangap.toFixed(1)}`;
+  const support = `<div>Supporing Reads:${count}</div>`;
+  const gap = `<div>Mean gap length:${meangap.toFixed(1)}</div>`;
   return header + contig + support + gap + "</div>";
 };
 
@@ -752,24 +753,39 @@ const plotData = (dataset, repeats, unit_length) =>
           const active = is_active[cluster];
           if (active) {
             is_active[cluster] = false;
-            temp_coverage_layer.selectAll(".tempcoverage").remove();
-            cr_info.html("");
+            temp_coverage_layer.selectAll(`.cluster-${cluster}`).remove();
+            cr_info.select(`.cluster-${cluster}`).remove();
             //cr_info.select(`cluster-${cluster}`).html("");
             //tooltip.style("opacity", 0);
           } else {
             is_active[cluster] = true;
             const supporting_reads = reads.filter((r) => r.cluster == cluster);
             //const contents = crToHTML(member.cr, cluster, supporting_reads);
-            let contents = critical_regions
-              .filter((m) => m.cluster == cluster)
-              .map((d, idx) => crToHTML(member.cr, idx, supporting_reads))
-              .reduce((acc, html) => {
+            let contents = critical_regions.reduce((acc, member, idx) => {
+              if (member.cluster == cluster) {
+                const html = crToHTML(member.cr, idx, supporting_reads);
                 acc += html;
-                return acc;
-              }, `<div class="cluster-${cluster} cluster-parent">`);
-            contents += "</div>";
-            cr_info.html(contents);
-            tooltip.style("opacity", 0.9);
+              }
+              return acc;
+            }, "");
+            const info_tip = cr_info
+              .insert("div", ":first-child")
+              .classed(`cluster-${cluster} cluster-parent`, true);
+            info_tip.append("div").html(contents);
+            info_tip
+              .append("div")
+              .attr("class", "info-tip-clustercolor")
+              .append("svg")
+              .attr("width", 200)
+              .attr("height", 20)
+              .append("rect")
+              .attr("x", 0)
+              .attr("y", 0)
+              .attr("width", 200)
+              .attr("height", 20)
+              .attr("rx", 2)
+              .attr("fill", d3.schemeCategory10[(cluster + 1) % 10]);
+            // tooltip.style("opacity", 0.9);
             // tooltip
             //   .html(contents)
             //   .style("left", d3.event.pageX + "px")
@@ -780,7 +796,7 @@ const plotData = (dataset, repeats, unit_length) =>
               .data(coverages)
               .enter()
               .append("path")
-              .attr("class", "tempcoverage")
+              .attr("class", `cluster-${cluster}`)
               .attr("d", (coverage) => {
                 const start = start_pos[coverage.id];
                 const arc = d3
@@ -790,8 +806,8 @@ const plotData = (dataset, repeats, unit_length) =>
                 return arc(coverage.cov);
               })
               .attr("fill", "none")
-              .attr("opacity", 0.9)
-              .attr("stroke-width", 1)
+              //.attr("opacity", 0.9)
+              .attr("stroke-width", 2)
               .attr("stroke", d3.schemeCategory10[(cluster + 1) % 10]);
           }
         });

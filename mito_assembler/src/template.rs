@@ -14,7 +14,7 @@ pub const TEMPLATE: &str = r#"
       <div id = "plot"></div>
       <div id = "info"></div>
     </div>
-    <div id = "cp-info">
+    <div id = "cr-info">
     </div>
     <script src="/viewer/circos.js"></script>
     <script> 
@@ -51,10 +51,15 @@ pub const TEMPLATE_LINEAR: &str = r#"<!DOCTYPE html>
 </html>
 "#;
 
-
-pub const STYLE: &str = r#".title{
+pub const STYLE: &str = r#"
+.title{
     font-family: sans-serif;
     font-size: large;
+}
+
+body {
+    display: flex;
+    justify-content: flex-start;
 }
 
 .scale{
@@ -83,8 +88,23 @@ pub const STYLE: &str = r#".title{
     font-size: medium;
 }
 
-.critical_region{
+.critical-region{
+    border-bottom: thin solid gray;
+    margin: 10px;
 }
+
+.cluster-parent{
+    border-style: solid;
+    border-radius: 8px;
+    border-width: 2px;
+    padding: 10px;
+}
+
+.info-tip-clustercolor{
+    display: flex;
+    justify-content: center;
+}
+
 .tooltip {
     position: absolute;			
     text-align: left;
@@ -96,5 +116,9 @@ pub const STYLE: &str = r#".title{
     border-radius: 8px;
     border-width: 2px;
     pointer-events: none;
+}
+
+#cr-info ul{
+    margin: 0 0 5px 0;
 }
 "#;
