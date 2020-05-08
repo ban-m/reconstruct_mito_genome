@@ -34,18 +34,15 @@ pub mod poa_clustering;
 use poa_hmm::Config;
 pub mod variant_calling;
 // mod digamma;
-const WINDOW_SIZE: usize = 200;
-const OVERLAP: usize = 50;
-const MIN_LEN: usize = 5_000;
+const WINDOW_SIZE: usize = 250;
+const OVERLAP: usize = 60;
+const MIN_LEN: usize = 6_000;
 const CONNECTION_THR: f64 = 0.7;
 const MERGE_THR: usize = 5;
 const NG_THR: usize = 5;
 type Read = Vec<(usize, Vec<u8>)>;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
-// TODO: Make a procedure to remove chimeric reads.
-// -> If a read has 'junction', and in the "unassigned" bucket,
-// it means such read can be safely removed.
 pub fn decompose(
     encoded_reads: Vec<ERead>,
     initial_clusters: &[Cluster],
@@ -323,15 +320,8 @@ fn select_within(
     label: &[u8],
     forbidden: &HashMap<String, Vec<u8>>,
     init_cluster: &[Cluster],
-) -> (Vec<ERead>, Vec<u8>, Vec<Vec<u8>>)
-// (
-//     (Vec<ERead>, Vec<ERead>),
-//     Vec<u8>,
-//     (Vec<Vec<u8>>, Vec<Vec<u8>>),
-// )
-{
+) -> (Vec<ERead>, Vec<u8>, Vec<Vec<u8>>) {
     let (mut s_data, mut s_label, mut s_forbid) = (vec![], vec![], vec![]);
-    // let (mut shorter_reads, mut short_forbs) = (vec![], vec![]);
     debug!("Selecting {}\t{}\t{}...", contig, start, end);
     let additional_forbiddens = {
         let range = (contig, start, end);
@@ -346,26 +336,20 @@ fn select_within(
     };
     let border = label.len();
     for (idx, read) in data.iter().enumerate() {
-        //        let original_len = read.seq().len();
+        let original_len = read.seq().len();
         let read = read.clone_within(contig, start, end);
-        // let is_long = read.seq().len() > MIN_LEN / last_tiling::UNIT_SIZE;
-        // if is_long && idx < border {
-        let mut forbid = forbidden.get(read.id()).cloned().unwrap_or(vec![]);
-        forbid.extend(additional_forbiddens(&read));
-        s_forbid.push(forbid);
-        s_data.push(read);
-        if idx < border {
-            s_label.push(label[idx]);
+        let unit_thr = (MIN_LEN / last_tiling::UNIT_SIZE).min(original_len / 2);
+        if read.seq().len() > unit_thr {
+            let mut forbid = forbidden.get(read.id()).cloned().unwrap_or(vec![]);
+            forbid.extend(additional_forbiddens(&read));
+            s_forbid.push(forbid);
+            s_data.push(read);
+            if idx < border {
+                s_label.push(label[idx]);
+            }
         }
-        // } else if read.seq().len() > original_len / 2 {
-        // let mut forbid = forbidden.get(read.id()).cloned().unwrap_or(vec![]);
-        // forbid.extend(additional_forbiddens(&read));
-        // shorter_reads.push(read);
-        // short_forbs.push(forbid);
-        // }
     }
     assert_eq!(s_data.len(), s_forbid.len());
-    //((s_data, shorter_reads), s_label, (s_forbid, short_forbs))
     (s_data, s_label, s_forbid)
 }
 
@@ -525,7 +509,6 @@ pub fn clustering_chunking(
         .map(|(idx, &region)| {
             let (contig, start, end) = region;
             debug!("{}/{}:{}-{}", idx, contig, start, end);
-            //let ((data, short), label, (forbidden, short_f)) =
             let (data, label, forbidden) =
                 select_within(region, data, label, forbidden, initial_clusters);
             debug!("Number of Reads:{}", data.len());
@@ -544,27 +527,13 @@ pub fn clustering_chunking(
                         .collect()
                 })
                 .collect();
-            // let short_forbs: Vec<Vec<_>> = short_f
-            //     .iter()
-            //     .map(|f| {
-            //         f.iter()
-            //             .filter_map(|c| cluster_map.get(c))
-            //             .copied()
-            //             .collect()
-            //     })
-            //     .collect();
             let forbs = forbidden.iter().filter(|e| !e.is_empty()).count();
             let len = (end - start) as usize;
             let coverage = data.iter().map(|r| r.seq.len()).sum::<usize>() / len;
             debug!("{} labels and {} noempty forbidden", label.len(), forbs);
             debug!("Coverage is {}", coverage);
-            let predictions = {
-                let (da, la, fo) = (&data, &label, &forbidden);
-                clustering(da, la, fo, cluster_num, limit, c, coverage)
-                //let pred_short = predict(da, &pred, cluster_num, c, &short, 0, short_forbs);
-                //     pred.extend(pred_short);
-                //     pred
-            };
+            let predictions =
+                clustering(&data, &label, &forbidden, cluster_num, limit, c, coverage);
             dump_pred(&predictions, &data, idx);
             (0..cluster_num)
                 .map(|cluster_idx| {
@@ -743,37 +712,7 @@ pub fn clustering(
     assert_eq!(forbidden.len(), data.len());
     use poa_clustering::{gibbs_sampling, DEFAULT_ALN};
     let answer = vec![0u8; data.len() - labels.len()];
-    let labels = (labels, answer.as_slice());
-    gibbs_sampling(
-        data,
-        labels,
-        forbidden,
-        cluster_num,
-        limit,
-        c,
-        &DEFAULT_ALN,
-        coverage,
-    )
+    let (ls, cl) = ((labels, answer.as_slice()), cluster_num);
+    gibbs_sampling(data, ls, forbidden, cl, limit, c, &DEFAULT_ALN, coverage)
 }
 
-pub fn predict(
-    data: &[ERead],
-    labels: &[Option<u8>],
-    cluster_num: usize,
-    c: &Config,
-    input: &[ERead],
-    forbs: &[Vec<u8>],
-    seed: u64,
-) -> Vec<Option<u8>> {
-    use poa_clustering::{predict, DEFAULT_ALN};
-    predict(
-        data,
-        labels,
-        cluster_num,
-        c,
-        input,
-        forbs,
-        seed,
-        &DEFAULT_ALN,
-    )
-}

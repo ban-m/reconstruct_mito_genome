@@ -7,19 +7,21 @@
 #$ -V
 #!/bin/bash
 set -ue
-DATA_DIR=${PWD}/../disassembly/result
-GFF_CONVERT=${PWD}/data/gff_convert.tsv
-GFF=/grid/ban-m/arabidopsis_thaliana/genome/GCA_000001735.2_TAIR10.1_genomic.gff
-cargo build --release
-OUTPATH=${PWD}/result/variant_call.tsv
-echo "" > ${OUTPATH}
-for accession in pacbio an1 c24 cvi eri kyo ler sha col0_1106_exp2 tal6111_1106_exp2 tal6144_1115_exp2 tal61up63_1106_exp2 tal6226_1115_exp2
+DATA=${PWD}/../disassembly
+REFERENCE=${DATA}/data/NC_037304_1.fa
+OUTPUT=${PWD}/result/real_dataset.tsv
+rm ${OUTPUT}
+
+TAB=${DATA}/result/pacbio/last_db/alignments.tab
+READ=${DATA}/result/pacbio/filtered_read/filtered_read.fa
+cargo run --release --bin calc_error_rate --\
+      ${TAB} ${READ} ${REFERENCE} ler_pacbio >> ${OUTPUT}
+
+for accession in an1 c24 cvi eri kyo ler sha col0_1106_exp2 tal6111_1106_exp2 tal6144_1115_exp2 tal61up63_1106_exp2 tal6226_1115_exp2
 do
-    READ=${DATA_DIR}/${accession}/filtered_read/filtered_read.fa
-    REFERENCE=${PWD}/../disassembly/data/NC_037304_1.fa
-    BAM=${PWD}/../disassembly/data/${accession}.bam
-    ${PWD}/target/release/variant_calling_longread --bam ${BAM} --reads ${READ} \
-          --reference ${REFERENCE} \
-          --gff ${GFF} --name ${GFF_CONVERT} -vv |\
-        awk -v accession=${accession} 'BEGIN{OFS="\t"}{print $0,accession}' >> ${OUTPATH}
+    TAB=${DATA}/result/${accession}/last_db/alignments.tab
+    READ=${DATA}/result/${accession}/filtered_read/filtered_read.fa
+    cargo run --release --bin calc_error_rate --\
+          ${TAB} ${READ} ${REFERENCE} ${accession} >> ${OUTPUT}
+    
 done

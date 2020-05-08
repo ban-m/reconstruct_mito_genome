@@ -6,14 +6,14 @@ use rand::distributions::Standard;
 use rand::{seq::SliceRandom, thread_rng, Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
-const BETA_INCREASE: f64 = 0.9;
+const BETA_INCREASE: f64 = 1.05;
 const BETA_DECREASE: f64 = 1.1;
-const SMALL_WEIGHT: f64 = 0.000_000_000_0001;
+const SMALL_WEIGHT: f64 = 0.000_000_001;
 const REP_NUM: usize = 3;
-const GIBBS_PRIOR: f64 = 0.02;
-const STABLE_LIMIT: u32 = 9;
-const IS_STABLE: u32 = 5;
-const VARIANT_FRACTION: f64 = 0.90;
+const GIBBS_PRIOR: f64 = 0.04;
+const STABLE_LIMIT: u32 = 10;
+const IS_STABLE: u32 = 8;
+const VARIANT_FRACTION: f64 = 0.9;
 
 // Serialize units in read. In other words,
 // We serialize the (contig, unit):(usize, usize) pair into position:usize.
@@ -96,9 +96,7 @@ fn score(x: u8, y: u8) -> i32 {
 pub const DEFAULT_ALN: AlnParam<fn(u8, u8) -> i32> = AlnParam {
     ins: -3,
     del: -3,
-    // ins:-6,
-    // del:-6,
-    score,
+    score: score2,
 };
 
 fn get_cluster_fraction(asns: &[u8], flags: &[bool], cluster_num: usize) -> Vec<f64> {
@@ -163,7 +161,7 @@ where
         .collect()
 }
 
-fn update_assignments(
+fn update_assignments<R: Rng>(
     models: &[Vec<POA>],
     assignments: &mut [u8],
     data: &[Read],
@@ -172,8 +170,10 @@ fn update_assignments(
     betas: &[Vec<Vec<f64>>],
     config: &Config,
     forbidden: &[Vec<u8>],
+    _rng: &mut R,
+    beta: f64,
 ) -> u32 {
-    // let choises: Vec<_> = (0..cluster_num).map(|e| e as u8).collect();
+    //let choises: Vec<_> = (0..cluster_num).map(|e| e as u8).collect();
     let fraction_on_positions: Vec<Vec<f64>> = {
         let cl = models[0].len();
         let mut total_count = vec![0; cl];
@@ -217,18 +217,18 @@ fn update_assignments(
                 .map(|ws| ws / read.len() as f64)
                 .collect();
             let weights: Vec<_> = (0..cluster_num)
-                .into_par_iter()
+                .into_iter()
                 .map(|l| {
                     (0..cluster_num)
                         .map(|k| {
                             if k != l {
                                 let (i, j) = (l.max(k), l.min(k));
-                                let prior = ws[k].ln() - ws[l].ln();
-                                let lkdiff = likelihoods
-                                    .iter()
-                                    .map(|&(pos, ref lks)| betas[i][j][pos] * (lks[k] - lks[l]))
-                                    .sum::<f64>();
-                                prior + lkdiff
+                                let prior = beta * (ws[k].ln() - ws[l].ln());
+                                prior
+                                    + likelihoods
+                                        .iter()
+                                        .map(|&(pos, ref lks)| betas[i][j][pos] * (lks[k] - lks[l]))
+                                        .sum::<f64>()
                             } else {
                                 0.
                             }
@@ -248,8 +248,6 @@ fn update_assignments(
                 }
                 argmax
             };
-            // let line: Vec<_> = weights.iter().map(|e| format!("{:.2}", e)).collect();
-            // debug!("[{}]", line.join(","));
             // let chosen = *choises
             //     .choose_weighted(rng, |&k| {
             //         if f.contains(&k) {
@@ -328,20 +326,21 @@ where
     assert_eq!(f.len(), data.len());
     let per_cluster_coverage = coverage / cluster_num;
     let pick_prob = if per_cluster_coverage < 40 {
-        0.005
+        0.002
     } else if per_cluster_coverage < 100 {
-        0.045 / 60. * (per_cluster_coverage - 40) as f64 + 0.005
+        0.048 / 60. * (per_cluster_coverage - 40) as f64 + 0.002
     } else {
         0.05
     };
-    let sum = data
-        .iter()
-        .flat_map(|e| e.id().bytes())
-        .map(|e| e as u64)
-        .sum::<u64>()
-        + 1;
-    let params = (limit, pick_prob, sum);
-    gibbs_sampling_inner(data, labels, f, cluster_num, params, config, aln).0
+    let sum = data.iter().map(|e| e.seq.len()).sum::<usize>() as u64;
+    let params = (limit / 2, pick_prob, sum);
+    let (res, ok) = gibbs_sampling_inner(data, labels, f, cluster_num, params, config, aln);
+    if ok {
+        res
+    } else {
+        let params = (limit / 2, 2. * pick_prob, 2 * sum);
+        gibbs_sampling_inner(data, labels, f, cluster_num, params, config, aln).0
+    }
 }
 
 fn print_lk_gibbs<F>(
@@ -433,7 +432,7 @@ where
             }
         })
         .collect();
-    let mut beta = (cluster_num as f64).powi(2);
+    let mut beta = 0.001; //(cluster_num as f64).powi(2);
     let mut count = 0;
     let mut predictions = std::collections::VecDeque::new();
     let asn = &mut assignments;
@@ -446,12 +445,14 @@ where
     while count < STABLE_LIMIT {
         let (variants, next_lk) = get_variants(&data, asn, tuple, rng, config, param);
         let (variants, pos) = select_variants(variants, chain_len);
-        let betas = normalize_weights(&variants, beta);
+        //let betas = normalize_weights(&variants, beta);
+        let betas = normalize_weights(&variants, 1.);
         beta *= match lk.partial_cmp(&next_lk) {
             Some(std::cmp::Ordering::Less) => BETA_DECREASE,
             Some(std::cmp::Ordering::Greater) => BETA_INCREASE,
             _ => 1.,
         };
+        beta = beta.min(1.);
         info!("LK\t{}\t{:.3}\t{:.3}\t{:.1}", count, next_lk, lk, beta);
         lk = next_lk;
         let changed_num = (0..pick_prob.recip().ceil() as usize / 2)
@@ -464,7 +465,18 @@ where
                     .collect();
                 let ms = get_models(&data, asn, &s, tuple, rng, param, &pos, GIBBS_PRIOR);
                 let f = forbidden;
-                update_assignments(&ms, asn, &data, &s, cluster_num, &betas, config, f)
+                update_assignments(
+                    &ms,
+                    asn,
+                    &data,
+                    &s,
+                    cluster_num,
+                    &betas,
+                    config,
+                    f,
+                    rng,
+                    beta,
+                )
             })
             .sum::<u32>();
         debug!("CHANGENUM\t{}", changed_num);
@@ -528,12 +540,24 @@ fn predictions_into_assignments(
         .collect()
 }
 
-fn report_gibbs(asn: &[u8], _ans: &[u8], _lab: &[u8], lp: u32, id: u64, cl: usize, beta: f64) {
+fn report_gibbs(asn: &[u8], ans: &[u8], lab: &[u8], lp: u32, id: u64, cl: usize, pp: f64) {
     let line: Vec<_> = (0..cl)
         .map(|c| asn.iter().filter(|&&a| a == c as u8).count())
         .map(|e| format!("{}", e))
         .collect();
-    info!("Summary\t{}\t{}\t{:.4}\t{}", id, lp, beta, line.join("\t"));
+    let mut res = vec![vec![0; cl]; cl];
+    for (&asn, &ans) in asn.iter().zip(lab.iter().chain(ans)) {
+        res[asn as usize][ans as usize] += 1;
+    }
+    let _res: Vec<_> = res
+        .iter()
+        .map(|res| {
+            let res: Vec<_> = res.iter().map(|x| format!("{:.2}", x)).collect();
+            res.join("\t")
+        })
+        .collect();
+    info!("Summary\t{}\t{}\t{:.4}\t{}", id, lp, pp, line.join("\t"));
+    //info!("Answers\t{}", res.join("\t"));
 }
 
 fn calc_probs(
@@ -619,131 +643,4 @@ fn normalize_weights(variants: &[Vec<Vec<f64>>], beta: f64) -> Vec<Vec<Vec<f64>>
         })
     });
     betas
-}
-
-pub fn predict<F>(
-    data: &[ERead],
-    labels: &[Option<u8>],
-    cluster_num: usize,
-    c: &Config,
-    input: &[ERead],
-    forbs: &[Vec<u8>],
-    seed: u64,
-    aln: &AlnParam<F>,
-) -> Vec<Option<u8>>
-where
-    F: Fn(u8, u8) -> i32 + std::marker::Sync,
-{
-    let predictions: std::collections::VecDeque<_> = (0..STABLE_LIMIT)
-        .map(|st| {
-            let seed = seed + st as u64;
-            predict_inner(data, labels, cluster_num, c, input, forbs, seed, aln)
-        })
-        .collect();
-    predictions_into_assignments(predictions, cluster_num, input.len())
-}
-
-fn predict_inner<F>(
-    data: &[ERead],
-    labels: &[Option<u8>],
-    cluster_num: usize,
-    c: &Config,
-    input: &[ERead],
-    forbids: &[Vec<u8>],
-    seed: u64,
-    aln: &AlnParam<F>,
-) -> Vec<u8>
-where
-    F: Fn(u8, u8) -> i32 + std::marker::Sync,
-{
-    let (data, labels): (Vec<ERead>, Vec<_>) = data
-        .into_iter()
-        .zip(labels)
-        .filter_map(|(d, l)| l.map(|l| (d.clone(), l)))
-        .unzip();
-    let param = (aln.ins, aln.del, &aln.score);
-    let (matrix_pos, chain_len) = to_pos(&data);
-    let data = serialize(&data, &matrix_pos);
-    let input = serialize(input, &matrix_pos);
-    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
-    let rng = &mut rng;
-    let beta = 20.;
-    let falses = vec![false; data.len()];
-    let tuple = (cluster_num, chain_len);
-    let (variants, _) = get_variants(&data, &labels, tuple, rng, c, param);
-    let (variants, pos) = select_variants(variants, chain_len);
-    let betas = normalize_weights(&variants, beta);
-    let tuple = (cluster_num, chain_len);
-    let models = get_models(&data, &labels, &falses, tuple, rng, param, &pos, 0.);
-    let fraction_on_positions: Vec<Vec<f64>> = {
-        let mut total_count = vec![0; chain_len];
-        let mut counts = vec![vec![0; chain_len]; cluster_num];
-        for (&asn, read) in labels.iter().zip(data) {
-            for &(pos, _) in read.iter() {
-                total_count[pos] += 1;
-                counts[asn as usize][pos] += 1;
-            }
-        }
-        counts
-            .iter()
-            .map(|cs| {
-                cs.iter()
-                    .zip(total_count.iter())
-                    .map(|(&c, &t)| c as f64 / t as f64 + SMALL_WEIGHT)
-                    .collect()
-            })
-            .collect()
-    };
-    assert_eq!(input.len(), forbids.len());
-    input
-        .iter()
-        .zip(forbids)
-        .filter_map(|(read, f)| {
-            let likelihoods: Vec<(usize, Vec<_>)> = read
-                .par_iter()
-                .map(|&(pos, ref u)| {
-                    let lks = models.par_iter().map(|ms| ms[pos].forward(u, c)).collect();
-                    (pos, lks)
-                })
-                .collect();
-            let ws: Vec<_> = fraction_on_positions
-                .iter()
-                .map(|ws| read.iter().map(|&(pos, _)| ws[pos]).sum::<f64>())
-                .map(|ws| ws / read.len() as f64)
-                .collect();
-            let weights: Vec<_> = (0..cluster_num)
-                .into_par_iter()
-                .map(|l| {
-                    (0..cluster_num)
-                        .map(|k| {
-                            if k != l {
-                                let (i, j) = (l.max(k), l.min(k));
-                                let prior = ws[k].ln() - ws[l].ln();
-                                let lkdiff = likelihoods
-                                    .iter()
-                                    .map(|&(pos, ref lks)| betas[i][j][pos] * (lks[k] - lks[l]))
-                                    .sum::<f64>();
-                                prior + lkdiff
-                            } else {
-                                0.
-                            }
-                        })
-                        .map(|lkdiff| lkdiff.exp())
-                        .sum::<f64>()
-                        .recip()
-                })
-                .collect();
-            let chosen = {
-                let (mut max, mut argmax) = (0., 0);
-                for (cl, &p) in weights.iter().enumerate() {
-                    if !f.contains(&(cl as u8)) && max < p {
-                        max = p;
-                        argmax = cl as u8;
-                    }
-                }
-                argmax
-            };
-            Some(chosen)
-        })
-        .collect()
 }

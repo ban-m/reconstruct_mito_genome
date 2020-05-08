@@ -1,11 +1,11 @@
 extern crate last_tiling;
 #[macro_use]
 extern crate log;
-extern crate rand_xoshiro;
 extern crate poa_hmm;
+extern crate rand_xoshiro;
 use poa_hmm::gen_sample;
 extern crate rand;
-use rand::{Rng};
+use rand::Rng;
 extern crate rayon;
 use last_tiling::EncodedRead;
 use rayon::prelude::*;

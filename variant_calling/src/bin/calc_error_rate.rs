@@ -8,12 +8,15 @@ fn main() -> std::io::Result<()> {
     let tab: Vec<_> = last_tiling::parse_tab_file(&args[1])?;
     let read: Vec<_> = bio_utils::fasta::parse_into_vec(&args[2])?;
     let contig: Vec<_> = bio_utils::fasta::parse_into_vec(&args[3])?;
-    eprintln!("{}", tab.len());
-    println!("Pm\tPi\tPd");
+    // println!("Pm\tPi\tPd");
     let summary = summarize_tab(tab, read, contig);
-    println!("{}", summary);
-    let mismatch_prob = summary.p_mismatch;
-    println!("{},{}", mismatch_prob, mismatch_prob / 3.);
+    println!(
+        "{}\t{}",
+        summary,
+        &args.get(4).unwrap_or(&"None".to_string())
+    );
+    // let mismatch_prob = summary.p_mismatch;
+    // println!("{},{}", mismatch_prob, mismatch_prob / 3.);
     Ok(())
 }
 
@@ -118,14 +121,14 @@ fn summarize_operations(opss: Vec<Vec<Op>>) -> Summary {
     let mut num_del = 0;
     let mut num_in = 0;
     use Op::*;
-    let total:usize = opss.iter().map(|e| e.len()).sum();
+    let total: usize = opss.iter().map(|e| e.len()).sum();
     for ops in opss {
         for op in ops {
             match op {
                 Mism => mismatch += 1,
                 Del => num_del += 1,
                 In => num_in += 1,
-                _ => {},
+                _ => {}
             }
         }
     }
