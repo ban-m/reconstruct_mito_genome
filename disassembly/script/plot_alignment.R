@@ -12,7 +12,8 @@ generalplot <- function(g,name){
 
 
 args <- commandArgs(trailingOnly = TRUE)
-dataset <- read_tsv(args[1], col_names=FALSE)
-g <- dataset %>% ggplot() + geom_tile(mapping = aes(x = X1, y = X3, fill = X2)) +
-    labs(x = "names of PacBio contig", y = "Accession ID")
+dataset <- read_tsv(args[1])
+g <- dataset %>% ggplot() +
+    geom_tile(mapping = aes(x = Query, y = Target, fill = CoverRate)) +
+    labs(x = "Query Accession", y = "Target Accession", fill = "Cover Rate")
 generalplot(g, args[2])

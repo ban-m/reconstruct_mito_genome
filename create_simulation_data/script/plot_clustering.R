@@ -9,10 +9,6 @@ generalplot <- function(g,name){
     cowplot::ggsave(filename = paste0("./png/",name,".png"),
                     plot = g + cowplot::theme_cowplot(font_size=12),
                     dpi = 350,width = 178,height = 86,units="mm")
-    ## cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
-    ##                 plot = g + cowplot::theme_cowplot())
-    ## cowplot::ggsave(filename = paste0("./png/",name,".png"),
-    ##                 plot = g + cowplot::theme_cowplot())
 }
 
 ### ---- Two cluster -----
@@ -24,7 +20,7 @@ dataset <- read_tsv("./result/lks_two.tsv",col_names=FALSE) %>%
 g <- dataset %>%
     ggplot() + geom_point(mapping = aes(x = Prob1, y = Prob2, color = Cluster)) +
     facet_grid(State~.) +
-    labs(x = "P(Read|Model1)", y = "P(Read|Model0)")
+    labs(x = "P(Read|Model 0)", y = "P(Read|Model 1)")
 generalplot(g,"two_clusters")
 
 
@@ -45,6 +41,7 @@ answer <- dataset %>% filter(State == "AFTER") %>% pull(Cluster)
 result <- Rtsne(X=as.matrix(final_state),pca=FALSE,theta=0, perplexity = 100,normalize=TRUE, max_iter = 10000)
 fs_tsne <- tibble(tSNE1= result$Y[,1],tSNE2=result$Y[,2], answer = answer, State= "AFTER")
 tsne_data <- bind_rows(is_tsne, fs_tsne) 
+
 g <- tsne_data %>% mutate(Cluster = factor(answer)) %>% 
     ggplot() +
     geom_point(aes(x = tSNE1,y = tSNE2, color = Cluster)) +

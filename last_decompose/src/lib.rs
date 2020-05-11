@@ -37,9 +37,9 @@ pub mod variant_calling;
 const WINDOW_SIZE: usize = 250;
 const OVERLAP: usize = 60;
 const MIN_LEN: usize = 6_000;
-const CONNECTION_THR: f64 = 0.7;
+const CONNECTION_THR: f64 = 0.8;
 const MERGE_THR: usize = 5;
-const NG_THR: usize = 5;
+const NG_THR: usize = 4;
 type Read = Vec<(usize, Vec<u8>)>;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
@@ -715,4 +715,3 @@ pub fn clustering(
     let (ls, cl) = ((labels, answer.as_slice()), cluster_num);
     gibbs_sampling(data, ls, forbidden, cl, limit, c, &DEFAULT_ALN, coverage)
 }
-

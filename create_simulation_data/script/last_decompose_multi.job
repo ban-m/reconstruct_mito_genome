@@ -11,7 +11,24 @@ set -ue
 
 OUTPUT=./result/multi_test.txt
 OUTLOG=./logfiles/multi_test.log
-echo "start" > ${OUTPUT}
+# echo "start" > ${OUTPUT}
+
+TEST_NUM=360
+COVERAGE=0
+PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
+RUST_LOG=trace ./../target/release/test_last_decompose_multiple \
+        ${TEST_NUM} ${COVERAGE} 3320 0.0005 ${PROBS} >> ${OUTPUT} \
+        2>> ${OUTLOG}
+exit 0;
+
+
+TEST_NUM=300
+COVERAGE=0
+PROBS="0.16 0.16 0.16 0.16 0.16"
+RUST_LOG=trace ./../target/release/test_last_decompose_multiple \
+        ${TEST_NUM} ${COVERAGE} 33209 0.0005 ${PROBS} >> ${OUTPUT} \
+        2>> ${OUTLOG}
+exit 0;
 TEST_NUM=360
 COVERAGE=0
 PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
@@ -45,12 +62,5 @@ COVERAGE=0
 PROBS="0.16 0.16 0.16 0.16 0.16"
 RUST_LOG=debug ./../target/release/test_last_decompose_multiple \
         ${TEST_NUM} ${COVERAGE} 33209 0.001 ${PROBS} >> ${OUTPUT} \
-        2>> ${OUTLOG}
-
-TEST_NUM=300
-COVERAGE=0
-PROBS="0.16 0.16 0.16 0.16 0.16"
-RUST_LOG=debug ./../target/release/test_last_decompose_multiple \
-        ${TEST_NUM} ${COVERAGE} 33209 0.0005 ${PROBS} >> ${OUTPUT} \
         2>> ${OUTLOG}
 

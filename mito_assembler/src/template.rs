@@ -8,9 +8,6 @@ pub const TEMPLATE: &str = r#"
   </head>
   <body>
     <div class = "figure">
-      <div class = "title">
-        Circos plot of Plant mitochondria.
-      </div>
       <div id = "plot"></div>
       <div id = "info"></div>
     </div>
@@ -52,6 +49,9 @@ pub const TEMPLATE_LINEAR: &str = r#"<!DOCTYPE html>
 "#;
 
 pub const STYLE: &str = r#"
+*{
+    font-size: 20px;
+}
 .title{
     font-family: sans-serif;
     font-size: large;
@@ -63,10 +63,12 @@ body {
 }
 
 .scale{
+    font-size: 20px;
     font-family: sans-serif;
 }
 
 .scale text{
+    font-size: 20px;
     font-size: medium;
 }
 
@@ -103,6 +105,7 @@ body {
 .info-tip-clustercolor{
     display: flex;
     justify-content: center;
+    margin: 10px;
 }
 
 .tooltip {

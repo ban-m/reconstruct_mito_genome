@@ -538,36 +538,28 @@ const contigToHTML = (contig) => {
 </div>`;
 };
 
-const criticalpairToHTML = (cp, idx, reads) => {
-  const count = reads.length;
-  const meangap = calcGap(reads);
+const criticalpairToHTML = (cp, idx) => {
   const header = `<div class = critical-region><div>CP:${idx}</div>`;
   const contig1 = contigToHTML(cp["contig1"]);
   const contig2 = contigToHTML(cp["contig2"]);
-  const support = `<div>Supporing Reads:${count}</div>`;
-  const gap = `<div>Mean gap length:${meangap.toFixed(1)}</div>`;
-  return header + contig1 + contig2 + support + gap + "</div>";
+  return header + contig1 + contig2 + "</div>";
 };
 
-const confluentregionToHTML = (cr, idx, reads) => {
-  const count = reads.length;
-  const meangap = calcGap(reads);
+const confluentregionToHTML = (cr, idx) => {
   const header = `<div class = critical-region><div>CR:${idx}</div>`;
   const contig = contigToHTML(cr["pos"]);
-  const support = `<div>Supporing Reads:${count}</div>`;
-  const gap = `<div>Mean gap length:${meangap.toFixed(1)}</div>`;
-  return header + contig + support + gap + "</div>";
+  return header + contig + "</div>";
 };
 
-const crToHTML = (cr, cluster, reads) => {
+const crToHTML = (cr, cluster) => {
   // Input: JSON object, Array
   // Output: String
   // Requirements: Critical region object
   // Return the HTML contents corresponds to the given cr.
   if (cr.hasOwnProperty("CP")) {
-    return criticalpairToHTML(cr["CP"], cluster, reads);
+    return criticalpairToHTML(cr["CP"], cluster);
   } else if (cr.hasOwnProperty("CR")) {
-    return confluentregionToHTML(cr["CR"], cluster, reads);
+    return confluentregionToHTML(cr["CR"], cluster);
   } else {
     console.log(`Error ${cr}`);
     return "Error";
@@ -768,6 +760,11 @@ const plotData = (dataset, repeats, unit_length) =>
               }
               return acc;
             }, "");
+            const count = supporting_reads.length;
+            const meangap = calcGap(supporting_reads);
+            const support = `<div>Supporing Reads:${count}</div>`;
+            const gap = `<div>Mean gap length:${meangap.toFixed(1)}</div>`;
+            contents += support + gap;
             const info_tip = cr_info
               .insert("div", ":first-child")
               .classed(`cluster-${cluster} cluster-parent`, true);

@@ -7,7 +7,7 @@ extern crate rand_xoshiro;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
-const LIMIT: u64 = 2000;
+const LIMIT: u64 = 7200;
 use last_decompose::{poa_clustering::gibbs_sampling, ERead};
 use poa_hmm::gen_sample;
 use rand::SeedableRng;

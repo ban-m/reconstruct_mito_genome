@@ -10,7 +10,7 @@ const BETA_INCREASE: f64 = 1.05;
 const BETA_DECREASE: f64 = 1.1;
 const SMALL_WEIGHT: f64 = 0.000_000_001;
 const REP_NUM: usize = 3;
-const GIBBS_PRIOR: f64 = 0.04;
+const GIBBS_PRIOR: f64 = 0.02;
 const STABLE_LIMIT: u32 = 10;
 const IS_STABLE: u32 = 8;
 const VARIANT_FRACTION: f64 = 0.9;
@@ -161,7 +161,7 @@ where
         .collect()
 }
 
-fn update_assignments<R: Rng>(
+fn update_assignments(
     models: &[Vec<POA>],
     assignments: &mut [u8],
     data: &[Read],
@@ -170,7 +170,6 @@ fn update_assignments<R: Rng>(
     betas: &[Vec<Vec<f64>>],
     config: &Config,
     forbidden: &[Vec<u8>],
-    _rng: &mut R,
     beta: f64,
 ) -> u32 {
     //let choises: Vec<_> = (0..cluster_num).map(|e| e as u8).collect();
@@ -239,7 +238,7 @@ fn update_assignments<R: Rng>(
                 })
                 .collect();
             let chosen = {
-                let (mut max, mut argmax) = (0., 0);
+                let (mut max, mut argmax) = (-0.1, 0);
                 for (cl, &p) in weights.iter().enumerate() {
                     if !f.contains(&(cl as u8)) && max < p {
                         max = p;
@@ -248,15 +247,6 @@ fn update_assignments<R: Rng>(
                 }
                 argmax
             };
-            // let chosen = *choises
-            //     .choose_weighted(rng, |&k| {
-            //         if f.contains(&k) {
-            //             0.
-            //         } else {
-            //             weights[k as usize] + SMALL_WEIGHT
-            //         }
-            //     })
-            //     .unwrap();
             let is_the_same = if *asn == chosen { 0 } else { 1 };
             *asn = chosen;
             is_the_same
@@ -432,7 +422,7 @@ where
             }
         })
         .collect();
-    let mut beta = 0.001; //(cluster_num as f64).powi(2);
+    let mut beta = 0.001;
     let mut count = 0;
     let mut predictions = std::collections::VecDeque::new();
     let asn = &mut assignments;
@@ -445,7 +435,6 @@ where
     while count < STABLE_LIMIT {
         let (variants, next_lk) = get_variants(&data, asn, tuple, rng, config, param);
         let (variants, pos) = select_variants(variants, chain_len);
-        //let betas = normalize_weights(&variants, beta);
         let betas = normalize_weights(&variants, 1.);
         beta *= match lk.partial_cmp(&next_lk) {
             Some(std::cmp::Ordering::Less) => BETA_DECREASE,
@@ -465,22 +454,11 @@ where
                     .collect();
                 let ms = get_models(&data, asn, &s, tuple, rng, param, &pos, GIBBS_PRIOR);
                 let f = forbidden;
-                update_assignments(
-                    &ms,
-                    asn,
-                    &data,
-                    &s,
-                    cluster_num,
-                    &betas,
-                    config,
-                    f,
-                    rng,
-                    beta,
-                )
+                update_assignments(&ms, asn, &data, &s, cluster_num, &betas, config, f, beta)
             })
             .sum::<u32>();
         debug!("CHANGENUM\t{}", changed_num);
-        if changed_num <= (data.len() as f64 * pick_prob / 3.).max(2.) as u32 {
+        if changed_num <= (data.len() as f64 * pick_prob).max(4.) as u32 {
             count += 1;
         } else {
             count = 0;

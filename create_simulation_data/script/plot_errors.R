@@ -1,5 +1,4 @@
-library("tidyverse")
-loadNamespace("cowplot")
+library("tidyverse")loadNamespace("cowplot")
 ## ===== Setting for usual use ======
 generalplot <- function(g,name){
     cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
@@ -59,7 +58,7 @@ generalplot(g,paste0(outname,"_point"))
 
 g <- accs %>%
     filter(X10 <= 4) %>%
-    ggplot() + geom_boxplot(mapping = aes(x = factor(X9), y = acc, color = factor(X10))) + 
+    ggplot() + geom_boxplot(mapping = aes(x = factor(X9), y = acc, color = factor(X10))) +
     labs(x = "Total Coverage", y = "Accuracy", color = "Number of Variants\nout of 9K bp")
 
 generalplot(g,paste0(outname,"_boxplot"))
