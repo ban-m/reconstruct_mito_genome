@@ -1,0 +1,16 @@
+#!/bin/bash
+for SGE_TASK_ID in `seq 1 20`
+do
+    OUTPUT=./result/last_decompose_num_poa_${SGE_TASK_ID}.txt
+    OUTLOG_PREFIX=./logfiles/last_decompose_num_poa_${SGE_TASK_ID}
+    echo "-----start-----" >> ${OUTPUT}
+    COVERAGE=0
+    PROBS="0.5 0.5"
+    seed=1213
+    seed=$(( $seed * $SGE_TASK_ID ))
+    ./../target/release/test_last_decompose_multiple_varying_errorate \
+        ${seed} ${PROBS} >> ${OUTPUT} \
+        2>> ${OUTLOG_PREFIX}.log
+done
+
+

@@ -32,11 +32,10 @@ pub const TEMPLATE_LINEAR: &str = r#"<!DOCTYPE html>
     <link rel="stylesheet" type="text/css" href="/viewer/style.css">
   </head>
   <body>
-    <div class = "title">
-      Circos plot of Plant mitochondria.
+    <div class ="figure">
+        <div id = "plot"></div>
+        <div id = "info"></div>
     </div>
-    <div id = "plot"></div>
-    <div id = "info"></div>
     <script src="/viewer/linear.js"></script>
     <script>
       const dataset = "/viewer/read_data.json";
@@ -77,7 +76,6 @@ body {
 }
 
 .contig{
-    opacity:0.5;
 }
 
 .repeats{
