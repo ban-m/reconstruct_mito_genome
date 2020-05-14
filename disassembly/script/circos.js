@@ -1,117 +1,27 @@
-// This is a tiny library to visualize multipartite structure of mitochondrial genome of plant.
-// There is only one function exposed as a public API, namely `plotData`.
-// It takes three arguments and autoamtically plot the data to a DOM(default:<div id="plot"></div>).  The size of the canvas is 1000x1000 and some other DOM elements would be overwritten(<div id="info"></div>).
-
-// The the API is two URIs to serialized JSON objects, `dataset` and `repeats`, and one integer value named `unit_length`.
-
-// The `dataset` value should consist of three JSON objects named `contigs`, `reads`, and `clusters`. Below I explain how these objects should be structured:
-
-// - `contigs`: contigs is an array of contig object. A contig object is a JSON-object having elements as follows:
-// ```json
-// {
-// name:String,
-// id: Integer,
-// length: Integer,
-// coverages:Array<Integer>,
-// start_stop<Integer>,
-// }
-// ```
-// - `reads`: reads is an array of read. Each read is a JSON-object as follwos:
-// ```json
-// {
-// name:String,
-// units:Array<Unit>,
-// cluster:Integer,
-// }
-// ```
-// and Unit is either
-// ```json
-// {
-// G:Integer,
-// }
-// ```
-// or
-// ```json
-// {
-// E:[Interger;2]
-// }
-// ```
-
-// - `clusters`: clusters is an array of array of CriticalRegion. Each CriticalRegion is either
-// ```
-// {
-// "CP" -> ContigPair,
-// }
-// ```
-// or
-// ```
-// {
-// "CR" -> ConfluentRegion,
-// }
-// ```
-
-// - ContigPair:
-// ```
-// {
-// contig1:Position,
-// contig2:Position,
-// reads:HashSet<String>,
-// }
-// ```
-// - ConfluentRegion
-// ```
-// {
-// pos:Position,
-// reads:HashSet<String>,
-// }
-// ```
-
-// - Position
-// ```
-// {
-// contig:Integer,
-// start_unit:Integer,
-// end_unit:Integer,
-// length:Integer,
-// direction: Either UpStream or DownStream.
-// }
-// ```
-
-const width = 900;
+const width = 1000;
 const height = 1000;
 // Margin in radian
-const theta_margin = 0.01;
-// const theta_margin = 0;
-const gap_position = 0.05;
+const theta_margin = 0.1;
 // the height of a contigs.
-const contig_thick = 10;
-const coverage_thick = 5;
+const reference_tick = 10000;
+const reference_break = 50000;
 const gap_jitters = d3.randomNormal(0, 0.01);
 const read_thick = 4;
 const eplison = 5.001;
 const jitters = d3.randomNormal(0, eplison);
 const confluent_margin = 0.01;
 // Radius
-const contig_radius = 300;
-const coverage_min = contig_radius + contig_thick;
-const coverage_max = 400;
+const contig_radius = 400;
+const contig_thick = 20;
+const coverage_min = contig_radius;
+const coverage_max = coverage_min + 100;
 const handle_points_radius = 100;
-const read_radius = contig_radius - 30;
-const gap_min_radius = read_radius;
-const gap_max_radius = contig_radius - 3;
-const gap_min = 500;
-const gap_max = 2000;
-const gap_scale = d3
-  .scaleLog()
-  .domain([gap_min, gap_max])
-  .range([gap_min_radius, gap_max_radius])
-  .clamp(true);
+const read_radius = 380;
+const start_stop_radius = 380;
+const start_stop_max = 300;
+const gap_thr = 1000;
 
-const selected_region = 17;
 // Circle radius
-const min_radius = 1;
-const max_radius = 8;
-const min_read_num = 2;
 const offset = 0;
 const svg = d3
   .select("#plot")
@@ -133,7 +43,7 @@ const temp_coverage_layer = svg
 const start_stop_layer = svg
   .append("g")
   .attr("transform", `translate(${width / 2},${height / 2 + offset})`)
-  .attr("class", "start-stop-read");
+  .attr("class", "start-stop");
 const read_layer = svg
   .append("g")
   .attr("transform", `translate(${width / 2},${height / 2 + offset})`)
@@ -220,23 +130,28 @@ const calcReadNumScale = (contigs) => {
   const total = contigs.flatMap((c) => c.start_stop).reduce((x, y) => x + y);
   const num = contigs.map((c) => c.start_stop.length).reduce((x, y) => x + y);
   const max = Math.max(...contigs.flatMap((c) => c.start_stop));
-  console.log("mean", total / num);
-  console.log("max", max);
   return d3
-    .scaleLog()
-    .domain([min_read_num, max])
-    .range([min_radius, max_radius])
+    .scaleLinear()
+    .domain([0, max])
+    .range([start_stop_radius, start_stop_max])
     .clamp(true);
 };
 
-const readToPath = (read, handle_points, bp_scale, start_pos, unit_length) => {
-  // Input: JSON object, Array[Array[Num]], d3.scale, Array[Num], Num
+const readToPath = (
+  read,
+  handle_points,
+  bp_scale,
+  start_pos,
+  unit_length,
+  ends
+) => {
+  // Input: JSON object, Array[Array[Num]], d3.scale, Array[Num], Num, Array[Num]
   // Output: String
   // Requirements: read should have units attribute, each of which elements
   // should have either "G"(for Gap) or "E"(for Encode)
   let path = d3.path();
   let units = Array.from(read.units).reverse();
-  const r = read_radius; //  + (read['cluster'] + 1); // + jitters();
+  const r = read_radius;
   let gap = 0;
   let unit = {};
   while (!unit.hasOwnProperty("E")) {
@@ -253,24 +168,28 @@ const readToPath = (read, handle_points, bp_scale, start_pos, unit_length) => {
   let start = start_pos[contig] - Math.PI / 2;
   let radian = start + bp_scale(unit_length * unit.E[1]);
   if (gap != 0) {
+    // gap_scale(gap) * Math.cos(radian),
+    // gap_scale(gap) * Math.sin(radian)
     path.moveTo(
-      gap_scale(gap) * Math.cos(radian),
-      gap_scale(gap) * Math.sin(radian)
+      contig_radius * Math.cos(radian),
+      contig_radius * Math.sin(radian)
     );
     path.lineTo(read_radius * Math.cos(radian), read_radius * Math.sin(radian));
   } else {
     path.moveTo(read_radius * Math.cos(radian), read_radius * Math.sin(radian));
   }
+  gap = 0;
   for (unit of units.reverse()) {
     if (unit.hasOwnProperty("G")) {
-      // if (unit.G > unit_length * 2){
-      //     gap = unit.G;
-      // }
+      gap = unit.G;
       continue;
     }
     const diff = Math.abs(unit.E[1] - current_unit);
+    const is_end_to_start =
+      (current_unit < 30 && unit.E[1] > ends[unit.E[0]] - 30) ||
+      (current_unit > ends[unit.E[0]] - 30 && unit.E[1] < 30);
     current_unit = unit.E[1];
-    if (unit.E[0] == contig && diff < 100) {
+    if ((unit.E[0] == contig && diff < 100) || is_end_to_start) {
       radian = start + bp_scale(unit_length * unit.E[1]);
       path.lineTo(r * Math.cos(radian), r * Math.sin(radian));
     } else {
@@ -290,6 +209,13 @@ const readToPath = (read, handle_points, bp_scale, start_pos, unit_length) => {
         r * Math.sin(radian)
       );
     }
+  }
+  if (gap != 0) {
+    path.moveTo(
+      contig_radius * Math.cos(radian),
+      contig_radius * Math.sin(radian)
+    );
+    path.lineTo(read_radius * Math.cos(radian), read_radius * Math.sin(radian));
   }
   return path.toString();
 };
@@ -592,7 +518,14 @@ const calcCoverageOf = (reads, contigs) => {
       }
     }
   }
-  return results;
+  return results.map((data) => {
+    data.cov = data.cov
+      .map((d, idx) => {
+        return { cov: d, pos: idx };
+      })
+      .filter((d) => d.cov > 1);
+    return data;
+  });
 };
 
 const plotData = (dataset, repeats, unit_length) =>
@@ -623,26 +556,68 @@ const plotData = (dataset, repeats, unit_length) =>
         start_pos: start_pos,
       };
       // Draw contigs.
-      contigs_layer
+      const selection_on_each_contig = contigs_layer
         .selectAll(".contig")
         .data(contigs)
         .enter()
+        .append("g")
+        .attr("transform", (contig) => `rotate(${start_pos[contig.id]})`);
+      selection_on_each_contig
         .append("path")
         .attr("class", "contig")
+        .attr("id", (c) => `contig-${c.id}`)
         .attr("d", (contig) => {
-          const end =
-            (contig.id == contig_num - 1
-              ? Math.PI * 2
-              : start_pos[contig.id + 1]) - theta_margin;
+          const end = bp_scale(contig.length);
           const arc = d3
             .arc()
-            .innerRadius(contig_radius)
-            .outerRadius(contig_radius + contig_thick)
-            .startAngle(start_pos[contig.id])
+            .innerRadius(contig_radius - contig_thick)
+            .outerRadius(contig_radius)
+            .startAngle(0)
             .endAngle(end);
           return arc();
         })
-        .attr("fill", (c) => d3.schemeCategory10[c.id % 10]);
+        .attr("fill", (c) => d3.schemeCategory10[c.id % 10])
+        .attr("opacity", 0.2);
+      selection_on_each_contig
+        .append("text")
+        .attr("dy", -30)
+        .attr("dx", 20)
+        .append("textPath")
+        .attr("href", (c) => `#contig-${c.id}`)
+        .text((c) => `${c.name}`);
+      const selection_on_ticks = selection_on_each_contig
+        .append("g")
+        .selectAll(".contig-tick")
+        .data((contig) => {
+          const len = contig.length / reference_tick;
+          return Array.from({ length: len }).map((_, idx) => {
+            return {
+              angle: bp_scale(idx * reference_tick),
+              position: idx * reference_tick,
+            };
+          });
+        })
+        .enter()
+        .append("g")
+        .attr(
+          "transform",
+          (d) =>
+            `rotate(${
+              (180 * d.angle) / Math.PI + 180
+            }) translate(0,${contig_radius})`
+        );
+      selection_on_ticks.append("line").attr("y2", 10).attr("stroke", "black");
+      selection_on_ticks
+        .filter((d) => d.position % reference_break === 0 && d.position != 0)
+        .append("text")
+        .attr("transform", (d) => {
+          if (d.angle > Math.PI) {
+            return `rotate(-90) translate(-60,0)`;
+          } else {
+            return `rotate(90) translate(20,0)`;
+          }
+        })
+        .text((d) => `${kFormatter(d.position)}`);
       // Draw repeat.
       contigs_layer
         .selectAll(".repeats")
@@ -653,61 +628,96 @@ const plotData = (dataset, repeats, unit_length) =>
         .attr("d", (repeat) => {
           const arc = d3
             .arc()
-            .innerRadius(contig_radius - 3)
-            .outerRadius(contig_radius + contig_thick + 3)
+            .innerRadius(contig_radius - contig_thick - 3)
+            .outerRadius(contig_radius + 3)
             .startAngle(start_pos[repeat.id] + bp_scale(repeat.start))
             .endAngle(start_pos[repeat.id] + bp_scale(repeat.end));
           return arc();
         })
         .attr("fill", "gray");
       // Draw coverage
-      coverage_layer
+      const selection_on_each_coverage = coverage_layer
         .selectAll(".coverage")
         .data(contigs)
         .enter()
+        .append("g")
+        .attr("class", (contig) => `coverage-${contig.id}`)
+        .attr(
+          "transfrom",
+          (contig) => `rotate(${(start_pos[contig.id] * 180) / Math.PI})`
+        );
+      selection_on_each_coverage
         .append("path")
         .attr("class", "coverage")
         .attr("d", (contig) => {
-          const start = start_pos[contig.id];
           const arc = d3
             .lineRadial()
-            .angle((_, i) => start + bp_scale(i * unit_length))
+            .angle((_, i) => bp_scale(i * unit_length))
             .radius((d) => coverage_scale(d));
           return arc(contig.coverages);
         })
         .attr("fill", "none")
         .attr("stroke", (c) => d3.schemeCategory10[c.id % 10]);
+      selection_on_each_coverage.each((contig) => {
+        const max_cov = Math.max(...contig.coverages);
+        const domain = [0, max_cov];
+        const range = [-coverage_min, -coverage_scale(max_cov)];
+        const local_scale = d3.scaleLinear().domain(domain).range(range);
+        d3.selectAll(`.coverage-${contig.id}`).call(
+          d3.axisLeft(local_scale).tickFormat(d3.format(".2s")).ticks(2)
+        );
+      });
       // Draw start/stop reads.
-      start_stop_layer
-        .selectAll(".start-stop-count")
-        .data(
-          contigs.flatMap((c) => {
-            const start = start_pos[c.id] - Math.PI / 2;
-            return c.start_stop.map((num, i) => {
-              const radian = start + bp_scale(i * unit_length);
-              const r = contig_radius + contig_thick / 2;
-              const x = r * Math.cos(radian);
-              const y = r * Math.sin(radian);
-              return { r: readnum_scale(num), x: x, y: y, id: c.id };
-            });
-          })
-        )
+      const selection_on_each_start_stop = start_stop_layer
+        .selectAll(".start-stop")
+        .data(contigs)
         .enter()
-        .append("circle")
-        .attr("class", ".start-stop-count")
-        .attr("r", (stst) => stst.r)
-        .attr("cx", (stst) => stst.x)
-        .attr("cy", (stst) => stst.y)
-        .attr("fill", (stst) => d3.schemeCategory10[stst.id % 10]);
+        .append("g")
+        .attr("class", (contig) => `start-stop-${contig.id}`)
+        .attr(
+          "transform",
+          (contig) => `rotate(${(start_pos[contig.id] * 180) / Math.PI})`
+        );
+      selection_on_each_start_stop
+        .append("path")
+        .attr("class", "start-stop")
+        .attr("d", (contig) => {
+          const arc = d3
+            .lineRadial()
+            .angle((_, i) => bp_scale(i * unit_length))
+            .radius((d) => readnum_scale(d));
+          return arc(contig.start_stop);
+        })
+        .attr("fill", "none")
+        .attr("stroke", (c) => d3.schemeCategory10[c.id % 10]);
+      selection_on_each_start_stop.each((contig) => {
+        const max_num = Math.max(...contig.start_stop);
+        const domain = [0, max_num];
+        const range = [-start_stop_radius, -readnum_scale(max_num)];
+        const local_scale = d3.scaleLinear().domain(domain).range(range);
+        d3.selectAll(`.start-stop-${contig.id}`).call(
+          d3.axisLeft(local_scale).ticks(2)
+        );
+      });
+      const max_lengths = contigs.map((c) => c.length / unit_length);
+      console.log(max_lengths);
       // Draw reads
       read_layer
         .selectAll(".read")
         .data(reads)
         .enter()
+        .filter((d, idx) => idx % 100 === 0)
         .append("path")
         .attr("class", "read")
         .attr("d", (read) =>
-          readToPath(read, handle_points, bp_scale, start_pos, unit_length)
+          readToPath(
+            read,
+            handle_points,
+            bp_scale,
+            start_pos,
+            unit_length,
+            max_lengths
+          )
         )
         .attr("fill", "none")
         .attr("opacity", 0.3)
@@ -747,8 +757,6 @@ const plotData = (dataset, repeats, unit_length) =>
             is_active[cluster] = false;
             temp_coverage_layer.selectAll(`.cluster-${cluster}`).remove();
             cr_info.select(`.cluster-${cluster}`).remove();
-            //cr_info.select(`cluster-${cluster}`).html("");
-            //tooltip.style("opacity", 0);
           } else {
             is_active[cluster] = true;
             const supporting_reads = reads.filter((r) => r.cluster == cluster);
@@ -782,11 +790,6 @@ const plotData = (dataset, repeats, unit_length) =>
               .attr("height", 20)
               .attr("rx", 2)
               .attr("fill", d3.schemeCategory10[(cluster + 1) % 10]);
-            // tooltip.style("opacity", 0.9);
-            // tooltip
-            //   .html(contents)
-            //   .style("left", d3.event.pageX + "px")
-            //   .style("top", d3.event.pageY + "px");
             const coverages = calcCoverageOf(supporting_reads, contigs);
             temp_coverage_layer
               .selectAll(".tempcoverage")
@@ -798,104 +801,27 @@ const plotData = (dataset, repeats, unit_length) =>
                 const start = start_pos[coverage.id];
                 const arc = d3
                   .lineRadial()
-                  .angle((d, i) => start + bp_scale(i * unit_length))
-                  .radius((d) => coverage_scale(d));
+                  .angle((d) => start + bp_scale(d.pos * unit_length))
+                  .radius((d) => coverage_scale(d.cov))
+                  .defined((d, i, data) => {
+                    if (i + 1 === data.length) {
+                      return true;
+                    } else {
+                      return data[i].pos + 1 === data[i + 1].pos;
+                    }
+                  });
                 return arc(coverage.cov);
               })
               .attr("fill", "none")
-              //.attr("opacity", 0.9)
               .attr("stroke-width", 2)
               .attr("stroke", d3.schemeCategory10[(cluster + 1) % 10]);
           }
         });
-      //     .on("mouseout", (d) => {
-      //   temp_coverage_layer.selectAll(".tempcoverage").remove();
-      //   tooltip.style("opacity", 0);
-      // });
       info
         .append("div")
         .attr("class", "numofgapread")
         .append("p")
         .text(`Gap Read:${getNumOfGapRead(reads)} out of ${reads.length}`);
-      // Draw ticks.
-      const b_tick = svg
-        .append("g")
-        .attr("class", "scale")
-        .attr("transform", `translate(0,20)`);
-      b_tick.append("text").text("Base Pair Scale");
-      {
-        const bscale = d3
-          .scaleLinear()
-          .domain([0, 100000])
-          .range([
-            contig_radius * bp_scale(0),
-            contig_radius * bp_scale(100000),
-          ]);
-        b_tick
-          .append("g")
-          .attr("transform", "translate(30,5)")
-          .call(d3.axisBottom(bscale).tickFormat(d3.format(".2s")).ticks(4));
-      }
-      const c_tick = svg
-        .append("g")
-        .attr("class", "scale")
-        .attr("transform", `translate(0,80)`);
-      c_tick.append("text").text("Coverage Scale");
-      {
-        const cscale = d3
-          .scaleLinear()
-          .domain([0, 1500])
-          .range([0, coverage_scale(1500) - coverage_scale(0)]);
-        c_tick
-          .append("g")
-          .attr("transform", `translate(50,5)`)
-          .call(d3.axisBottom(cscale).tickFormat(d3.format(".2s")).ticks(4));
-      }
-      const g_tick = svg
-        .append("g")
-        .attr("class", "scale")
-        .attr("transform", `translate(0,140)`);
-      g_tick.append("text").text("Gap Scale");
-      {
-        const gscale = d3
-          .scaleLog()
-          .domain([gap_min, 5 * gap_max])
-          .range([0, 5 * (gap_max_radius - gap_min_radius)]);
-        g_tick
-          .append("g")
-          .attr("transform", `translate(50,5)`)
-          .call(d3.axisBottom(gscale).tickFormat(d3.format(".2s")).ticks(1));
-      }
-      const n_tick = svg
-        .append("g")
-        .attr("class", "scale")
-        .attr("transform", `translate(0,200)`);
-      n_tick.append("text").text("Number of Reads");
-      {
-        const sizes = [3, 9, 20];
-        n_tick
-          .append("g")
-          .attr("transform", `translate(60,15)`)
-          .selectAll("specimen")
-          .data(sizes)
-          .enter()
-          .append("circle")
-          .attr("class", "specimen")
-          .attr("cx", (_, i) => 20 * i)
-          .attr("cy", 0)
-          .attr("r", (r) => readnum_scale(r))
-          .attr("fill", "black");
-        n_tick
-          .append("g")
-          .attr("transform", `translate(60,35)`)
-          .selectAll("ticks")
-          .data(sizes)
-          .enter()
-          .append("text")
-          .attr("x", (_, i) => 20 * i)
-          .attr("y", 0)
-          .text((r) => r);
-      }
       return scales;
     })
     .then(
