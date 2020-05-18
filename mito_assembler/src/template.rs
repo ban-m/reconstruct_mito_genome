@@ -51,6 +51,11 @@ pub const STYLE: &str = r#"
 *{
     font-size: 20px;
 }
+
+.tick text{
+    font-size: 15px;
+}
+
 .title{
     font-family: sans-serif;
     font-size: large;

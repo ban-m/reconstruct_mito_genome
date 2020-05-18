@@ -386,12 +386,16 @@ fn print_lk_gibbs<F>(
     }
 }
 
-fn gen_assignment<R: Rng>(not_allowed: &[u8], rng: &mut R, c: usize) -> u8 {
+fn gen_assignment<R: Rng>(not_allowed: &[u8], _occed: &[u8], rng: &mut R, c: usize) -> u8 {
     loop {
         let a = rng.gen_range(0, c) as u8;
         if !not_allowed.contains(&a) {
             break a;
         }
+
+        // if !not_allowed.contains(&a) && !occed.contains(&a) {
+        //     break a;
+        // }
     }
 }
 
@@ -413,12 +417,19 @@ where
     let id: u64 = thread_rng().gen::<u64>() % 100_000;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let rng = &mut rng;
+    let occupied = {
+        let mut t = label.to_vec();
+        t.sort();
+        t.dedup();
+        t
+    };
+    debug!("Occ:{:?}", occupied);
     let mut assignments: Vec<_> = (0..data.len())
         .map(|idx| {
             if idx < label.len() {
                 label[idx]
             } else {
-                gen_assignment(&forbidden[idx], rng, cluster_num)
+                gen_assignment(&forbidden[idx], &occupied, rng, cluster_num)
             }
         })
         .collect();

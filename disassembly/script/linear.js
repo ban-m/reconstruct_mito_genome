@@ -6,7 +6,7 @@ const contig_margin = 70;
 const contig_thick = 10;
 const contig_label_margin = 20;
 const coverage_thick = 5;
-const coverage_interval = 150;
+const coverage_interval = 200;
 const read_thick = 4;
 const eplison = 5.001;
 const confluent_margin = 0.01;
@@ -124,21 +124,16 @@ const readToPath = (read, handle_points, bp_scale, start_pos, unit_length) => {
   // Requirements: read should have units attribute, each of which elements
   // should have either "G"(for Gap) or "E"(for Encode)
   let path = d3.path();
-  let units = Array.from(read.units).reverse();
   let gap = 0;
-  let unit = {};
-  while (!unit.hasOwnProperty("E")) {
-    unit = units.pop();
-    if (unit == undefined) {
-      return "";
-    } else if (unit.hasOwnProperty("G")) {
-      gap = unit.G;
-    }
+  let index = 0;
+  while (read.is_unit[index] == 0 && index < read.is_unit.length) {
+    gap = read.contig[index];
+    index += 1;
   }
   // Current ID of the contig
-  let contig = unit.E[0];
-  let current_unit = unit.E[1];
-  let y = start_pos[contig] + bp_scale(unit_length * unit.E[1]);
+  let contig = read.contig[index];
+  let current_unit = read.unit[index];
+  let y = start_pos[contig] + bp_scale(unit_length * current_unit);
   let x = 0;
   if (gap != 0) {
     path.moveTo(x - gap_scale(gap), y);
@@ -146,76 +141,52 @@ const readToPath = (read, handle_points, bp_scale, start_pos, unit_length) => {
   } else {
     path.moveTo(x, y);
   }
-  for (unit of units.reverse()) {
-    if (unit.hasOwnProperty("G")) {
+  for (; index < read.is_unit.length; index += 1) {
+    if (read.is_unit[index] == 0) {
       continue;
     }
-    const diff = Math.abs(unit.E[1] - current_unit);
-    if (unit.E[0] == contig && diff < 50) {
-      // y = start_pos[contig] + bp_scale(unit_length * unit.E[1]);
-      // path.lineTo(x, y);
+    const diff = Math.abs(read.unit[index] - current_unit);
+    if (read.unit[index] == contig && diff < 50) {
     } else {
       y = start_pos[contig] + bp_scale(unit_length * current_unit);
       path.lineTo(x, y);
       // Change contig. Connect them.
-      const new_y = start_pos[unit.E[0]] + bp_scale(unit_length * unit.E[1]);
+      const new_y =
+        start_pos[read.unit[index]] + bp_scale(unit_length * read.unit[index]);
       const new_x = 0;
       // Bezier Curve to new point from here.
       const control_y = (y + new_y) / 2;
       const control_x = 10; //handle_points[contig][unit.E[0]];
-      contig = unit.E[0];
+      contig = read.contig[index];
       path.quadraticCurveTo(control_x, control_y, new_x, new_y);
       x = new_x;
       y = new_y;
     }
-    current_unit = unit.E[1];
+    current_unit = read.unit[index];
   }
   return path.toString();
 };
 
-const selectRead = (read, unitlen) => {
-  // Input: JSON object, Num
-  // Output: boolean
-  // Requirements: input object should have "units" property,
-  // which is actually vector of object with "Gap" or "Encode" property.
-  // Filter read as you like.
-  return true;
-};
-
-const getNumOfGapRead = (reads) => {
-  // Input: [JSON object]
-  // Output: Num
-  // Requirements: each element should be 'read' object.
-  // Return numbers of reads which is just Gap.
-  return reads.filter((read) => {
-    let units = Array.from(read.units);
-    let unit = {};
-    while (!unit.hasOwnProperty("E")) {
-      unit = units.pop();
-      if (unit == undefined) {
-        return true;
-      }
-    }
-    return false;
-  }).length;
-};
+// Input: [JSON object]
+// Output: Num
+// Requirements: each element should be 'read' object.
+// Return numbers of reads which is just Gap.
+const getNumOfGapRead = (reads) =>
+  reads.filter((read) => read.is_unit.every((x) => x == 0)).length;
 
 const htgap = (read) => {
   let sum = 0;
-  if (read.units[read.units.length - 1].hasOwnProperty("G")) {
-    sum += read.units[read.units.length - 1].G;
+  if (read.is_unit[read.is_unit.length - 1] == 0) {
+    sum += read.contig[read.contig.length - 1];
   }
-  if (read.units[0].hasOwnProperty("G")) {
-    sum += read.units[0].G;
+  if (read.is_unit[0] == 0) {
+    sum += read.contig[0];
   }
   return sum;
 };
 
-const calcGap = (reads) => {
-  const len = reads.length;
-  const sum = reads.map((read) => htgap(read)).reduce((acc, x) => acc + x, 0);
-  return (sum / len) * 2;
-};
+const calcGap = (reads) =>
+  (reads.map(htgap).reduce((acc, x) => acc + x) / reads.length) * 2;
 
 const kFormatter = (num) => {
   return Math.abs(num) > 999
@@ -234,8 +205,6 @@ const contigToHTML = (contig) => {
 </ul>`;
 };
 
-// Unpack
-// This is array.
 const compare_name = (contig1, contig2) => {
   const name1_vs = contig1.name.split("_").map((c) => parseInt(c));
   const name2_vs = contig2.name.split("_").map((c) => parseInt(c));
@@ -248,18 +217,37 @@ const compare_name = (contig1, contig2) => {
   }
 };
 
+const convertRead = (read) => {
+  // Input:Read
+  // Output: An object consists of three typed array: one Uint8Array and two Uint16Array.
+  // They are named "is_unit", "contig", and "unit" respectively.
+  // 1 is true, 0 is false for the is_unit array.
+  const name = read.name.repeat(1);
+  const cluster = read.cluster;
+  const is_unit = Uint8Array.from(
+    read.units.map((u) => (u.hasOwnProperty("E") ? 1 : 0))
+  );
+  const contig = Uint16Array.from(
+    read.units.map((u) => (u.hasOwnProperty("E") ? u.E[0] : u.G))
+  );
+  const unit = Uint16Array.from(
+    read.units.map((u) => (u.hasOwnProperty("E") ? u.E[1] : 0))
+  );
+  return {
+    name: name,
+    cluster: cluster,
+    is_unit: is_unit,
+    contig: contig,
+    unit: unit,
+  };
+};
+
 const plotData = (dataset, alignments, unit_length) =>
   Promise.all([dataset, alignments].map((file) => d3.json(file)))
     .then(([values, contig_alns]) => {
       // Margin between contigs
-      const contigs = values.contigs.sort(compare_name);
+      const contigs = values.contigs; //.sort(compare_name);
       const references = contig_alns.references;
-      for (const c of contigs) {
-        console.log("contig", c.name, c.id, c.length);
-      }
-      for (const r of references) {
-        console.log("reference", r.id, r.length);
-      }
       const colorScheme = d3.schemePaired;
       const bp_scale = calcScale(references);
       const height =
@@ -295,7 +283,7 @@ const plotData = (dataset, alignments, unit_length) =>
       // This is also an array.
       // const reads = values.reads;
       // Or select reads as you like.
-      const reads = values.reads.filter((r) => selectRead(r, unit_length));
+      const reads = values.reads.map(convertRead);
       // const critical_regions = [values.critical_regions[selected_region]];
       const clusters = values.clusters;
       // Calculate coordinate.
@@ -332,19 +320,24 @@ const plotData = (dataset, alignments, unit_length) =>
         })
         .attr("fill", "none")
         .attr("stroke", (c) => d3.schemeCategory10[c.id % 10]);
-      each_coverage_layer.each((c) => {
-        const max_cov = Math.max(...c.coverages);
-        const domain = [0, max_cov];
-        const range = [0, -coverage_scale(domain[1])];
-        console.log(domain, range, c.id);
-        const local_bp_scale = d3.scaleLinear().domain(domain).range(range);
-        const tV = Array.from({
-          length: Math.floor(max_cov / coverage_interval),
-        }).map((_, idx) => (idx + 1) * coverage_interval);
-        d3.selectAll(`.coverage-${c.id}`).call(
-          d3.axisTop(local_bp_scale).tickFormat(d3.format(".2s")).tickValues(tV)
-        );
-      });
+      each_coverage_layer
+        .each((c) => {
+          const max_cov = Math.max(coverage_interval, Math.max(...c.coverages));
+          const domain = [0, max_cov];
+          const range = [0, -coverage_scale(domain[1])];
+          const local_bp_scale = d3.scaleLinear().domain(domain).range(range);
+          const tV = Array.from({
+            length: Math.floor(max_cov / coverage_interval),
+          }).map((_, idx) => (idx + 1) * coverage_interval);
+          d3.selectAll(`.coverage-${c.id}`).call(
+            d3
+              .axisTop(local_bp_scale)
+              .tickFormat(d3.format(".2s"))
+              .tickValues(tV)
+          );
+        })
+        .selectAll(".tick text")
+        .attr("transform", "rotate(-15)");
       // Draw reads
       // read_layer
       //   .selectAll(".read")
@@ -353,7 +346,7 @@ const plotData = (dataset, alignments, unit_length) =>
       //   .append("path")
       //   .attr("class", "read")
       //   .attr("d", (read) =>
-      //     readToPath(read, handle_points, bp_scale, start_pos, unit_length)
+      //         readToPath(read, handle_points, bp_scale, start_pos, unit_length)
       //   )
       //   .attr("fill", "none")
       //   .attr("opacity", 0.3)
@@ -389,9 +382,11 @@ const plotData = (dataset, alignments, unit_length) =>
           );
         })
         .append("text")
-        .attr("x", -coverage_max)
-        .attr("y", (c) => bp_scale(c.length / 2))
-        .attr("rotate", 270)
+        .attr(
+          "transform",
+          (c) =>
+            `translate(-${coverage_max}, ${bp_scale(c.length / 2)}) rotate(90)`
+        )
         .attr("color", "black")
         .attr("fill", "black")
         .text((c) => `${c.id}`);

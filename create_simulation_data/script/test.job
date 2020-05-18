@@ -1,0 +1,28 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N CanuFlye
+#$ -cwd
+#$ -pe smp 24
+#$ -V
+
+READ=$1
+OUTPUT=$2
+# ---- Assembly(by Flye) ----
+mkdir -p ${OUTPUT}/flye/
+CORES=24
+genomesize=400K
+flye \
+    --pacbio-raw \
+    ${READ} \
+	--genome-size ${genomesize} \
+    --threads ${CORES} \
+    --iterations 10 \
+    --meta \
+    --out-dir ${OUTPUT}/flye
+
+
+# --- Canu ---
+canu \
+	genomeSize=400K \
+    useGrid=false\
+    -p assemble -d $OUTPUT/canu -pacbio-raw $READ

@@ -406,8 +406,8 @@ fn find_matching(
                 })
                 .filter_map(|(to, (cl2, cl2_boundary))| {
                     let intersect = cl1.intersection(cl2).count();
-                    let union = cl1_boundary.union(cl2_boundary).count();
-                    let sim = intersect as f64 / union as f64;
+                    let union = cl1_boundary.len() * cl2_boundary.len();
+                    let sim = intersect.pow(2) as f64 / union as f64;
                     debug!("{}->({:.3}={}/{})->{}", from, sim, intersect, union, to);
                     if sim > CONNECTION_THR {
                         Some((to, sim))
@@ -558,13 +558,13 @@ pub fn clustering_chunking(
     )
 }
 
-fn resume_clustering(
+fn merge_windows_by_bipartite(
     clusterings: Vec<Vec<HashSet<String>>>,
     windowlen: usize,
     forbidden: &HashMap<String, Vec<u8>>,
     initial_clusters: &[Cluster],
     data: &[ERead],
-) -> Vec<Option<u8>> {
+) -> Vec<HashSet<String>> {
     let max_cluster_num = clusterings.iter().map(|e| e.len()).max().unwrap_or(0);
     let lengths: HashMap<String, usize> = data
         .iter()
@@ -583,7 +583,7 @@ fn resume_clustering(
         }
     }
     // Then, iteratively take components.
-    let mut components: Vec<HashSet<String>> = (0..(max_cluster_num * windowlen))
+    (0..(max_cluster_num * windowlen))
         .filter_map(|parent| {
             if fu.find(parent).unwrap() == parent {
                 let component = clusterings
@@ -612,7 +612,14 @@ fn resume_clustering(
             }
         })
         .filter(|component| component.len() > find_breakpoint::COVERAGE_THR)
-        .collect();
+        .collect()
+}
+
+fn merge_by_initial_cluster(
+    forbidden: &HashMap<String, Vec<u8>>,
+    initial_clusters: &[Cluster],
+    mut components: Vec<HashSet<String>>,
+) -> Vec<HashSet<String>> {
     'merge: loop {
         let len = components.len();
         debug!("Current Cluster:{}", len);
@@ -645,19 +652,94 @@ fn resume_clustering(
         }
         break;
     }
-    // Filtering out clusters which do not overlap any initial clusters.
-    let components: Vec<HashSet<String>> = if initial_clusters.is_empty() {
+    components
+}
+
+fn merge_with_background(
+    data: &[ERead],
+    initial_clusters: &[Cluster],
+    components: Vec<HashSet<String>>,
+) -> Vec<HashSet<String>> {
+    let (components, background): (Vec<_>, Vec<_>) =
+        components.into_iter().partition(|component| {
+            initial_clusters
+                .iter()
+                .any(|cl| cl.ids().intersection(component).count() > 5)
+        });
+    let mut background = background.into_iter().fold(HashSet::new(), |mut x, y| {
+        x.extend(y);
+        x
+    });
+    let is_occupying = determine_occupy(&components, data);
+    let mut result = vec![];
+    for (component, is_occupying) in components.into_iter().zip(is_occupying) {
+        if is_occupying {
+            background.extend(component);
+        } else {
+            result.push(component);
+        }
+    }
+    result.push(background);
+    result
+}
+
+fn determine_occupy(components: &Vec<HashSet<String>>, data: &[ERead]) -> Vec<bool> {
+    let (matrix_pos, chain_len) = poa_clustering::to_pos(data);
+    let components: HashMap<_, usize> =
+        components
+            .iter()
+            .enumerate()
+            .fold(HashMap::new(), |mut x, (idx, cl)| {
+                for id in cl {
+                    x.insert(id.clone(), idx);
+                }
+                x
+            });
+    let mut count: Vec<_> = vec![vec![0; components.len()]; chain_len];
+    let mut total = vec![0; chain_len];
+    for (&cl, read) in data
+        .iter()
+        .filter_map(|r| components.get(r.id()).map(|cl| (cl, r)))
+    {
+        for unit in read.seq() {
+            let pos = matrix_pos[unit.contig()][unit.unit()];
+            count[pos][cl] += 1;
+            total[pos] += 1;
+        }
+    }
+    (0..components.len())
+        .map(|cl| {
+            count.iter().zip(total.iter()).any(|(pos, &tot)| {
+                pos.iter().enumerate().all(
+                    |(idx, &c)| {
+                        if idx == cl {
+                            c > 9 * tot / 10
+                        } else {
+                            c < 2
+                        }
+                    },
+                )
+            })
+        })
+        .collect()
+}
+
+fn resume_clustering(
+    clusterings: Vec<Vec<HashSet<String>>>,
+    windowlen: usize,
+    forbidden: &HashMap<String, Vec<u8>>,
+    initial_clusters: &[Cluster],
+    data: &[ERead],
+) -> Vec<Option<u8>> {
+    let components =
+        merge_windows_by_bipartite(clusterings, windowlen, forbidden, initial_clusters, data);
+    let components = merge_by_initial_cluster(forbidden, initial_clusters, components);
+    let components = if initial_clusters.is_empty() {
         components
     } else {
-        components
-            .into_iter()
-            .filter(|component| {
-                initial_clusters
-                    .iter()
-                    .any(|cl| cl.ids().intersection(component).count() > 10)
-            })
-            .collect()
+        merge_with_background(data, initial_clusters, components)
     };
+    // Filtering out clusters which do not overlap any initial clusters.
     debug!("Resulting in {} clusters.", components.len());
     let result: HashMap<String, u8> =
         components

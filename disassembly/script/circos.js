@@ -12,14 +12,15 @@ const jitters = d3.randomNormal(0, eplison);
 const confluent_margin = 0.01;
 // Radius
 const contig_radius = 400;
-const contig_thick = 20;
+const contig_thick = 10;
 const coverage_min = contig_radius;
 const coverage_max = coverage_min + 100;
 const handle_points_radius = 100;
-const read_radius = 380;
-const start_stop_radius = 380;
-const start_stop_max = 300;
-const gap_thr = 1000;
+const read_radius = contig_radius - contig_thick;
+const start_stop_radius = read_radius;
+const start_stop_max = read_radius - 80;
+const start_stop_break = 50;
+const gap_thr = 2000;
 
 // Circle radius
 const offset = 0;
@@ -152,7 +153,6 @@ const readToPath = (
   let path = d3.path();
   const r = read_radius;
   let gap = 0;
-  let unit = {};
   let index = 0;
   while (read.is_unit[index] == 0 && index < read.is_unit.length) {
     gap = read.contig[index];
@@ -163,15 +163,15 @@ const readToPath = (
   let current_unit = read.unit[index];
   let start = start_pos[contig] - Math.PI / 2;
   let radian = start + bp_scale(unit_length * current_unit);
-  if (gap != 0) {
-    path.moveTo(
-      contig_radius * Math.cos(radian),
-      contig_radius * Math.sin(radian)
-    );
-    path.lineTo(read_radius * Math.cos(radian), read_radius * Math.sin(radian));
-  } else {
-    path.moveTo(read_radius * Math.cos(radian), read_radius * Math.sin(radian));
-  }
+  //if (gap != 0) {
+  //   path.moveTo(
+  //     contig_radius * Math.cos(radian),
+  //     contig_radius * Math.sin(radian)
+  //   );
+  //   path.lineTo(read_radius * Math.cos(radian), read_radius * Math.sin(radian));
+  // } else {
+  path.moveTo(read_radius * Math.cos(radian), read_radius * Math.sin(radian));
+  //  }
   gap = 0;
   for (; index < read.unit.length; index += 1) {
     if (read.is_unit[index] == 0) {
@@ -206,13 +206,13 @@ const readToPath = (
       );
     }
   }
-  if (gap != 0) {
-    path.moveTo(
-      contig_radius * Math.cos(radian),
-      contig_radius * Math.sin(radian)
-    );
-    path.lineTo(read_radius * Math.cos(radian), read_radius * Math.sin(radian));
-  }
+  // if (gap != 0) {
+  //   path.moveTo(
+  //     contig_radius * Math.cos(radian),
+  //     contig_radius * Math.sin(radian)
+  //   );
+  //   path.lineTo(read_radius * Math.cos(radian), read_radius * Math.sin(radian));
+  // }
   return path.toString();
 };
 
@@ -223,20 +223,6 @@ const getNumOfGapRead = (reads) => {
   // Return numbers of reads which is just Gap.
   return reads.every((read) => read.is_unit == 0).length;
 };
-
-// Below, critical object is a json ob
-// {'CP': {'contig1': {'contig': 0,
-//    'start_unit': 132,
-//    'end_unit': 500,
-//    'direction': 'UpStream'},
-//   'contig2': {'contig': 0,
-//    'start_unit': 1223,
-//    'end_unit': 2432,
-//    'direction': 'DownStream'}}}
-// {'CR': {'pos': {'contig': 0,
-//    'start_unit': 132,
-//    'end_unit': 500,
-//    'direction': 'UpStream'}}}
 
 const criticalpairToPath = (
   cp,
@@ -546,7 +532,7 @@ const plotData = (dataset, repeats, unit_length) =>
         .text((c) => `${c.name}`);
       const selection_on_ticks = selection_on_each_contig
         .append("g")
-        .selectAll(".contig-tick")
+        .selectAll(".tick")
         .data((contig) => {
           const len = contig.length / reference_tick;
           return Array.from({ length: len }).map((_, idx) => {
@@ -558,6 +544,7 @@ const plotData = (dataset, repeats, unit_length) =>
         })
         .enter()
         .append("g")
+        .attr("class", "tick")
         .attr(
           "transform",
           (d) =>
@@ -654,8 +641,11 @@ const plotData = (dataset, repeats, unit_length) =>
         const domain = [0, max_num];
         const range = [-start_stop_radius, -readnum_scale(max_num)];
         const local_scale = d3.scaleLinear().domain(domain).range(range);
+        const tV = Array.from({
+          length: Math.floor(max_num / start_stop_break),
+        }).map((_, idx) => (idx + 1) * start_stop_break);
         d3.selectAll(`.start-stop-${contig.id}`).call(
-          d3.axisLeft(local_scale).ticks(2)
+          d3.axisLeft(local_scale).tickValues(tV)
         );
       });
       const max_lengths = contigs.map((c) => c.length / unit_length);
@@ -677,7 +667,7 @@ const plotData = (dataset, repeats, unit_length) =>
           )
         )
         .attr("fill", "none")
-        .attr("opacity", 0.3)
+        .attr("opacity", 0.1)
         .attr("stroke", (read) => "black");
       // Draw critical regions.
       const max_cluster_id = Math.max(...clusters.map((d) => d.id));
@@ -695,9 +685,6 @@ const plotData = (dataset, repeats, unit_length) =>
         .attr("stroke", (d) => d3.schemeCategory10[(d.cluster + 1) % 10])
         .attr("stroke-width", (member) =>
           member.cr.hasOwnProperty("CP") ? 5 : 5
-        )
-        .attr("stroke-linecap", (memmer) =>
-          memmer.cr.hasOwnProperty("CP") ? "round" : "none"
         )
         .attr("opacity", (member) =>
           member.cr.hasOwnProperty("CP") ? 0.4 : 0.5

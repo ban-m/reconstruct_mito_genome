@@ -126,5 +126,6 @@ mmmm create_viewer --assignments ${OUTPUT}/readlist.tsv \
      --output_dir ${OUTPUT}/viewer/ \
      --read_aln ${OUTPUT}/allreads.aln.tab \
      --reads ${READ} \
-     --reference ${REFERENCE}
+     --reference ${REFERENCE}\
+     --min_align_length 1000
 

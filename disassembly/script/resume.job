@@ -9,42 +9,41 @@
 #$ -m e
 set -ue
 
-# REFERENCE=${PWD}/data/NC_037304_1.fa
-# READ=${PWD}/result/pacbio/filtered_read/filtered_read.fa
-# OUTPUT=${PWD}/result/pacbio/
-# RESUME=${PWD}/result/pacbio_resume/
-# CORES=12
-# ROOT=${PWD}
-
-REFERENCE=/grid/ban-m/arabidopsis_thaliana/genome/JF729202.fasta
-READ=${PWD}/result/ler_ler/filtered_read/filtered_read.fa
-RESUME=${PWD}/result/ler_ler_2
-OUTPUT=${PWD}/result/ler_ler/
+REFERENCE=${PWD}/data/NC_037304_1.fa
+READ=${PWD}/result/pacbio/filtered_read/filtered_read.fa
+OUTPUT=${PWD}/result/pacbio/
+RESUME=${PWD}/result/pacbio_resume/
 CORES=12
 ROOT=${PWD}
+
+# REFERENCE=/grid/ban-m/arabidopsis_thaliana/genome/JF729202.fasta
+# READ=${PWD}/result/ler_ler/filtered_read/filtered_read.fa
+# RESUME=${PWD}/result/ler_ler_2
+# OUTPUT=${PWD}/result/ler_ler/
+# CORES=12
+# ROOT=${PWD}
 LIMIT=2000
 MIN_CLUSTER=4
 
 ### ---- Decompose --- 
-mmmm decompose --alignments ${OUTPUT}/last_db/alignments.tab \
+mmmm resume --alignments ${OUTPUT}/last_db/alignments.tab \
      --output ${RESUME} \
      --reads ${READ} --contigs ${REFERENCE} \
      --self_alignments ${OUTPUT}/last_db/self.tab \
-     --cluster_num ${MIN_CLUSTER} --threads ${CORES} \
-     --limit ${LIMIT}\
+     --dump_file ${PWD}/logfiles/pacbio.log\
      -vv
-mmmm decompose --alignments ${OUTPUT}/last_db/alignments.tab \
+
+mmmm resume --alignments ${OUTPUT}/last_db/alignments.tab \
      --output ${RESUME}/no_merge \
      --no_merge \
      --reads ${READ} --contigs ${REFERENCE} \
      --self_alignments ${OUTPUT}/last_db/self.tab \
-     --cluster_num ${MIN_CLUSTER} --threads ${CORES} \
-     --limit ${LIMIT}\
+     --dump_file ${PWD}/logfiles/pacbio.log\
      -vv
-exit 0;
+
 
 # ---- Assembly(by Flye) ----
-for reads in $( find ${OUTPUT} -maxdepth 1 -name "*.fasta")
+for reads in $( find ${RESUME} -maxdepth 1 -name "*.fasta")
 do
     ASM_PATH=${reads%%.fasta}
     INDEX=${ASM_PATH##*/}
@@ -57,23 +56,14 @@ do
         useGrid=false\
         -pacbio-raw \
         ${RESUME}/${INDEX}/reads.fa
-    # flye \
-    #     --asm-coverage 40\
-    #     --pacbio-raw $reads \
-    #     --meta \
-	#     --genome-size ${genomesize} \
-    #     --threads ${CORES} \
-    #     --iterations 3 \
-    #     --out-dir ${RESUME}/${INDEX}
 done
-exit 0;
 
 # ---- Align back all reads ----
 cargo run --release --bin collect_contigs -- ${RESUME}
 for contigs in  $( find ${RESUME} -maxdepth 1 -name "*contigs.fasta" )
 do
     reads=${contigs%%.contigs.fasta}.fasta
-    cd ${OUTPUT}/last_db
+    cd ${RESUME}/last_db
     lastdb -R00 temp ${contigs}
     last-train -P${CORES} -Q0 temp ${reads} > temp.matrix
     lastal -f maf -P${CORES} -R00 -Q0 -p temp.matrix temp ${reads} |\
@@ -90,7 +80,7 @@ rm ${RESUME}/*.reads.aln.tab ${RESUME}/*.contigs.aln.tab
 
 
 # ---- Create viewer files -----
-mmmm create_viewer --assignments ${OUTPUT}/readlist.tsv \
+mmmm create_viewer --assignments ${RESUME}/readlist.tsv \
      --contig_aln ${RESUME}/allcontigs.aln.tab \
      --contigs ${RESUME}/multipartite.fasta \
      --output_dir ${RESUME}/viewer/ \
