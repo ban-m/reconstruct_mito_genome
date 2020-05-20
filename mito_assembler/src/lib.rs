@@ -17,38 +17,37 @@ pub fn dump_viewer(
     contigs: &Contigs,
 ) -> std::io::Result<String> {
     let clusters = summarize_clusters(clusters, results);
-    for cl in clusters.iter() {
-        debug!("{:?}", cl);
-    }
     let summary = convert_to_d3_data_with_assign(&contigs, &reads, &clusters, &results);
     Ok(serde_json::ser::to_string(&summary).unwrap())
 }
 
 fn summarize_clusters(clusters: &[Cluster], results: &HashMap<String, u8>) -> Vec<Cluster> {
     let max = results.values().copied().max().unwrap_or(0) as usize;
-    (0..=max)
-        .map(|cl| {
-            let reads: std::collections::HashSet<_> = results
-                .iter()
-                .filter(|&(_, &e)| e == cl as u8)
-                .map(|e| e.0)
-                .cloned()
-                .collect();
-            let members: Vec<_> = clusters
-                .iter()
-                .filter(|cl| cl.ids().intersection(&reads).count() > COVERAGE_THR)
-                .flat_map(|cluster| {
-                    cluster.members.iter().map(|e| {
-                        use last_decompose::find_breakpoint::Member;
-                        Member {
-                            cr: e.cr.clone(),
-                            cluster: cl,
-                        }
-                    })
-                })
-                .collect();
-            let id = cl;
-            Cluster { id, members }
+    let mut aggregated: Vec<_> = (0..=max)
+        .map(|id| Cluster {
+            id,
+            members: vec![],
         })
-        .collect()
+        .collect();
+    use last_decompose::find_breakpoint::ReadClassify;
+    for cluster in clusters {
+        // Collect the reads and clusters
+        let reads: std::collections::HashMap<u8, usize> = results
+            .iter()
+            .filter(|&(ref id, _)| cluster.has(id))
+            .map(|e| e.1)
+            .fold(HashMap::new(), |mut x, &y| {
+                *x.entry(y).or_default() += 1;
+                x
+            });
+        // Determine which clusters these initial cluster should be put on.
+        if let Some((&argmax, _)) = reads.iter().max_by_key(|x| x.1) {
+            let members = cluster.members.iter().cloned().map(|mut mem| {
+                mem.cluster = argmax as usize;
+                mem
+            });
+            aggregated[argmax as usize].members.extend(members);
+        }
+    }
+    aggregated
 }

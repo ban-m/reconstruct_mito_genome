@@ -6,13 +6,14 @@ use rand::distributions::Standard;
 use rand::{seq::SliceRandom, thread_rng, Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
-const BETA_INCREASE: f64 = 1.05;
-const BETA_DECREASE: f64 = 1.1;
+const BETA_INCREASE: f64 = 1.02;
+const BETA_DECREASE: f64 = 1.05;
+const BETA_MAX: f64 = 0.8;
 const SMALL_WEIGHT: f64 = 0.000_000_001;
 const REP_NUM: usize = 3;
 const GIBBS_PRIOR: f64 = 0.02;
 const STABLE_LIMIT: u32 = 10;
-const IS_STABLE: u32 = 8;
+const IS_STABLE: u32 = 7;
 const VARIANT_FRACTION: f64 = 0.9;
 
 // Serialize units in read. In other words,
@@ -172,7 +173,6 @@ fn update_assignments(
     forbidden: &[Vec<u8>],
     beta: f64,
 ) -> u32 {
-    //let choises: Vec<_> = (0..cluster_num).map(|e| e as u8).collect();
     let fraction_on_positions: Vec<Vec<f64>> = {
         let cl = models[0].len();
         let mut total_count = vec![0; cl];
@@ -237,6 +237,11 @@ fn update_assignments(
                         .recip()
                 })
                 .collect();
+            // {
+            //     let tot = weights.iter().sum::<f64>();
+            //     let w: Vec<_> = weights.iter().map(|x| format!("{:.3}", x)).collect();
+            //     debug!("{}", w.join(","));
+            // }
             let chosen = {
                 let (mut max, mut argmax) = (-0.1, 0);
                 for (cl, &p) in weights.iter().enumerate() {
@@ -328,7 +333,7 @@ where
     if ok {
         res
     } else {
-        let params = (limit / 2, 2. * pick_prob, 2 * sum);
+        let params = (limit / 2, 3. * pick_prob, 3 * sum);
         gibbs_sampling_inner(data, labels, f, cluster_num, params, config, aln).0
     }
 }
@@ -386,16 +391,12 @@ fn print_lk_gibbs<F>(
     }
 }
 
-fn gen_assignment<R: Rng>(not_allowed: &[u8], _occed: &[u8], rng: &mut R, c: usize) -> u8 {
+fn gen_assignment<R: Rng>(not_allowed: &[u8], occed: &[u8], rng: &mut R, c: usize) -> u8 {
     loop {
         let a = rng.gen_range(0, c) as u8;
-        if !not_allowed.contains(&a) {
+        if !not_allowed.contains(&a) && !occed.contains(&a) {
             break a;
         }
-
-        // if !not_allowed.contains(&a) && !occed.contains(&a) {
-        //     break a;
-        // }
     }
 }
 
@@ -423,7 +424,6 @@ where
         t.dedup();
         t
     };
-    debug!("Occ:{:?}", occupied);
     let mut assignments: Vec<_> = (0..data.len())
         .map(|idx| {
             if idx < label.len() {
@@ -433,7 +433,7 @@ where
             }
         })
         .collect();
-    let mut beta = 0.001;
+    let mut beta = 0.0005;
     let mut count = 0;
     let mut predictions = std::collections::VecDeque::new();
     let asn = &mut assignments;
@@ -446,13 +446,13 @@ where
     while count < STABLE_LIMIT {
         let (variants, next_lk) = get_variants(&data, asn, tuple, rng, config, param);
         let (variants, pos) = select_variants(variants, chain_len);
-        let betas = normalize_weights(&variants, 1.);
+        let betas = normalize_weights(&variants, 2.);
         beta *= match lk.partial_cmp(&next_lk) {
             Some(std::cmp::Ordering::Less) => BETA_DECREASE,
             Some(std::cmp::Ordering::Greater) => BETA_INCREASE,
             _ => 1.,
         };
-        beta = beta.min(1.);
+        beta = beta.min(BETA_MAX);
         info!("LK\t{}\t{:.3}\t{:.3}\t{:.1}", count, next_lk, lk, beta);
         lk = next_lk;
         let changed_num = (0..pick_prob.recip().ceil() as usize / 2)

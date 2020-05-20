@@ -413,8 +413,8 @@ const crToHTML = (cr, cluster) => {
   }
 };
 
-const calcCoverageOf = (reads, contigs) => {
-  // Input: List of JSON object, List of JSON object.
+const calcCoverageOf = (reads, contigs, members) => {
+  // Input: List of JSON object, List of JSON object, JSON object.
   // Output: List of JSON object
   // Requirements: An element of the first argument should be a JSON object having following
   // members: name => String, cluster => List of Integer, units => List of JSON Object.
@@ -439,12 +439,32 @@ const calcCoverageOf = (reads, contigs) => {
       }
     }
   }
+  const positions = members.flatMap((member) => {
+    const cr = member.cr;
+    if (cr.hasOwnProperty("CP")) {
+      return [cr.CP.contig1, cr.CP.contig2];
+    } else if (cr.hasOwnProperty("CR")) {
+      return [cr.CR.pos];
+    }
+  });
+  const MAX_COV = 10000;
+  for (const pos of positions) {
+    const contig = pos.contig;
+    const start = pos.start_unit;
+    results[contig].cov[start] = MAX_COV;
+  }
   return results.map((data) => {
     data.cov = data.cov
       .map((d, idx) => {
         return { cov: d, pos: idx };
       })
-      .filter((d) => d.cov > 1);
+      .filter((d) => d.cov > 1)
+      .map((d) => {
+        if (d.cov === MAX_COV) {
+          d.cov = 0;
+        }
+        return d;
+      });
     return data;
   });
 };
@@ -704,14 +724,13 @@ const plotData = (dataset, repeats, unit_length) =>
           } else {
             is_active[cluster] = true;
             const supporting_reads = reads.filter((r) => r.cluster == cluster);
-            //const contents = crToHTML(member.cr, cluster, supporting_reads);
             let contents = critical_regions.reduce((acc, member, idx) => {
               if (member.cluster == cluster) {
                 const html = crToHTML(member.cr, idx);
                 acc += html;
               }
               return acc;
-            }, "");
+            }, `<div>Cluster ${cluster}</div>`);
             const count = supporting_reads.length;
             const meangap = calcGap(supporting_reads);
             const support = `<div>Supporing Reads:${count}</div>`;
@@ -734,7 +753,13 @@ const plotData = (dataset, repeats, unit_length) =>
               .attr("height", 20)
               .attr("rx", 2)
               .attr("fill", d3.schemeCategory10[(cluster + 1) % 10]);
-            const coverages = calcCoverageOf(supporting_reads, contigs);
+            const members = clusters.find((cl) => cl.id === cluster).members;
+            console.log(members);
+            const coverages = calcCoverageOf(
+              supporting_reads,
+              contigs,
+              members
+            );
             temp_coverage_layer
               .selectAll(".tempcoverage")
               .data(coverages)

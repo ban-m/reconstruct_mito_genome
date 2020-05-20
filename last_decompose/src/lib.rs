@@ -38,8 +38,8 @@ const WINDOW_SIZE: usize = 250;
 const OVERLAP: usize = 60;
 const MIN_LEN: usize = 6_000;
 const CONNECTION_THR: f64 = 0.8;
-const MERGE_THR: usize = 5;
-const NG_THR: usize = 4;
+const MERGE_THR: usize = 50;
+const NG_THR: usize = 0;
 type Read = Vec<(usize, Vec<u8>)>;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
@@ -52,7 +52,7 @@ pub fn decompose(
     cluster_num: usize,
     limit: u64,
 ) -> Vec<(String, Option<u8>)> {
-    let (mut dataset, labels, masked_region, forbidden) =
+    let (dataset, labels, masked_region, forbidden) =
         initial_clustering(encoded_reads, initial_clusters, contigs, repeats);
     let total_units = dataset.iter().map(|read| read.seq().len()).sum::<usize>();
     debug!("{} reads and {} units.", dataset.len(), total_units);
@@ -68,14 +68,14 @@ pub fn decompose(
         .flat_map(|(idx, (len, mask))| create_windows(idx, *len, mask))
         .collect();
     // Remove chunks from masked region.
-    dataset.iter_mut().for_each(|read| {
-        read.seq = read
-            .seq
-            .iter()
-            .filter(|u| !masked_region[u.contig()][u.unit()])
-            .cloned()
-            .collect();
-    });
+    // dataset.iter_mut().for_each(|read| {
+    //     read.seq = read
+    //         .seq
+    //         .iter()
+    //         .filter(|u| !masked_region[u.contig()][u.unit()])
+    //         .cloned()
+    //         .collect();
+    // });
     let predicts = clustering_chunking(
         &dataset,
         &labels,
@@ -134,20 +134,13 @@ fn initial_clustering(
     let mut labels: Vec<_> = vec![];
     let (assigned_reads, unassigned_reads): (Vec<_>, Vec<_>) = encoded_reads
         .into_iter()
-        .filter_map(|mut read| {
+        .inspect(|read| {
             let forbid: Vec<_> = initial_clusters
                 .iter()
                 .filter(|cluster| cluster.is_spanned_by(&read))
                 .map(|c| c.id as u8)
                 .collect();
-            let seq: Vec<_> = read.seq().iter().cloned().collect();
             forbidden.insert(read.id().to_string(), forbid);
-            if seq.is_empty() {
-                None
-            } else {
-                *read.seq_mut() = seq;
-                Some(read)
-            }
         })
         .partition(|read| {
             let matched_cluster = initial_clusters
@@ -162,7 +155,7 @@ fn initial_clustering(
             }
         });
     assert_eq!(labels.len(), assigned_reads.len());
-    assert!(assigned_reads.len() + unassigned_reads.len() <= datasize);
+    assert_eq!(assigned_reads.len() + unassigned_reads.len(), datasize);
     debug!(
         "Unassigned reads before removing contained:{}",
         unassigned_reads.len()
@@ -611,7 +604,6 @@ fn merge_windows_by_bipartite(
                 None
             }
         })
-        .filter(|component| component.len() > find_breakpoint::COVERAGE_THR)
         .collect()
 }
 
@@ -620,37 +612,18 @@ fn merge_by_initial_cluster(
     initial_clusters: &[Cluster],
     mut components: Vec<HashSet<String>>,
 ) -> Vec<HashSet<String>> {
-    'merge: loop {
-        let len = components.len();
-        debug!("Current Cluster:{}", len);
-        for i in 0..len {
-            for j in (i + 1)..len {
-                for (k, initial_cluster) in initial_clusters.iter().enumerate() {
-                    let (share_i, ng_i) = get_overlap(&components[i], initial_cluster, forbidden);
-                    let (share_j, ng_j) = get_overlap(&components[j], initial_cluster, forbidden);
-                    if share_i > MERGE_THR && share_j > MERGE_THR && ng_i < NG_THR && ng_i < NG_THR
-                    {
-                        debug!("{} shares/ng {}/{} reads with {}", i, share_i, ng_j, k);
-                        debug!("{} shares/ng {}/{} reads with {}", j, share_j, ng_j, k);
-                        let from = components.remove(j);
-                        components[i].extend(from);
-                        let ngs: Vec<_> = components[i]
-                            .iter()
-                            .filter(|id| match forbidden.get(id.as_str()) {
-                                Some(forbids) => forbids.contains(&(initial_cluster.id as u8)),
-                                None => false,
-                            })
-                            .cloned()
-                            .collect();
-                        for id in ngs {
-                            components[i].remove(&id);
-                        }
-                        continue 'merge;
-                    }
-                }
-            }
-        }
-        break;
+    for cluster in initial_clusters {
+        components = {
+            let (merged, mut result): (Vec<_>, Vec<_>) = components
+                .into_iter()
+                .partition(|c| is_overlap(c, cluster, forbidden));
+            let merged = merged.into_iter().fold(HashSet::new(), |mut acc, x| {
+                acc.extend(x);
+                acc
+            });
+            result.push(merged);
+            result
+        };
     }
     components
 }
@@ -659,20 +632,32 @@ fn merge_with_background(
     data: &[ERead],
     initial_clusters: &[Cluster],
     components: Vec<HashSet<String>>,
+    forbidden: &HashMap<String, Vec<u8>>,
 ) -> Vec<HashSet<String>> {
     let (components, background): (Vec<_>, Vec<_>) =
         components.into_iter().partition(|component| {
             initial_clusters
                 .iter()
-                .any(|cl| cl.ids().intersection(component).count() > 5)
+                .any(|cl| cl.ids().intersection(component).count() > MERGE_THR)
         });
     let mut background = background.into_iter().fold(HashSet::new(), |mut x, y| {
         x.extend(y);
         x
     });
+    let _forbidden: HashSet<_> = background
+        .iter()
+        .filter_map(|id| forbidden.get(id))
+        .flat_map(|t| t)
+        .copied()
+        .collect();
     let is_occupying = determine_occupy(&components, data);
     let mut result = vec![];
     for (component, is_occupying) in components.into_iter().zip(is_occupying) {
+        let _cluster: HashSet<_> = initial_clusters
+            .iter()
+            .filter(|cl| component.iter().filter(|id| cl.has(id)).count() > 10)
+            .map(|cl| cl.id as u8)
+            .collect();
         if is_occupying {
             background.extend(component);
         } else {
@@ -697,29 +682,28 @@ fn determine_occupy(components: &Vec<HashSet<String>>, data: &[ERead]) -> Vec<bo
             });
     let mut count: Vec<_> = vec![vec![0; components.len()]; chain_len];
     let mut total = vec![0; chain_len];
-    for (&cl, read) in data
-        .iter()
-        .filter_map(|r| components.get(r.id()).map(|cl| (cl, r)))
-    {
-        for unit in read.seq() {
-            let pos = matrix_pos[unit.contig()][unit.unit()];
-            count[pos][cl] += 1;
-            total[pos] += 1;
+    for read in data.iter() {
+        if let Some(&cl) = components.get(read.id()) {
+            for unit in read.seq() {
+                let pos = matrix_pos[unit.contig()][unit.unit()];
+                count[pos][cl] += 1;
+                total[pos] += 1;
+            }
+        } else {
+            for unit in read.seq() {
+                let pos = matrix_pos[unit.contig()][unit.unit()];
+                total[pos] += 1;
+            }
         }
     }
+    let thr = total.iter().sum::<usize>() / total.len();
     (0..components.len())
         .map(|cl| {
-            count.iter().zip(total.iter()).any(|(pos, &tot)| {
-                pos.iter().enumerate().all(
-                    |(idx, &c)| {
-                        if idx == cl {
-                            c > 9 * tot / 10
-                        } else {
-                            c < 2
-                        }
-                    },
-                )
-            })
+            count
+                .iter()
+                .zip(total.iter())
+                .filter(|x| *x.1 > thr)
+                .any(|(pos, &tot)| pos[cl] > 8 * tot / 10)
         })
         .collect()
 }
@@ -737,9 +721,8 @@ fn resume_clustering(
     let components = if initial_clusters.is_empty() {
         components
     } else {
-        merge_with_background(data, initial_clusters, components)
+        merge_with_background(data, initial_clusters, components, forbidden)
     };
-    // Filtering out clusters which do not overlap any initial clusters.
     debug!("Resulting in {} clusters.", components.len());
     let result: HashMap<String, u8> =
         components
@@ -747,25 +730,25 @@ fn resume_clustering(
             .enumerate()
             .fold(HashMap::new(), |mut acc, (idx, cluster)| {
                 for read_name in cluster {
-                    *acc.entry(read_name).or_default() = idx as u8;
+                    acc.insert(read_name, idx as u8);
                 }
                 acc
             });
     data.iter().map(|r| result.get(r.id()).cloned()).collect()
 }
 
-fn get_overlap(
+fn is_overlap(
     component: &HashSet<String>,
     cluster: &Cluster,
     forbids: &HashMap<String, Vec<u8>>,
-) -> (usize, usize) {
+) -> bool {
     let ngs: usize = component
         .iter()
         .filter_map(|id| forbids.get(id))
         .filter(|forbid| forbid.contains(&(cluster.id as u8)))
         .count();
     let share = component.iter().filter(|id| cluster.has(id)).count();
-    (share, ngs)
+    share > MERGE_THR && ngs <= NG_THR
 }
 
 fn dump_pred(assignments: &[Option<u8>], data: &[ERead], idx: usize) {
