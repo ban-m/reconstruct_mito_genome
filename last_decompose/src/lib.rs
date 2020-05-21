@@ -39,7 +39,7 @@ const OVERLAP: usize = 60;
 const MIN_LEN: usize = 6_000;
 const CONNECTION_THR: f64 = 0.8;
 const MERGE_THR: usize = 50;
-const NG_THR: usize = 0;
+const NG_THR: usize = 10;
 type Read = Vec<(usize, Vec<u8>)>;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
@@ -398,11 +398,11 @@ fn find_matching(
                     is_mergiable(from, to, cl1, cl2, forbidden, initial_clusters)
                 })
                 .filter_map(|(to, (cl2, cl2_boundary))| {
-                    let intersect = cl1.intersection(cl2).count();
+                    let intersect = cl1.intersection(cl2).count().pow(2);
                     let union = cl1_boundary.len() * cl2_boundary.len();
-                    let sim = intersect.pow(2) as f64 / union as f64;
+                    let sim = (intersect as f64 / union as f64).sqrt();
                     debug!("{}->({:.3}={}/{})->{}", from, sim, intersect, union, to);
-                    if sim > CONNECTION_THR {
+                    if sim > CONNECTION_THR || union == 0 {
                         Some((to, sim))
                     } else {
                         None
@@ -430,7 +430,7 @@ fn is_mergiable(
     let cl1_cluster: HashSet<_> = clusters
         .iter()
         .filter_map(|cl| {
-            if cl1.iter().any(|id| cl.has(id)) {
+            if cl1.iter().filter(|id| cl.has(id)).count() > 10 {
                 Some(cl.id as u8)
             } else {
                 None
@@ -440,7 +440,7 @@ fn is_mergiable(
     let cl2_cluster: HashSet<_> = clusters
         .iter()
         .filter_map(|cl| {
-            if cl2.iter().any(|id| cl.has(id)) {
+            if cl2.iter().filter(|id| cl.has(id)).count() > 10 {
                 Some(cl.id as u8)
             } else {
                 None
@@ -613,10 +613,12 @@ fn merge_by_initial_cluster(
     mut components: Vec<HashSet<String>>,
 ) -> Vec<HashSet<String>> {
     for cluster in initial_clusters {
+        debug!("Merging by {:?}", cluster);
         components = {
             let (merged, mut result): (Vec<_>, Vec<_>) = components
                 .into_iter()
                 .partition(|c| is_overlap(c, cluster, forbidden));
+            debug!("There are {} cluster merged.", merged.len());
             let merged = merged.into_iter().fold(HashSet::new(), |mut acc, x| {
                 acc.extend(x);
                 acc
@@ -748,6 +750,7 @@ fn is_overlap(
         .filter(|forbid| forbid.contains(&(cluster.id as u8)))
         .count();
     let share = component.iter().filter(|id| cluster.has(id)).count();
+    debug!("Shares {} reads, NGS {} reads.", share, ngs);
     share > MERGE_THR && ngs <= NG_THR
 }
 

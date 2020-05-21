@@ -9,10 +9,10 @@
 #$ -m e
 set -ue
 
-REFERENCE=${PWD}/data/NC_037304_1.fa
-READ=${PWD}/result/pacbio/filtered_read/filtered_read.fa
-OUTPUT=${PWD}/result/pacbio/
-RESUME=${PWD}/result/pacbio_resume/
+REFERENCE=${PWD}/../create_simulation_data/data/complex/reference.fa
+READ=${PWD}/result/complex1/filtered_read/filtered_read.fa
+OUTPUT=${PWD}/result/complex1/
+RESUME=${PWD}/result/complex1_resume/
 CORES=12
 ROOT=${PWD}
 
@@ -33,16 +33,16 @@ mmmm resume --alignments ${OUTPUT}/last_db/alignments.tab \
      --output ${RESUME} \
      --reads ${READ} --contigs ${REFERENCE} \
      --self_alignments ${OUTPUT}/last_db/self.tab \
-     --dump_file ${PWD}/logfiles/pacbio.log\
+     --dump_file ${PWD}/logfiles/complex1.log\
      -vv
 
-mmmm resume --alignments ${OUTPUT}/last_db/alignments.tab \
-     --output ${RESUME}/no_merge \
-     --no_merge \
-     --reads ${READ} --contigs ${REFERENCE} \
-     --self_alignments ${OUTPUT}/last_db/self.tab \
-     --dump_file ${PWD}/logfiles/pacbio.log\
-     -vv
+# mmmm resume --alignments ${OUTPUT}/last_db/alignments.tab \
+#      --output ${RESUME}/no_merge \
+#      --no_merge \
+#      --reads ${READ} --contigs ${REFERENCE} \
+#      --self_alignments ${OUTPUT}/last_db/self.tab \
+#      --dump_file ${PWD}/logfiles/pacbio.log\
+#      -vv
 exit 0;
 
 # ---- Assembly(by Flye) ----

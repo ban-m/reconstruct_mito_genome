@@ -2,7 +2,7 @@
 
 ROOT=/work/ban-m/arabidopsis_mitochondria/create_simulation_data/data
 OUTPUT=${PWD}/result
-qsub -o ./logfiles/complex1_t.log -j y ./script/disassembly.job \
+qsub -o ./logfiles/complex1.log -j y ./script/disassembly.job \
      ${ROOT}/complex/reference.fa \
      ${ROOT}/complex/read_complex1.fa \
      ${OUTPUT}/complex1/ 3

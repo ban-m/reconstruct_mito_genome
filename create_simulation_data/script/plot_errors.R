@@ -1,29 +1,19 @@
-library("tidyverse")loadNamespace("cowplot")
+library("tidyverse")
+loadNamespace("cowplot")
 ## ===== Setting for usual use ======
 generalplot <- function(g,name){
     cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
                     plot = g + cowplot::theme_cowplot(font_size=12),
-                    dpi=350,width = 178,height = 86,units="mm")
+                    dpi=600,width = 178 + 86,height = 86,units="mm")
     cowplot::ggsave(filename = paste0("./png/",name,".png"),
                     plot = g + cowplot::theme_cowplot(font_size=12),
-                    dpi = 350,width = 178,height = 86,units="mm")
+                    dpi = 600,width = 178 + 86,height = 86,units="mm")
 }
-
-## generalplot <- function(g,name){
-##     cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
-##                     plot = g + cowplot::theme_cowplot())
-##     cowplot::ggsave(filename = paste0("./png/",name,".png"),
-##                     plot = g + cowplot::theme_cowplot())
-## }
-
 
 args <- commandArgs(trailingOnly = TRUE)
 filename <- args[1]
 outname <- args[2]
-## dataset <- read_tsv("./result/last_decompose_gibbs_test.txt", col_names=FALSE)
-## dataset <- read_tsv("./result/last_decompose_gibbs_150.tsv", col_names=FALSE)
-## dataset <- read_tsv("./result/last_decompose_poa.tsv", col_names=FALSE)
-## dataset <- read_tsv("./result/last_decompose_dbg.tsv", col_names=FALSE)
+# dataset <- read_tsv("./result/last_decompose_num_poa.tsv", col_names=FALSE)
 dataset <- read_tsv(filename, col_names=FALSE)
 
 accs <- dataset %>% mutate(acc1 = X4 + X7, acc2 = X5 + X6, acc = pmax(acc1, acc2)) %>%
@@ -62,4 +52,9 @@ g <- accs %>%
     labs(x = "Total Coverage", y = "Accuracy", color = "Number of Variants\nout of 9K bp")
 
 generalplot(g,paste0(outname,"_boxplot"))
-   
+
+g <- accs %>% filter(X9 %in% c(80, 110, 150)) %>%
+    ggplot() + geom_boxplot(mapping = aes(x = factor(X9), y = acc, color = factor(X10))) +
+    labs(x = "Total Coverage", y = "Accuracy", color = "Number of Variants\nout of 9K bp") +
+    coord_flip()
+generalplot(g,paste0(outname,"_boxplot_flip"))

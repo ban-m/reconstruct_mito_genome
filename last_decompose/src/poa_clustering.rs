@@ -12,8 +12,8 @@ const BETA_MAX: f64 = 0.8;
 const SMALL_WEIGHT: f64 = 0.000_000_001;
 const REP_NUM: usize = 3;
 const GIBBS_PRIOR: f64 = 0.02;
-const STABLE_LIMIT: u32 = 10;
-const IS_STABLE: u32 = 7;
+const STABLE_LIMIT: u32 = 8;
+const IS_STABLE: u32 = 3;
 const VARIANT_FRACTION: f64 = 0.9;
 
 // Serialize units in read. In other words,
@@ -391,10 +391,11 @@ fn print_lk_gibbs<F>(
     }
 }
 
-fn gen_assignment<R: Rng>(not_allowed: &[u8], occed: &[u8], rng: &mut R, c: usize) -> u8 {
+fn gen_assignment<R: Rng>(not_allowed: &[u8], _occed: &[u8], rng: &mut R, c: usize) -> u8 {
     loop {
         let a = rng.gen_range(0, c) as u8;
-        if !not_allowed.contains(&a) && !occed.contains(&a) {
+        if !not_allowed.contains(&a) {
+            // && !occed.contains(&a) {
             break a;
         }
     }
@@ -469,7 +470,7 @@ where
             })
             .sum::<u32>();
         debug!("CHANGENUM\t{}", changed_num);
-        if changed_num <= (data.len() as f64 * pick_prob).max(4.) as u32 {
+        if changed_num <= (data.len() as f64 * pick_prob / 2.).max(4.) as u32 {
             count += 1;
         } else {
             count = 0;
@@ -509,14 +510,16 @@ fn predictions_into_assignments(
             .enumerate()
             .max_by_key(|e| e.1)
             .unwrap_or((0, 0));
-        if count > IS_STABLE {
+        if count > IS_STABLE / 2 {
             Some(cluster as u8)
         } else {
             None
         }
     };
+    let skip_len = predictions.len() - IS_STABLE as usize;
     predictions
         .into_iter()
+        .skip(skip_len)
         .fold(vec![vec![]; data], |mut acc, xs| {
             assert_eq!(acc.len(), xs.len());
             for (y, x) in acc.iter_mut().zip(xs) {

@@ -1,4 +1,4 @@
 #!/bin/bash
-# Rscript ./script/plot_em_algorithm_check.R ./result/em.tsv em
-Rscript ./script/plot_simulated_data.R ./result/simulated_data.tsv simulated_data
+cat ${PWD}/result/last_decompose_num_poa_* | rg RESULT > ${PWD}/result/last_decompose_num_poa.tsv
+Rscript --vanilla --slave ${PWD}/script/plot_errors.R ${PWD}/result/last_decompose_num_poa.tsv last_decompose_num_poa
 
