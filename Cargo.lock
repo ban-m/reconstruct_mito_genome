@@ -449,7 +449,10 @@ name = "disassembly"
 version = "0.1.0"
 dependencies = [
  "bio_utils",
+ "last_decompose",
  "last_tiling",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

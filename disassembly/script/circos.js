@@ -724,6 +724,26 @@ const plotData = (dataset, repeats, unit_length) =>
           } else {
             is_active[cluster] = true;
             const supporting_reads = reads.filter((r) => r.cluster == cluster);
+            const members = clusters.find((cl) => cl.id === cluster).members;
+            const coverages = calcCoverageOf(
+              supporting_reads,
+              contigs,
+              members
+            );
+            const [argmax, max] = coverages
+              .map((cov) =>
+                cov.cov.reduce((y, x) => (x.cov > y.cov ? x : y), {
+                  cov: 0,
+                  pos: 0,
+                })
+              )
+              .reduce(
+                ([contig, y], x, c) => (x.cov > y.cov ? [c, x] : [contig, y]),
+                [0, { cov: 0, pos: 0 }]
+              );
+            const total_coverage = contigs.find((c) => c.id == argmax)
+              .coverages[max.pos];
+            console.log(argmax, max, total_coverage);
             let contents = critical_regions.reduce((acc, member, idx) => {
               if (member.cluster == cluster) {
                 const html = crToHTML(member.cr, idx);
@@ -734,8 +754,11 @@ const plotData = (dataset, repeats, unit_length) =>
             const count = supporting_reads.length;
             const meangap = calcGap(supporting_reads);
             const support = `<div>Supporing Reads:${count}</div>`;
+            const cov_ratio =
+              `<div>Fraction:${max.cov}/${total_coverage} ` +
+              `(${kFormatter(max.pos * unit_length)} bp)</div>`;
             const gap = `<div>Mean gap length:${meangap.toFixed(1)}</div>`;
-            contents += support + gap;
+            contents += support + gap + cov_ratio;
             const info_tip = cr_info
               .insert("div", ":first-child")
               .classed(`cluster-${cluster} cluster-parent`, true);
@@ -753,13 +776,7 @@ const plotData = (dataset, repeats, unit_length) =>
               .attr("height", 20)
               .attr("rx", 2)
               .attr("fill", d3.schemeCategory10[(cluster + 1) % 10]);
-            const members = clusters.find((cl) => cl.id === cluster).members;
             console.log(members);
-            const coverages = calcCoverageOf(
-              supporting_reads,
-              contigs,
-              members
-            );
             temp_coverage_layer
               .selectAll(".tempcoverage")
               .data(coverages)

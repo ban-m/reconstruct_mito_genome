@@ -35,7 +35,7 @@ use poa_hmm::Config;
 pub mod variant_calling;
 // mod digamma;
 const WINDOW_SIZE: usize = 250;
-const OVERLAP: usize = 60;
+const OVERLAP: usize = 50;
 const MIN_LEN: usize = 6_000;
 const CONNECTION_THR: f64 = 0.8;
 const MERGE_THR: usize = 50;
@@ -634,7 +634,7 @@ fn merge_with_background(
     data: &[ERead],
     initial_clusters: &[Cluster],
     components: Vec<HashSet<String>>,
-    forbidden: &HashMap<String, Vec<u8>>,
+    _forbidden: &HashMap<String, Vec<u8>>,
 ) -> Vec<HashSet<String>> {
     let (components, background): (Vec<_>, Vec<_>) =
         components.into_iter().partition(|component| {
@@ -642,25 +642,25 @@ fn merge_with_background(
                 .iter()
                 .any(|cl| cl.ids().intersection(component).count() > MERGE_THR)
         });
-    let mut background = background.into_iter().fold(HashSet::new(), |mut x, y| {
-        x.extend(y);
-        x
-    });
-    let _forbidden: HashSet<_> = background
-        .iter()
-        .filter_map(|id| forbidden.get(id))
-        .flat_map(|t| t)
-        .copied()
-        .collect();
-    let is_occupying = determine_occupy(&components, data);
+    let mut background: HashSet<String> =
+        background.into_iter().fold(HashSet::new(), |mut x, y| {
+            x.extend(y);
+            x
+        });
+    // let mut result = components;
     let mut result = vec![];
+    let is_occupying = determine_occupy(&components, data);
     for (component, is_occupying) in components.into_iter().zip(is_occupying) {
-        let _cluster: HashSet<_> = initial_clusters
+        let cluster: Vec<_> = initial_clusters
             .iter()
             .filter(|cl| component.iter().filter(|id| cl.has(id)).count() > 10)
-            .map(|cl| cl.id as u8)
             .collect();
-        if is_occupying {
+        let ngs = data
+            .iter()
+            .filter(|read| background.contains(read.id()))
+            .filter(|read| cluster.iter().all(|cl| cl.is_spanned_by(read)))
+            .count();
+        if is_occupying && ngs < 20 {
             background.extend(component);
         } else {
             result.push(component);
@@ -672,6 +672,7 @@ fn merge_with_background(
 
 fn determine_occupy(components: &Vec<HashSet<String>>, data: &[ERead]) -> Vec<bool> {
     let (matrix_pos, chain_len) = poa_clustering::to_pos(data);
+    let component_len = components.len();
     let components: HashMap<_, usize> =
         components
             .iter()
@@ -698,8 +699,11 @@ fn determine_occupy(components: &Vec<HashSet<String>>, data: &[ERead]) -> Vec<bo
             }
         }
     }
-    let thr = total.iter().sum::<usize>() / total.len();
-    (0..components.len())
+    let mean = total.iter().sum::<usize>() / total.len();
+    let avesq = total.iter().map(|e| e * e).sum::<usize>() / total.len();
+    let thr = mean.max(avesq * 3) - (avesq * 3);
+    debug!("{},{},", thr, components.len());
+    (0..component_len)
         .map(|cl| {
             count
                 .iter()
@@ -717,9 +721,15 @@ fn resume_clustering(
     initial_clusters: &[Cluster],
     data: &[ERead],
 ) -> Vec<Option<u8>> {
+    debug!(
+        "On windows:{}",
+        clusterings.iter().map(|cl| cl.len()).sum::<usize>()
+    );
     let components =
         merge_windows_by_bipartite(clusterings, windowlen, forbidden, initial_clusters, data);
+    debug!("Merged:{}", components.len());
     let components = merge_by_initial_cluster(forbidden, initial_clusters, components);
+    debug!("Merge by Init:{}", components.len());
     let components = if initial_clusters.is_empty() {
         components
     } else {
@@ -750,7 +760,7 @@ fn is_overlap(
         .filter(|forbid| forbid.contains(&(cluster.id as u8)))
         .count();
     let share = component.iter().filter(|id| cluster.has(id)).count();
-    debug!("Shares {} reads, NGS {} reads.", share, ngs);
+    // debug!("Shares {} reads, NGS {} reads.", share, ngs);
     share > MERGE_THR && ngs <= NG_THR
 }
 

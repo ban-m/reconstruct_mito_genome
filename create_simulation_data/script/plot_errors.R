@@ -4,10 +4,10 @@ loadNamespace("cowplot")
 generalplot <- function(g,name){
     cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
                     plot = g + cowplot::theme_cowplot(font_size=12),
-                    dpi=600,width = 178 + 86,height = 86,units="mm")
+                    dpi=600,width = 178,height = 86,units="mm")
     cowplot::ggsave(filename = paste0("./png/",name,".png"),
                     plot = g + cowplot::theme_cowplot(font_size=12),
-                    dpi = 600,width = 178 + 86,height = 86,units="mm")
+                    dpi = 600,width = 178,height = 86,units="mm")
 }
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -53,7 +53,7 @@ g <- accs %>%
 
 generalplot(g,paste0(outname,"_boxplot"))
 
-g <- accs %>% filter(X9 %in% c(80, 110, 150)) %>%
+g <- accs %>% filter(X9 %in% c(80, 110, 140)) %>%
     ggplot() + geom_boxplot(mapping = aes(x = factor(X9), y = acc, color = factor(X10))) +
     labs(x = "Total Coverage", y = "Accuracy", color = "Number of Variants\nout of 9K bp") +
     coord_flip()

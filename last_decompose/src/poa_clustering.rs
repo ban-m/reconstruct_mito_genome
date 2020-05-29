@@ -212,8 +212,15 @@ fn update_assignments(
                 .collect();
             let ws: Vec<_> = fraction_on_positions
                 .iter()
-                .map(|ws| read.iter().map(|&(pos, _)| ws[pos]).sum::<f64>())
-                .map(|ws| ws / read.len() as f64)
+                .map(|ws| {
+                    read.iter()
+                        .map(|&(pos, _)| ws[pos])
+                        .product::<f64>()
+                        .max(SMALL_WEIGHT)
+                        .ln()
+                        / read.len() as f64
+                })
+                .map(f64::exp)
                 .collect();
             let weights: Vec<_> = (0..cluster_num)
                 .into_iter()

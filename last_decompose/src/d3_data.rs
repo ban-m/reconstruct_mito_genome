@@ -50,8 +50,8 @@ pub struct ResultSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Summary {
     contigs: Vec<Contig>,
-    reads: Vec<Read>,
-    clusters: Vec<Cluster>,
+    pub reads: Vec<Read>,
+    pub clusters: Vec<Cluster>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,17 +107,32 @@ fn summarize_contig(
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Read {
+pub struct Read {
     name: String,
     units: Vec<Unit>,
     cluster: i32,
 }
+
+impl Read{
+    pub fn name(&self)->&str{
+        self.name.as_str()
+    }
+    pub fn cluster(&self)->i32{
+        self.cluster
+    }
+    pub fn units(&self)->&[Unit]{
+        self.units.as_slice()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-enum Unit {
+pub enum Unit {
     // The size of the gap
     G(usize),
     E(u16, u16),
 }
+
+
 
 fn summarize_reads(reads: &[last_tiling::EncodedRead], clusters: &[Cluster]) -> Vec<Read> {
     reads

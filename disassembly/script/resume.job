@@ -1,27 +1,20 @@
 #!/bin/bash
 #$ -S /bin/bash
 #$ -N ResumeM4
-#$ -pe smp 12
-#$ -o ./logfiles/pacbio_resume.log
+#$ -pe smp 1
+#$ -o ./logfiles/resume.log
 #$ -j y
 #$ -cwd
 #$ -V
 #$ -m e
 set -ue
 
-REFERENCE=${PWD}/../create_simulation_data/data/complex/reference.fa
-READ=${PWD}/result/complex1/filtered_read/filtered_read.fa
-OUTPUT=${PWD}/result/complex1/
-RESUME=${PWD}/result/complex1_resume/
+REFERENCE=${PWD}/data/NC_037304_1.fa
+READ=${PWD}/result/kyo/filtered_read/filtered_read.fa
+OUTPUT=${PWD}/result/kyo/
+RESUME=${PWD}/result/kyo_resume/
 CORES=12
 ROOT=${PWD}
-
-# REFERENCE=/grid/ban-m/arabidopsis_thaliana/genome/JF729202.fasta
-# READ=${PWD}/result/ler_ler/filtered_read/filtered_read.fa
-# RESUME=${PWD}/result/ler_ler_2
-# OUTPUT=${PWD}/result/ler_ler/
-# CORES=12
-# ROOT=${PWD}
 
 if [ -d ${RESUME} ]
 then
@@ -29,20 +22,12 @@ then
 fi
 
 ### ---- Decompose --- 
-mmmm resume --alignments ${OUTPUT}/last_db/alignments.tab \
+RUST_BACKTRACE=full mmmm resume --alignments ${OUTPUT}/last_db/alignments.tab \
      --output ${RESUME} \
      --reads ${READ} --contigs ${REFERENCE} \
      --self_alignments ${OUTPUT}/last_db/self.tab \
-     --dump_file ${PWD}/logfiles/complex1.log\
+     --dump_file ${PWD}/logfiles/kyo.log\
      -vv
-
-# mmmm resume --alignments ${OUTPUT}/last_db/alignments.tab \
-#      --output ${RESUME}/no_merge \
-#      --no_merge \
-#      --reads ${READ} --contigs ${REFERENCE} \
-#      --self_alignments ${OUTPUT}/last_db/self.tab \
-#      --dump_file ${PWD}/logfiles/pacbio.log\
-#      -vv
 exit 0;
 
 # ---- Assembly(by Flye) ----

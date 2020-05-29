@@ -5,10 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::cmp::{Ord, Ordering, PartialOrd};
 use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
-//const MERGE_THR: usize = 500;
 const MERGE_THR: usize = 5;
 pub const COVERAGE_THR: usize = 20;
-// const WINDOW: usize = 3;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,7 +41,7 @@ impl Cluster {
         self.members
             .iter()
             .filter(|m| m.cr.overlap(range))
-            .all(|m| m.cr.locally_forbids(range, r))
+            .any(|m| m.cr.locally_forbids(range, r))
     }
 }
 
@@ -247,7 +245,7 @@ impl CriticalRegion {
         }
     }
     pub fn locally_forbids(&self, (contig, start, end): (u16, u16, u16), r: &ERead) -> bool {
-        assert!(self.overlap((contig, start, end)));
+        assert!(!r.seq().is_empty());
         let (max, min) = r
             .seq
             .iter()
@@ -333,13 +331,13 @@ impl Position {
         }
     }
     fn overlap(&self, (contig, start, end): (u16, u16, u16)) -> bool {
-        let overlap = !(end as u16 <= self.start_unit || self.end_unit < start as u16);
+        let overlap = self.start_unit < end as u16 && start as u16 <= self.end_unit;
         contig == self.contig && overlap
     }
     fn locally_forbids(&self, (min, max): (u16, u16)) -> bool {
         match self.direction {
-            Direction::DownStream => self.start_unit > max,
-            Direction::UpStream => min > self.end_unit,
+            Direction::DownStream => max < self.start_unit,
+            Direction::UpStream => self.end_unit < min,
         }
     }
     pub fn range(&self) -> (i32, i32) {
@@ -542,6 +540,9 @@ impl PartialOrd for ConfluentRegion {
 }
 
 impl ConfluentRegion {
+    pub fn reads(&self)->&HashSet<String>{
+        &self.reads
+    }
     fn new(pos: Position, reads: HashSet<String>) -> Self {
         Self { pos, reads }
     }
