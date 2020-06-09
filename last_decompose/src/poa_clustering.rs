@@ -215,13 +215,15 @@ fn update_assignments(
                 .map(|ws| {
                     read.iter()
                         .map(|&(pos, _)| ws[pos])
-                        .product::<f64>()
-                        .max(SMALL_WEIGHT)
-                        .ln()
+                        .sum::<f64>()
+                        // .product::<f64>()
+                    // .max(SMALL_WEIGHT)
+                        // .ln()
                         / read.len() as f64
                 })
-                .map(f64::exp)
                 .collect();
+            // .map(f64::exp)
+
             let weights: Vec<_> = (0..cluster_num)
                 .into_iter()
                 .map(|l| {
@@ -244,11 +246,6 @@ fn update_assignments(
                         .recip()
                 })
                 .collect();
-            // {
-            //     let tot = weights.iter().sum::<f64>();
-            //     let w: Vec<_> = weights.iter().map(|x| format!("{:.3}", x)).collect();
-            //     debug!("{}", w.join(","));
-            // }
             let chosen = {
                 let (mut max, mut argmax) = (-0.1, 0);
                 for (cl, &p) in weights.iter().enumerate() {

@@ -799,7 +799,7 @@ const plotData = (dataset, repeats, unit_length) =>
                 return arc(coverage.cov);
               })
               .attr("fill", "none")
-              .attr("stroke-width", 2)
+              .attr("stroke-width", 4)
               .attr("stroke", d3.schemeCategory10[(cluster + 1) % 10]);
           }
         });

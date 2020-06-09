@@ -52,8 +52,8 @@ pub fn decompose(
     cluster_num: usize,
     limit: u64,
 ) -> Vec<(String, Option<u8>)> {
-    let (dataset, labels, masked_region, forbidden) =
-        initial_clustering(encoded_reads, initial_clusters, contigs, repeats);
+    let coverages = get_coverages(contigs, &encoded_reads);
+    let (dataset, labels, forbidden) = initial_clustering(encoded_reads, initial_clusters, repeats);
     let total_units = dataset.iter().map(|read| read.seq().len()).sum::<usize>();
     debug!("{} reads and {} units.", dataset.len(), total_units);
     let forbids = forbidden.values().filter(|e| !e.is_empty()).count();
@@ -63,19 +63,10 @@ pub fn decompose(
         .collect();
     let windows: Vec<_> = contigs
         .iter()
-        .zip(masked_region.iter())
+        .zip(coverages)
         .enumerate()
-        .flat_map(|(idx, (len, mask))| create_windows(idx, *len, mask))
+        .flat_map(|(idx, (len, cov))| create_windows(idx, *len, &cov))
         .collect();
-    // Remove chunks from masked region.
-    // dataset.iter_mut().for_each(|read| {
-    //     read.seq = read
-    //         .seq
-    //         .iter()
-    //         .filter(|u| !masked_region[u.contig()][u.unit()])
-    //         .cloned()
-    //         .collect();
-    // });
     let predicts = clustering_chunking(
         &dataset,
         &labels,
@@ -101,13 +92,14 @@ pub fn resume_decompose(
     repeats: &[RepeatPairs],
     resume: Vec<Vec<HashSet<String>>>,
 ) -> Vec<(String, Option<u8>)> {
-    let (dataset, _, masked_region, forbidden) =
-        initial_clustering(encoded_reads, initial_clusters, contigs, repeats);
+    let coverages = get_coverages(contigs, &encoded_reads);
+    let (dataset, _, forbidden) = initial_clustering(encoded_reads, initial_clusters, repeats);
+
     let windowlen = (0..contigs.get_num_of_contigs())
         .map(|e| contigs.get_last_unit(e as u16).unwrap() as usize + 1)
-        .zip(masked_region.iter())
+        .zip(coverages)
         .enumerate()
-        .flat_map(|(idx, (len, mask))| create_windows(idx, len, mask))
+        .flat_map(|(idx, (len, coverage))| create_windows(idx, len, &coverage))
         .count();
     let predicts = resume_clustering(resume, windowlen, &forbidden, initial_clusters, &dataset);
     dataset
@@ -120,16 +112,9 @@ pub fn resume_decompose(
 fn initial_clustering(
     encoded_reads: Vec<ERead>,
     initial_clusters: &[Cluster],
-    contigs: &last_tiling::Contigs,
-    repeats: &[RepeatPairs],
-) -> (
-    Vec<ERead>,
-    Vec<u8>,
-    Vec<Vec<bool>>,
-    HashMap<String, Vec<u8>>,
-) {
+    _repeats: &[RepeatPairs],
+) -> (Vec<ERead>, Vec<u8>, HashMap<String, Vec<u8>>) {
     let datasize = encoded_reads.len();
-    let masked_region = get_masked_region(&initial_clusters, &contigs, repeats);
     let mut forbidden: HashMap<String, _> = HashMap::new();
     let mut labels: Vec<_> = vec![];
     let (assigned_reads, unassigned_reads): (Vec<_>, Vec<_>) = encoded_reads
@@ -161,44 +146,23 @@ fn initial_clustering(
         unassigned_reads.len()
     );
     let dataset = vec![assigned_reads, unassigned_reads].concat();
-    (dataset, labels, masked_region, forbidden)
+    (dataset, labels, forbidden)
 }
 
-fn get_masked_region(
-    initial_clusters: &[Cluster],
-    contigs: &last_tiling::Contigs,
-    repeats: &[RepeatPairs],
-) -> Vec<Vec<bool>> {
-    let mut masked: Vec<Vec<_>> = contigs
+fn get_coverages(contigs: &last_tiling::Contigs, reads: &[ERead]) -> Vec<Vec<u32>> {
+    let mut coverage: Vec<Vec<_>> = contigs
         .get_last_units()
         .into_iter()
-        .map(|len| vec![false; len as usize + 1])
+        .map(|len| vec![0; len as usize + 1])
         .collect();
-    let repeats = repeats.iter().flat_map(|repeat| {
-        repeat.inner().iter().map(|rep| {
-            let contig = rep.id();
-            let s = rep.start_in_unit() as i32;
-            let t = rep.end_in_unit() as i32;
-            (contig, (s, t))
-        })
-    });
-    let ranges: Vec<_> = initial_clusters
-        .iter()
-        .flat_map(|e| e.ranges())
-        .chain(repeats)
-        .collect();
-    for (c, (s, t)) in ranges {
-        debug!("Masking {}:{}-{}", c, s, t);
-        let (s, t) = (s as usize, t as usize);
-        let c = c as usize;
-        if s <= t {
-            masked[c][s..t].iter_mut().for_each(|e| *e = true);
-        } else {
-            masked[c][s..].iter_mut().for_each(|e| *e = true);
-            masked[c][..t].iter_mut().for_each(|e| *e = true);
+    for read in reads {
+        for unit in read.seq() {
+            let c = unit.contig() as usize;
+            let u = unit.unit() as usize;
+            coverage[c][u] += 1;
         }
     }
-    masked
+    coverage
 }
 
 pub fn clustering_via_alignment(
@@ -286,25 +250,61 @@ pub fn clustering_via_alignment(
     predictions
 }
 
-fn create_windows(idx: usize, len: usize, mask: &[bool]) -> Vec<(u16, u16, u16)> {
-    let mut windows = vec![];
-    let mut start = 0;
-    while start < len {
-        // determine end position.
-        let (mut end, mut unmasked_count) = (start, 0);
-        while unmasked_count < WINDOW_SIZE && end < len {
-            unmasked_count += if !mask[end] { 1 } else { 0 };
-            end += 1;
+pub fn create_windows(idx: usize, len: usize, covs: &[u32]) -> Vec<(u16, u16, u16)> {
+    let mean = covs.iter().sum::<u32>() / covs.len() as u32;
+    let mean_sq = covs.iter().fold(0, |x, y| x + y * y) / covs.len() as u32;
+    let sd = ((mean_sq - mean * mean) as f64).sqrt().floor() as u32;
+    //let thr = mean.max(3 * sd) - 3 * sd;
+    let thr = mean / 4;
+    debug!("Mean,SD,Thr={},{},{}", mean, sd, thr);
+    let sub_windows: Vec<_> = {
+        let mut sub_windows = vec![];
+        let mut start = 0;
+        while start < len {
+            let end = start + covs[start..].iter().take_while(|&&c| c > thr).count();
+            sub_windows.push((start, end));
+            start = end + 1;
         }
-        if end + WINDOW_SIZE / 2 - OVERLAP < len {
-            windows.push((idx as u16, start as u16, end as u16));
-            start = end - OVERLAP;
-        } else {
-            windows.push((idx as u16, start as u16, len as u16));
-            break;
-        }
-    }
-    windows
+        sub_windows
+            .into_iter()
+            .filter(|(s, e)| e - s > WINDOW_SIZE / 3)
+            .collect()
+    };
+    sub_windows
+        .into_iter()
+        .flat_map(|(start, len)| {
+            if len - start < WINDOW_SIZE {
+                return vec![(start, len)];
+            }
+            let window_num = (len - start) / (WINDOW_SIZE - OVERLAP);
+            let last_pos = len - start - (window_num - 1) * (WINDOW_SIZE - OVERLAP);
+            assert!(last_pos >= 1);
+            if last_pos < WINDOW_SIZE / 2 {
+                (0..window_num)
+                    .map(|i| {
+                        let s = start + i * (WINDOW_SIZE - OVERLAP);
+                        if i < last_pos - 1 {
+                            (s, s + WINDOW_SIZE)
+                        } else {
+                            (s, len)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                (0..=window_num)
+                    .map(|i| {
+                        let s = start + i * (WINDOW_SIZE - OVERLAP);
+                        if i < last_pos {
+                            (s, s + WINDOW_SIZE)
+                        } else {
+                            (s, len)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            }
+        })
+        .map(|(s, e)| (idx as u16, s as u16, e as u16))
+        .collect()
 }
 
 fn select_within(
@@ -647,20 +647,20 @@ fn merge_with_background(
             x.extend(y);
             x
         });
-    // let mut result = components;
     let mut result = vec![];
     let is_occupying = determine_occupy(&components, data);
     for (component, is_occupying) in components.into_iter().zip(is_occupying) {
-        let cluster: Vec<_> = initial_clusters
-            .iter()
-            .filter(|cl| component.iter().filter(|id| cl.has(id)).count() > 10)
-            .collect();
-        let ngs = data
-            .iter()
-            .filter(|read| background.contains(read.id()))
-            .filter(|read| cluster.iter().all(|cl| cl.is_spanned_by(read)))
-            .count();
-        if is_occupying && ngs < 20 {
+        // let cluster: Vec<_> = initial_clusters
+        //     .iter()
+        //     .filter(|cl| component.iter().filter(|id| cl.has(id)).count() > 10)
+        //     .collect();
+        // let ngs = data
+        //     .iter()
+        //     .filter(|read| background.contains(read.id()))
+        //     .filter(|read| cluster.iter().all(|cl| cl.is_spanned_by(read)))
+        //     .count();
+        if is_occupying {
+            //&& ngs < NG_THR {
             background.extend(component);
         } else {
             result.push(component);
@@ -702,7 +702,6 @@ fn determine_occupy(components: &Vec<HashSet<String>>, data: &[ERead]) -> Vec<bo
     let mean = total.iter().sum::<usize>() / total.len();
     let avesq = total.iter().map(|e| e * e).sum::<usize>() / total.len();
     let thr = mean.max(avesq * 3) - (avesq * 3);
-    debug!("{},{},", thr, components.len());
     (0..component_len)
         .map(|cl| {
             count

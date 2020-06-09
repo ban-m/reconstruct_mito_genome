@@ -6,7 +6,8 @@ use std::cmp::{Ord, Ordering, PartialOrd};
 use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 const MERGE_THR: usize = 5;
-pub const COVERAGE_THR: usize = 20;
+pub const COVERAGE_THR: usize = 15;
+pub const NGS_THR: usize = 10;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,22 +85,25 @@ fn get_forbids_cluster<'a>(
         .collect()
 }
 
-fn intersection_of(
+fn intersection_of(crs: &[Vec<CriticalRegion>], (i, j): (usize, usize)) -> usize {
+    let xs: HashSet<_> = crs[i].iter().flat_map(|cr| cr.reads()).collect();
+    let ys: HashSet<_> = crs[j].iter().flat_map(|cr| cr.reads()).collect();
+    xs.intersection(&ys).count()
+}
+fn forbiddens_of(
     crs: &[Vec<CriticalRegion>],
     (i, j): (usize, usize),
-    forbids: &HashMap<&str, Vec<usize>>,
+    forbs: &HashMap<&str, Vec<usize>>,
 ) -> usize {
     let xs: HashSet<_> = crs[i]
         .iter()
+        .chain(crs[j].iter())
         .flat_map(|cr| cr.reads())
-        .filter(|&id| !forbids[id.as_str()].contains(&j))
         .collect();
-    let ys: HashSet<_> = crs[j]
-        .iter()
-        .flat_map(|cr| cr.reads())
-        .filter(|&id| !forbids[id.as_str()].contains(&i))
-        .collect();
-    xs.intersection(&ys).count()
+    xs.iter()
+        .filter_map(|id| forbs.get(id.as_str()))
+        .filter(|f| f.contains(&i) || f.contains(&j))
+        .count()
 }
 
 fn merge(
@@ -143,9 +147,11 @@ pub fn initial_clusters(
         debug!("Current Cluster:{}", len);
         for i in 0..len {
             for j in (i + 1)..len {
-                let intersection = intersection_of(&crs, (i, j), &forbiddens);
-                if intersection > COVERAGE_THR {
-                    debug!("Cluster {} and {} share {} reads.", i, j, intersection);
+                let intersection = intersection_of(&crs, (i, j));
+                let ngs = forbiddens_of(&crs, (i, j), &forbiddens);
+                let is_both = crs[i].iter().all(|cl| cl.confluent_region().is_some())
+                    && crs[j].iter().all(|cl| cl.confluent_region().is_some());
+                if intersection > COVERAGE_THR && (ngs < NGS_THR || is_both) {
                     merge(&mut crs, (i, j), &forbiddens);
                     continue 'merge;
                 }
@@ -540,7 +546,7 @@ impl PartialOrd for ConfluentRegion {
 }
 
 impl ConfluentRegion {
-    pub fn reads(&self)->&HashSet<String>{
+    pub fn reads(&self) -> &HashSet<String> {
         &self.reads
     }
     fn new(pos: Position, reads: HashSet<String>) -> Self {

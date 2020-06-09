@@ -449,6 +449,7 @@ name = "disassembly"
 version = "0.1.0"
 dependencies = [
  "bio_utils",
+ "env_logger 0.6.2",
  "last_decompose",
  "last_tiling",
  "serde",

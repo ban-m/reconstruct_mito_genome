@@ -2,7 +2,7 @@ const left_contig_margin = 200;
 const total_reference_length = 600;
 const reference_margin = 10;
 const reference_label_margin = 30;
-const contig_margin = 70;
+const contig_margin = 30;
 const contig_thick = 10;
 const contig_label_margin = 20;
 const coverage_thick = 5;
@@ -205,6 +205,9 @@ const contigToHTML = (contig) => {
 </ul>`;
 };
 
+const get_cluster_id = (contig1) =>
+  contig1.name.split("_").map((c) => parseInt(c))[0];
+
 const compare_name = (contig1, contig2) => {
   const name1_vs = contig1.name.split("_").map((c) => parseInt(c));
   const name2_vs = contig2.name.split("_").map((c) => parseInt(c));
@@ -319,7 +322,11 @@ const plotData = (dataset, alignments, unit_length) =>
           return path(contig.coverages);
         })
         .attr("fill", "none")
-        .attr("stroke", (c) => d3.schemeCategory10[c.id % 10]);
+        .attr(
+          "stroke",
+          (c) => d3.schemeCategory10[(get_cluster_id(c) + 1) % 10]
+        )
+        .attr("stroke-width", 4);
       each_coverage_layer
         .each((c) => {
           const max_cov = Math.max(coverage_interval, Math.max(...c.coverages));
@@ -338,19 +345,6 @@ const plotData = (dataset, alignments, unit_length) =>
         })
         .selectAll(".tick text")
         .attr("transform", "rotate(-15)");
-      // Draw reads
-      // read_layer
-      //   .selectAll(".read")
-      //   .data(reads)
-      //   .enter()
-      //   .append("path")
-      //   .attr("class", "read")
-      //   .attr("d", (read) =>
-      //         readToPath(read, handle_points, bp_scale, start_pos, unit_length)
-      //   )
-      //   .attr("fill", "none")
-      //   .attr("opacity", 0.3)
-      //   .attr("stroke", (read) => "black");
       info
         .append("div")
         .attr("class", "numofgapread")
@@ -384,12 +378,12 @@ const plotData = (dataset, alignments, unit_length) =>
         .append("text")
         .attr(
           "transform",
-          (c) =>
-            `translate(-${coverage_max}, ${bp_scale(c.length / 2)}) rotate(90)`
+          (c) => `translate(-${coverage_max}, ${bp_scale(c.length / 2)})`
         )
         .attr("color", "black")
         .attr("fill", "black")
-        .text((c) => `${c.id}`);
+        .text((c) => `${c.name}`);
+      //`translate(-${coverage_max}, ${bp_scale(c.length / 2)}) rotate(90)`
       const reference_start = calcStartMC(references, bp_scale);
       selection_of_each_contig
         .selectAll(".mc")
@@ -414,8 +408,20 @@ const plotData = (dataset, alignments, unit_length) =>
               .tickFormat(d3.format(".2s"))
               .tickValues(tV)
           );
-        })
+        });
+      selection_of_each_contig
+        .filter((_, idx) => idx == 0)
+        .append("g")
+        .attr("class", "reference-name")
+        .selectAll("refname")
+        .data(references)
+        .enter()
         .append("text")
+        .attr("class", "refname")
+        .attr(
+          "transform",
+          (m) => `translate(${reference_start.get(m.id)[0]},0)`
+        )
         .attr("x", (m) => bp_scale(m.length) / 2)
         .attr("y", -reference_label_margin)
         .attr("fill", "black")
@@ -428,23 +434,19 @@ const plotData = (dataset, alignments, unit_length) =>
         .append("line")
         .attr("x1", (aln) => {
           const ref_name = aln.reference_name;
-          const start = bp_scale(Math.min(aln.ref_start, aln.ref_end));
-          return reference_start.get(ref_name)[0] + start;
+          return reference_start.get(ref_name)[0] + bp_scale(aln.ref_start);
         })
         .attr("x2", (aln) => {
           const ref_name = aln.reference_name;
-          const end = bp_scale(Math.max(aln.ref_start, aln.ref_end));
-          return reference_start.get(ref_name)[0] + end;
+          return reference_start.get(ref_name)[0] + bp_scale(aln.ref_end);
         })
         .attr("y1", (aln) => {
           const elm = contigs.find((c) => c.name === aln.query_name);
-          const start = bp_scale(Math.min(aln.query_start, aln.query_end));
-          return start_pos[elm.id] + start;
+          return start_pos[elm.id] + bp_scale(aln.query_start);
         })
         .attr("y2", (aln) => {
           const elm = contigs.find((c) => c.name === aln.query_name);
-          const end = bp_scale(Math.max(aln.query_start, aln.query_end));
-          return start_pos[elm.id] + end;
+          return start_pos[elm.id] + bp_scale(aln.query_end);
         })
         .attr("stroke", "black")
         .attr("stroke_width", 2);
