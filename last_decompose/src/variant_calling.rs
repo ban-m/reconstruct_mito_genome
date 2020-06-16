@@ -1,8 +1,6 @@
 //! This module is to call variant model(i.e. the positions where some models have variant site).
 //! The method is based on diagonalization of total distance between the center axis and
 //! each datapoint.
-// use dbg_hmm::Config;
-// use dbg_hmm::DBGHMM;
 use na::DMatrix;
 use poa_hmm::POA;
 use rayon::prelude::*;

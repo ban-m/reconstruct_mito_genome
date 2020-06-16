@@ -329,38 +329,14 @@ pub fn revcmp(seq: &[u8]) -> Vec<u8> {
 type AlnToEncode = (Vec<ChunkedUnit>, usize, usize);
 // Stop is the location where the tiling stops, at `seq`.
 fn aln_to_encode(aln: &LastTAB, stop: usize, def: &Contigs, seq: &[u8]) -> AlnToEncode {
-    // debug!("Refr:{}-{}", aln.seq1_start(), aln.seq1_end_from_forward());
-    // debug!(
-    //     "Read:{}-{}",
-    //     aln.seq2_start_from_forward(),
-    //     aln.seq2_end_from_forward()
-    // );
-    // let ctgname = aln.seq1_name();
-    // Flip reference rather than query.
-    // let _refr = match aln.seq2_direction() {
-    //     lasttab::Strand::Forward => def.get(ctgname).unwrap(),
-    //     lasttab::Strand::Reverse => def.get_revcmp(ctgname).unwrap(),
-    // };
-    // debug!("Ctgname:{}", ctgname);
-    // First, chunk the reference into subunits.
     let (ref_encode_start, _, chunks) = chop_reference_into_chunk(def, aln);
-    // debug!("{:?},{}", chunks, ref_encode_start);
     if chunks.is_empty() {
         return (vec![], 0, stop);
     }
     let (mut ops, read_encode_start) = seek_to_head(aln, ref_encode_start);
     let mut read_pos = read_encode_start;
     let mut refr_pos = ref_encode_start;
-    {
-        // let start = ref_start_end(aln).0;
-        // debug!(
-        //     "Read:{}",
-        //     String::from_utf8_lossy(&seq[aln.seq2_start_from_forward()..read_pos])
-        // );
-        // debug!("Refr:{}", String::from_utf8_lossy(&refr[start..refr_pos]));
-    }
     let chunks: Vec<_> = chunks.into_iter().fold(vec![], |mut chunks, mut encode| {
-        // debug!("Refr:{}, Read:{}", refr_pos, read_pos);
         let ref_len = UNIT_SIZE;
         let (read_len, operations) = seek_len(ref_len, &mut ops);
         if read_pos + read_len < stop {
