@@ -1,0 +1,124 @@
+#!/bin/bash
+set -ue
+RUST_BACKTRACE=1
+REFERENCE=$1
+READ=$2
+OUTPUT=$3
+MIN_CLUSTER=$4
+LIMIT=$5
+CORES=$6
+ROOT=${PWD}
+BIN=${PWD}/target/release/
+
+# cargo build --release 
+
+# ---- Clean up -----
+if [ -d ${OUTPUT} ]
+then
+    rm -r ${OUTPUT}
+fi
+
+
+# ---- Filtering ----
+mkdir -p ${OUTPUT}/filtered_read
+minimap2 -t 24 -x map-pb ${REFERENCE} ${READ} |\
+    ${BIN}/select_mito_reads ${READ} |\
+    ${BIN}/filter_low_quality |\
+    ${BIN}/clip_self_chimera > ${OUTPUT}/filtered_read/filtered_read.fa
+READ=${OUTPUT}/filtered_read/filtered_read.fa
+
+
+# ---- Alignment -----
+mkdir -p ${OUTPUT}/last_db
+cd ${OUTPUT}/last_db
+lastdb -R00 -Q0 reference ${REFERENCE}
+last-train -P${CORES} -Q0 reference ${READ} > score.matrix
+lastal -f maf -P${CORES} -R00 -Q0 -p score.matrix reference ${READ} |\
+    last-split | maf-convert tab --join 1000 > alignments.tab
+lastal -f tab -P${CORES} -R00 -Q0 reference ${REFERENCE} > self.tab
+cd ${ROOT}
+
+
+# ----- Prediction ------
+mmmm decompose --alignments ${OUTPUT}/last_db/alignments.tab --output ${OUTPUT} \
+     --reads ${READ} --contigs ${REFERENCE} \
+     --self_alignments ${OUTPUT}/last_db/self.tab \
+     --cluster_num ${MIN_CLUSTER} --threads ${CORES} \
+     --limit ${LIMIT}\
+     -vv
+
+mkdir -p ${OUTPUT}/no_merge
+mmmm decompose --alignments ${OUTPUT}/last_db/alignments.tab \
+     --output ${OUTPUT}/no_merge \
+     --reads ${READ} --contigs ${REFERENCE} \
+     --self_alignments ${OUTPUT}/last_db/self.tab \
+     --threads ${CORES} \
+     --no_merge -vv 
+
+# ---- Assembly(by Flye) ----
+set +e
+mkdir -p ${OUTPUT}/assemblies/
+for reads in $( find ${OUTPUT} -maxdepth 1 -name "*.fasta" )
+do
+    ASM_PATH=${reads%%.fasta}
+    INDEX=${ASM_PATH##*/}
+    mkdir -p ${OUTPUT}/assemblies/${INDEX}
+    genomesize=$(cargo run --release --bin estimate_genome_size -- ${reads} ${REFERENCE} ${OUTPUT}/last_db/alignments.tab ${OUTPUT}/assemblies/${INDEX}/temp.fa)
+    flye \
+        --pacbio-raw \
+        ${OUTPUT}/assemblies/${INDEX}/temp.fa \
+	    --genome-size ${genomesize} \
+        --threads ${CORES} \
+        --iterations 10 \
+        --out-dir ${OUTPUT}/assemblies/${INDEX}
+    rm ${OUTPUT}/assemblies/${INDEX}/temp.fa
+done
+
+# ---- Align back all reads ----
+cargo run --release --bin collect_contigs -- ${OUTPUT}/assemblies/ ${OUTPUT}
+for contigs in  $( find ${OUTPUT} -maxdepth 1 -name "*contigs.fasta" )
+do
+    reads=${contigs%%.contigs.fasta}.fasta
+    cd ${OUTPUT}/last_db
+    lastdb -R00 temp ${contigs}
+    last-train -P${CORES} -Q0 temp ${reads} > temp.matrix
+    name=${RANDOM}
+    lastal -f maf -P${CORES} -R00 -Q0 -p temp.matrix temp ${reads} \
+           > temp${name}.maf
+    # Remove unnessary sequence.
+    cd ${ROOT}
+    cargo run --release --bin remove_low_coverage \
+          ${contigs} ${OUTPUT}/last_db/temp${name}.maf > ${OUTPUT}/last_db/temp.fa
+    cd ${OUTPUT}/last_db
+    mv temp.fa ${contigs}
+    lastdb -R00 temp ${contigs}
+    last-train -P${CORES} -Q0 temp ${reads} > temp.matrix 
+    lastal -f maf -P${CORES} -R00 -Q0 -p temp.matrix temp ${reads} |\
+        last-split |\
+        maf-convert tab --join 1000 > ${reads%%.fasta}.reads.aln.tab
+    last-train -P${CORES} -Q0 reference ${contigs} > temp.matrix
+    if [ $? -eq 0 ]
+    then
+        lastal -f tab -P ${CORES} -R00 -p temp.matrix -Q0 reference ${contigs} \
+               > ${contigs%%.fasta}.aln.tab
+    else
+        lastal -f tab -P ${CORES} -R00 -Q0 reference ${contigs} \
+               > ${contigs%%.fasta}.aln.tab
+    fi
+    cd ${ROOT}
+done
+
+cat ${OUTPUT}/*.reads.aln.tab > ${OUTPUT}/allreads.aln.tab
+cat ${OUTPUT}/*.contigs.aln.tab > ${OUTPUT}/allcontigs.aln.tab
+rm ${OUTPUT}/*.reads.aln.tab ${OUTPUT}/*.contigs.aln.tab
+
+
+# ---- Create viewer files -----
+mmmm create_viewer --assignments ${OUTPUT}/readlist.tsv \
+     --contig_aln ${OUTPUT}/allcontigs.aln.tab \
+     --contigs ${OUTPUT}/multipartite.fasta \
+     --output_dir ${OUTPUT}/viewer/ \
+     --read_aln ${OUTPUT}/allreads.aln.tab \
+     --reads ${READ} \
+     --reference ${REFERENCE}\
+     --min_align_length 1000

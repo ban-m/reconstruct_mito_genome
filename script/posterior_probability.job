@@ -1,0 +1,21 @@
+#!/bin/bash
+#$ -S /bin/bash
+#$ -N DecMult
+#$ -cwd
+#$ -pe smp 12
+#$ -e ./logfiles/last_decompose_gibbs.log
+#$ -o ./logfiles/last_decompose_gibbs.out
+#$ -V
+#$ -m e
+set -ue
+OUTPUT=${PWD}/result/posterior_probability/
+TEST_NUM=360
+COVERAGE=0
+PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
+RUST_LOG=trace ${PWD}/target/release/test_last_decompose_multiple \
+        ${TEST_NUM} ${COVERAGE} 3320 0.0005 ${PROBS}  2>&1 > ${OUTPUT}/six_cluster.tsv |\
+    grep FEATURE | cut -f2- > ${OUTPUT}/six_cluster_posterior.tsv
+
+RUST_LOG=trace ${PWD}/target/release/test_last_decompose_multiple \
+        200 0 34 0.001 0.2 0.8 2>&1 > ${OUTPUT}/two_cluster.tsv  |\
+    grep FEATURE | cut -f2- > ${OUTPUT}/two_cluster_posterior.tsv

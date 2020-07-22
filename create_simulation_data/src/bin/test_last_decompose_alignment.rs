@@ -1,16 +1,16 @@
 // extern crate bio;
 extern crate create_simulation_data;
-extern crate poa_hmm;
 extern crate edlib_sys;
 extern crate last_decompose;
+extern crate poa_hmm;
 extern crate rand;
 extern crate rand_xoshiro;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
 extern crate rayon;
-use poa_hmm::gen_sample;
 use last_decompose::clustering_via_alignment;
+use poa_hmm::gen_sample;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
@@ -105,8 +105,10 @@ fn benchmark(
                 .collect::<Vec<_>>()
         })
         .collect();
-    let (dataset, label, answer, _border) =
-        create_simulation_data::generate_mul_data(&templates, coverage, test_num, &mut rng, probs);
+    let profile = &gen_sample::PROFILE;
+    use create_simulation_data::generate_mul_data;
+    let (dataset, label, answer, _) =
+        generate_mul_data(&templates, coverage, test_num, &mut rng, probs, profile);
     let reads: Vec<Vec<u8>> = dataset
         .into_iter()
         .map(|e| e.into_iter().flat_map(|e| e).collect::<Vec<u8>>())

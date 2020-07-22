@@ -33,53 +33,58 @@ fn main() {
     let coverage = 0;
     let chain_len = 90;
     let len = 100;
-    let errors = [1, 1, 2, 2, 3, 3, 4, 4];
+    let divs = [1, 3];
+    let errors = [0.01, 0.10, 0.15];
     let test_nums: Vec<_> = (80..=150).step_by(10).collect();
-    for &error in errors.iter() {
-        for &test_num in &test_nums {
-            let seed = seed + (test_num + error) as u64;
-            println!("TestNum:{}\tLabeled:{}", test_num, coverage);
-            use std::time::Instant;
-            let s = Instant::now();
-            let (hmm, dists) = benchmark(
-                seed, error, coverage, test_num, chain_len, len, &probs, clusters,
-            );
-            debug!("Elapsed {:?}", Instant::now() - s);
-            let mut line = "RESULT".to_string();
-            let num_of_reads: Vec<_> = (0..clusters)
-                .map(|cl| hmm.iter().map(|pred| pred[cl]).sum::<u32>())
-                .collect();
-            for nor in &num_of_reads {
-                line += &format!("\t{}", nor);
-            }
-            for (idx, preds) in hmm.into_iter().enumerate() {
-                let tp = preds[idx];
-                let tot = num_of_reads[idx];
-                print!("Predicted as {}:", idx);
-                for ans in preds {
-                    print!("{}\t", ans);
-                    line += &format!("\t{}", ans);
+    for &div in divs.iter() {
+        for &error in errors.iter() {
+            for &test_num in &test_nums {
+                let seed = seed + (test_num + div) as u64;
+                println!("TestNum:{}\tLabeled:{}", test_num, coverage);
+                use std::time::Instant;
+                let s = Instant::now();
+                let (hmm, dists) = benchmark(
+                    seed, div, error, coverage, test_num, chain_len, len, &probs, clusters,
+                );
+                debug!("Elapsed {:?}", Instant::now() - s);
+                let mut line = "RESULT".to_string();
+                let num_of_reads: Vec<_> = (0..clusters)
+                    .map(|cl| hmm.iter().map(|pred| pred[cl]).sum::<u32>())
+                    .collect();
+                for nor in &num_of_reads {
+                    line += &format!("\t{}", nor);
                 }
-                println!("Total:{:.4}", tp as f64 / tot as f64);
-            }
-            for (idx, ds) in dists.into_iter().enumerate() {
-                print!("Distance from {}:", idx);
-                for d in ds {
-                    line += &format!("\t{}", d);
-                    print!("{}\t", d);
+                for (idx, preds) in hmm.into_iter().enumerate() {
+                    let tp = preds[idx];
+                    let tot = num_of_reads[idx];
+                    print!("Predicted as {}:", idx);
+                    for ans in preds {
+                        print!("{}\t", ans);
+                        line += &format!("\t{}", ans);
+                    }
+                    println!("Total:{:.4}", tp as f64 / tot as f64);
                 }
-                println!();
+                for (idx, ds) in dists.into_iter().enumerate() {
+                    print!("Distance from {}:", idx);
+                    for d in ds {
+                        line += &format!("\t{}", d);
+                        print!("{}\t", d);
+                    }
+                    println!();
+                }
+                line += &format!("\t{}", test_num);
+                line += &format!("\t{:.3}", error);
+                line += &format!("\t{}", div);
+                println!("{}", line);
             }
-            line += &format!("\t{}", test_num);
-            line += &format!("\t{}", error);
-            println!("{}", line);
         }
     }
 }
 
 fn benchmark(
     seed: u64,
-    error: usize,
+    div: usize,
+    error: f64,
     coverage: usize,
     test_num: usize,
     chain_len: usize,
@@ -89,9 +94,9 @@ fn benchmark(
 ) -> (Vec<Vec<u32>>, Vec<Vec<u32>>) {
     let seed = 1003437 + seed;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
-    let errors = {
+    let divs = {
         let mut pos = vec![vec![0; chain_len]; clusters];
-        for _ in 0..error {
+        for _ in 0..div {
             let c = rng.gen_range(0, clusters);
             let p = rng.gen_range(0, chain_len);
             pos[c][p] += 1;
@@ -101,12 +106,12 @@ fn benchmark(
     let template: Vec<_> = (0..chain_len)
         .map(|_| gen_sample::generate_seq(&mut rng, len))
         .collect::<Vec<_>>();
-    let templates: Vec<Vec<_>> = errors
+    let templates: Vec<Vec<_>> = divs
         .into_iter()
-        .map(|error_num| {
+        .map(|div_num| {
             template
                 .iter()
-                .zip(error_num)
+                .zip(div_num)
                 .map(|(seq, e)| {
                     let (mut sub, mut ins, mut del) = (0, 0, 0);
                     for _ in 0..e {
@@ -153,8 +158,10 @@ fn benchmark(
             })
         })
         .collect();
+    use create_simulation_data::generate_mul_data;
+    let profile = gen_sample::PROFILE.norm().mul(error);
     let (dataset, label, answer, _border) =
-        create_simulation_data::generate_mul_data(&templates, coverage, test_num, &mut rng, probs);
+        generate_mul_data(&templates, coverage, test_num, &mut rng, probs, &profile);
     let c = &poa_hmm::DEFAULT_CONFIG;
     {
         let probs: Vec<_> = probs.iter().map(|e| format!("{:3}", e)).collect();

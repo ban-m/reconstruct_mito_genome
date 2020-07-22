@@ -11,9 +11,6 @@
 set -ue
 OUTPUT=./result/last_decompose_num_poa_${SGE_TASK_ID}.txt
 OUTLOG_PREFIX=./logfiles/last_decompose_num_poa_${SGE_TASK_ID}
-# RUSTFLAGS="-C target-cpu=native" cargo build --release
-
-echo "-----start-----" >> ${OUTPUT}
 
 COVERAGE=0
 PROBS="0.5 0.5"

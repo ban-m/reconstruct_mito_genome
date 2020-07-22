@@ -192,6 +192,7 @@ pub fn generate_mul_data<T: Rng>(
     test_num: usize,
     rng: &mut T,
     probs: &[f64],
+    profile: &gen_sample::Profile
 ) -> (Vec<Vec<Vec<u8>>>, Vec<u8>, Vec<u8>, usize) {
     let answer: Vec<_> = (0..probs.len()).flat_map(|i| vec![i; coverage]).collect();
     let answer: Vec<_> = answer
@@ -204,7 +205,7 @@ pub fn generate_mul_data<T: Rng>(
         .collect();
     let mut gen = |t: &[Vec<u8>]| {
         t.iter()
-            .map(|e| gen_sample::introduce_randomness(e, rng, &gen_sample::PROFILE))
+            .map(|e| gen_sample::introduce_randomness(e, rng, profile))
             .collect::<Vec<_>>()
     };
     debug!("Coverage:{}\tTest Num:{}", coverage, test_num);

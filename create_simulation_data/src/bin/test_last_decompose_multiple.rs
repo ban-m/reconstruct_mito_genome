@@ -113,8 +113,10 @@ fn benchmark(
                 .collect::<Vec<_>>()
         })
         .collect();
+    use create_simulation_data::generate_mul_data;
+    let profile = &gen_sample::PROFILE;
     let (dataset, label, answer, _border) =
-        create_simulation_data::generate_mul_data(&templates, coverage, test_num, &mut rng, probs);
+        generate_mul_data(&templates, coverage, test_num, &mut rng, probs, profile);
     debug!("{}", dataset.len());
     let c = &poa_hmm::DEFAULT_CONFIG;
     let data: Vec<_> = dataset

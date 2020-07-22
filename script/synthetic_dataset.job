@@ -1,0 +1,35 @@
+#!/bin/bash
+ROOT=${PWD}
+DATA=${PWD}/data/synthetic_data/
+OUTPUT=${PWD}/result/synthetic_data/
+qsub -o ./logfiles/complex01.log -j y -S /bin/bash -cwd -pe smp 24 -V \
+     ./script/disassembly.sh \
+     ${DATA}/mut01/reference.fa \
+     ${DATA}/mut01/read_01.fa \
+     ${OUTPUT}/mut01/ 3 4000 24
+
+qsub -o ./logfiles/complex02.log -j y -S /bin/bash -cwd -pe smp 24 -V \
+     ./script/disassembly.sh \
+     ${DATA}/mut02/reference.fa \
+     ${DATA}/mut02/read_02.fa \
+     ${OUTPUT}/mut02/ 3 4000 24
+
+for coverage in 150 100 50
+do
+    qsub -o ./logfiles/${coverage}_01.log -j y -S /bin/bash -cwd -pe smp 24 -V \
+         ./script/disassembly.sh \
+         ${DATA}/${coverage}_01/ref_${coverage}_01.fa \
+         ${DATA}/${coverage}_01/reads_${coverage}_01.fa \
+         ${OUTPUT}/${coverage}_01/ 3 4000 24
+    qsub -o ./logfiles/${coverage}_005.log -j y -S /bin/bash -cwd -pe smp 24 -V \
+         ./script/disassembly.sh \
+         ${DATA}/${coverage}_005/ref_${coverage}_005.fa \
+         ${DATA}/${coverage}_005/reads_${coverage}_005.fa \
+         ${OUTPUT}/${coverage}_005/ 3 4000 24
+    qsub -o ./logfiles/${coverage}_001.log -j y -S /bin/bash -cwd -pe smp 24 -V \
+         ./script/disassembly.sh \
+         ${DATA}/${coverage}_001/ref_${coverage}_001.fa \
+         ${DATA}/${coverage}_001/reads_${coverage}_001.fa \
+         ${OUTPUT}/${coverage}_001/ 3 4000 24
+done
+
