@@ -285,14 +285,15 @@ pub fn align_solve(data: &[Vec<Vec<u8>>], label: &[u8], border: usize) -> Vec<u8
     let mut assign: Vec<_> = vec![1; data.len()];
     let mut updated = true;
     while updated {
+        use bio_utils::alignments::edit_dist;
         updated = assign
             .par_iter_mut()
             .enumerate()
             .skip(border)
             .map(|(idx, a)| {
                 let query = &data[idx];
-                let min0 = d0.iter().map(|r| edlib_sys::global_dist(r, query)).min();
-                let min1 = d1.iter().map(|r| edlib_sys::global_dist(r, query)).min();
+                let min0 = d0.iter().map(|r| edit_dist(r, query)).min();
+                let min1 = d1.iter().map(|r| edit_dist(r, query)).min();
                 let p = if min0 < min1 { 0 } else { 1 };
                 let updated = p != *a;
                 *a = p;

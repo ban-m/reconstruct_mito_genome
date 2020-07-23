@@ -1,12 +1,5 @@
-extern crate create_simulation_data;
-extern crate edlib_sys;
-extern crate last_decompose;
-extern crate poa_hmm;
-extern crate rand;
-extern crate rand_xoshiro;
 #[macro_use]
 extern crate log;
-extern crate env_logger;
 use last_decompose::ERead;
 use poa_hmm::gen_sample;
 use rand::Rng;
@@ -137,7 +130,7 @@ fn benchmark(
                         .zip(templates[j].iter())
                         .enumerate()
                         .map(|(idx, (t1, t2))| {
-                            let d = edlib_sys::global_dist(t1, t2);
+                            let d = bio_utils::alignments::edit_dist(t1, t2);
                             debug!("{}:{}", idx, d);
                             d
                         })
@@ -152,7 +145,8 @@ fn benchmark(
         .map(|idx| {
             (0..clusters).any(|i| {
                 (i + 1..clusters).any(|j| {
-                    let d = edlib_sys::global_dist(&templates[i][idx], &templates[j][idx]);
+                    let d =
+                        bio_utils::alignments::edit_dist(&templates[i][idx], &templates[j][idx]);
                     d != 0
                 })
             })

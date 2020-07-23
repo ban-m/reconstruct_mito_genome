@@ -1,14 +1,5 @@
-// extern crate bio;
-extern crate create_simulation_data;
-extern crate edlib_sys;
-extern crate last_decompose;
-extern crate poa_hmm;
-extern crate rand;
-extern crate rand_xoshiro;
 #[macro_use]
 extern crate log;
-extern crate env_logger;
-extern crate rayon;
 use last_decompose::clustering_via_alignment;
 use poa_hmm::gen_sample;
 use rand::SeedableRng;
@@ -97,7 +88,7 @@ fn benchmark(
                     let dist = templates[i]
                         .iter()
                         .zip(templates[j].iter())
-                        .map(|(t1, t2)| edlib_sys::global_dist(t1, t2))
+                        .map(|(t1, t2)| bio_utils::alignments::edit_dist(t1, t2))
                         .sum::<u32>();
                     debug!("{}\t{}\t{}", i, j, dist);
                     dist

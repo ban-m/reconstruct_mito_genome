@@ -11,6 +11,7 @@ fn main() -> std::io::Result<()> {
     let mut_rate: f64 = args[2].parse().unwrap();
     let number: usize = args[3].parse().unwrap();
     let seed: u64 = args.get(4).and_then(|e| e.parse().ok()).unwrap_or(213123);
+    let outname: &str = &args[5];
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let p = &gen_sample::Profile {
         sub: mut_rate / 3.,
@@ -18,20 +19,26 @@ fn main() -> std::io::Result<()> {
         del: mut_rate / 3.,
     };
     let desc = Some("depth=1.0 circular=true".to_string());
-    let template1 = gen_sample::generate_seq(&mut rng, reference_len);
+    let template = gen_sample::generate_seq(&mut rng, reference_len);
     let record1 =
-        bio_utils::fasta::Record::with_data(&format!("sample0:{}", seed), &desc, &template1);
-    let records: Vec<_> = (1..number)
+        bio_utils::fasta::Record::with_data(&format!("reference:{}", seed), &desc, &template);
+    let records: Vec<_> = (0..number)
         .map(|i| {
-            let seq = gen_sample::introduce_randomness(&template1, &mut rng, p);
+            let seq = gen_sample::introduce_randomness(&template, &mut rng, p);
             bio_utils::fasta::Record::with_data(&format!("sample{}:{}", i, seed), &desc, &seq)
         })
         .collect();
-    let stdout = std::io::stdout();
-    let mut wtr = bio_utils::fasta::Writer::new(stdout.lock());
-    wtr.write_record(&record1)?;
-    for record in records {
-        wtr.write_record(&record)?;
+    use bio_utils::fasta;
+    use std::fs::File;
+    {
+        let mut wtr = fasta::Writer::new(File::create(outname.to_string() + "_reference.fa")?);
+        wtr.write_record(&record1)?;
+    }
+    {
+        let mut wtr = fasta::Writer::new(File::create(outname.to_string() + "_contigs.fa")?);
+        for record in records {
+            wtr.write_record(&record)?;
+        }
     }
     Ok(())
 }

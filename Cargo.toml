@@ -3,13 +3,10 @@ members = [
 "annotate_mitochondrial_sequence",
 "disassembly",
 "poa_hmm",
-"benchmark_poa_hmm",
-"edlib-sys",
 "bio_utils",
 "last_decompose",
 "last_tiling",
 "variant_calling",
-"long_read_analysis_publicdata",
 "create_simulation_data",
 "mito_assembler",
 ]

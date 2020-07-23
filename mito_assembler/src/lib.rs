@@ -1,12 +1,10 @@
 extern crate env_logger;
 extern crate last_decompose;
-#[macro_use]
 extern crate log;
 extern crate serde;
 extern crate serde_json;
 use last_decompose::d3_data::convert_to_d3_data_with_assign;
 use last_decompose::find_breakpoint::Cluster;
-use last_decompose::find_breakpoint::COVERAGE_THR;
 use last_tiling::{Contigs, EncodedRead};
 use std::collections::HashMap;
 pub mod template;

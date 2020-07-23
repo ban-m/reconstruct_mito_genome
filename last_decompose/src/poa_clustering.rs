@@ -2,7 +2,6 @@ use super::variant_calling;
 use super::{ERead, Read};
 // use crate::utils::logsumexp;
 use poa_hmm::*;
-use rand::distributions::Standard;
 use rand::{seq::SliceRandom, thread_rng, Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
@@ -141,18 +140,16 @@ where
             }
         }
     }
-    let seeds: Vec<_> = rng.sample_iter(Standard).take(chain_len).collect();
     chunks
         .par_iter()
         .map(|cluster| {
             let poa = POA::default();
             cluster
                 .par_iter()
-                .zip(seeds.par_iter())
                 .zip(use_position.par_iter())
-                .map(|((cs, &s), &b)| {
+                .map(|(cs, &b)| {
                     if b {
-                        poa.clone().update(cs, &vec![1.; cs.len()], param, s)
+                        poa.clone().update(cs, &vec![1.; cs.len()], param)
                     } else {
                         poa.clone()
                     }

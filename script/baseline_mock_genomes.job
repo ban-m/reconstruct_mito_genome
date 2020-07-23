@@ -2,33 +2,25 @@
 #$ -S /bin/bash
 #$ -N Baseline
 #$ -cwd
-#$ -pe smp 8
+#$ -pe smp 23
 #$ -e ./logfiles/baseline.log
 #$ -o ./logfiles/baseline.out
 #$ -V
 #$ -m e
 set -ue
 ROOT=${PWD}
-DATA=${PWD}/data/synthetic_data/
-OUTPUT=${PWD}/result/synthetic_data/baseline/
+DATA=${PWD}/data/synthetic_data
+OUTPUT=${PWD}/result/synthetic_data/baseline
 for file in 100_001 100_01 150_005 50_001 50_01 100_005 150_001 150_01 50_005
 do
-    read=${DATA}/${file}/${file}/reads_${file}.fq
-    reference=${DATA}/${file}/${file}/ref_${file}.fa
+    read=${DATA}/${file}/${file}_reads.fq
+    reference=${DATA}/${file}/${file}_reference.fa
     isONclust --ont --fastq ${read} --outfolder ${OUTPUT}/${file}/isONclust
-    mkdir -p ${OUTPUT}/${file}/carnac
-    minimap2 ${read} ${read} -X -x ava-pb > ${OUTPUT}/${file}/carnac/ava.paf
-    python ${ROOT}/script/paf_to_CARNAC.py \
-           ${OUTPUT}/${file}/carnac/ava.paf \
-           ${read} ${OUTPUT}/${file}/carnac_input.txt
-    CARNAC_LR -f ${OUTPUT}/${file}/carnac_input.txt \
-              -o ${OUTPUT}/${file}/carnac_output.txt \
-              -t 8
     mkdir -p ${OUTPUT}/${file}/whatshap
     BAM=${OUTPUT}/${file}/whatshap/${file}.bam
     CAND=${OUTPUT}/${file}/whatshap/${file}_cand.vcf
     GENOTYPE=${OUTPUT}/${file}/whatshap/${file}_genot.vcf
-    PHASED=${OUTPUT}/${file}/whatshap/${file}_phased.vcf
+    PHASED=${OUTPUT}/${file}/whatshap/${file}_phased.vcf.gz
     PHASED_BAM=${OUTPUT}/${file}/whatshap/${file}.phased.bam
     RESULT=${OUTPUT}/${file}/whatshap/${file}.tsv
     minimap2 -a -t 23 -x map-pb ${reference} ${read} |\
@@ -37,12 +29,21 @@ do
     whatshap find_snv_candidates --multi-allelics -o ${CAND} --pacbio \
              ${reference}  ${BAM}
     whatshap genotype --ignore-read-groups --reference ${reference} \
-             ${CAND} ${BAM} > ${GENO}
+             ${CAND} ${BAM} > ${GENOTYPE}
     whatshap phase --ignore-read-groups --indels --reference ${reference} \
-             -o ${PHASED} ${GENO} ${BAM}
+             -o ${PHASED} ${GENOTYPE} ${BAM}
+    tabix -p vcf ${PHASED}
     whatshap haplotag -o ${PHASED_BAM} --ignore-read-groups \
              --reference ${reference} ${PHASED} ${BAM} \
              --output-haplotag-list ${RESULT}
+    mkdir -p ${OUTPUT}/${file}/carnac
+    minimap2 ${read} ${read} -X -x ava-pb > ${OUTPUT}/${file}/carnac/ava.paf
+    python ${ROOT}/script/paf_to_CARNAC.py \
+           ${OUTPUT}/${file}/carnac/ava.paf \
+           ${read} ${OUTPUT}/${file}/carnac/carnac_input.txt
+    CARNAC-LR -f ${OUTPUT}/${file}/carnac/carnac_input.txt \
+              -o ${OUTPUT}/${file}/carnac/carnac_output.txt \
+              -t 8
     flye --pacbio-raw ${read} --threads 8 --meta --genome-size 2M \
          --out-dir ${OUTPUT}/${file}/flye/
 done

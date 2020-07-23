@@ -61,15 +61,34 @@ For those interestead in the raw data, I attach a link to the tar.gzed file cont
 
 ## Reproducibility
 
+### Synthetic dataset
 
-For the synthetic dataset, as BadRead program does not have any options to fix the seed for a quasi-random number generator(2019/05/29), I gnu-zipped the entire dataset as a single tar-ball. [Here is the link]().
+First, install the required packeges:
 
+- [BadRead](https://github.com/rrwick/Badread): `git clone https://github.com/rrwick/Badread.git && pip3 install ./Badread` would install `BadRead` to your local envirnment.
+- [inONclust](https://github.com/ksahlin/isONclust): `pip install isONclust`.
+- [CARNAC-LR](https://github.com/kamimrcht/CARNAC-LR): Exec `git clone https://github.com/kamimrcht/CARNAC.git && cd CARNAC && make`. Then, you can sim-link `${PWD}/CARNAC-LR ${HOME}/local/bin/CARNAC-LR` or anywhere included in the $PATH variable. Also, copy `CARNAC/scripts/paf_to_CARNAC.py` into `./script/` of this repository.
+- [Flye](https://github.com/fenderglass/Flye)
+- [Minimap2](https://github.com/lh3/minimap2): `git clone https://github.com/lh3/minimap2 && cd minimap2 && make` and `ln -s ${PWD}/minimap2 ${HOME}/local/bin/minimap2` or anywhere included in the $PATH variable.
+- [WhatsHap](https://github.com/whatshap/whatshap): `pip3 install --user whatshap`
+- [Samtools](https://github.com/samtools/samtools/releases/tag/1.10)
+- [HTSlib](https://github.com/samtools/htslib/releases/tag/1.10.2)
+- [Last](http://last.cbrc.jp/)
+- [Rust](https://www.rust-lang.org/)
 
-To reproduce our result for Fig2 a,b,c, go to ./simulated_data directory and run `./script/local_re_run.sh`. It would compile & run the experiment and generate plots in `png` or `pdf` directory. Note that it would take a few days to complete, as it runs the same program with different seeds again and again.
+Then, 
+```bash
+bash ./script/create_mock_genome.sh # create datasets under ${PWD}/data/synthetic_data/
+bash ./script/baseline_mock_genomes.job # create result under ${PWD}/result/sythetic_data/
+bash ./script/benchmark.sh
+bash ./script/posterior_probability.job
+bash ./script/synthetic_dataset.sh
+```
+would create all the result used in the paper. Note that each script would take long time to be done (from a few hours to a few days).
 
-To reproduce our result for the rest of Fig2
- and Fig3, go disassembly directory and run `./scirpt/local_run.sh`. It might take a week to complete in a local computer, so I highly recommend executing it in parallel. To do that, if your environment's job-schedular is SGE or SGE-compatible, run `./script/real_dataset.sh` and `./script/complex.sh`. If you are using other schedulers, please contact me.
+### Real dataset
 
+First, download the dataset.
 
 
 ## Reference

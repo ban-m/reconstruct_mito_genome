@@ -1,6 +1,5 @@
 #!/bin/bash
 set -ue
-RUST_BACKTRACE=1
 REFERENCE=$1
 READ=$2
 OUTPUT=$3
@@ -8,25 +7,13 @@ MIN_CLUSTER=$4
 LIMIT=$5
 CORES=$6
 ROOT=${PWD}
-BIN=${PWD}/target/release/
-
-# cargo build --release 
+PATH="${PWD}/target/release/:${PATH}"
 
 # ---- Clean up -----
 if [ -d ${OUTPUT} ]
 then
     rm -r ${OUTPUT}
 fi
-
-
-# ---- Filtering ----
-mkdir -p ${OUTPUT}/filtered_read
-minimap2 -t 24 -x map-pb ${REFERENCE} ${READ} |\
-    ${BIN}/select_mito_reads ${READ} |\
-    ${BIN}/filter_low_quality |\
-    ${BIN}/clip_self_chimera > ${OUTPUT}/filtered_read/filtered_read.fa
-READ=${OUTPUT}/filtered_read/filtered_read.fa
-
 
 # ---- Alignment -----
 mkdir -p ${OUTPUT}/last_db
@@ -63,7 +50,7 @@ do
     ASM_PATH=${reads%%.fasta}
     INDEX=${ASM_PATH##*/}
     mkdir -p ${OUTPUT}/assemblies/${INDEX}
-    genomesize=$(cargo run --release --bin estimate_genome_size -- ${reads} ${REFERENCE} ${OUTPUT}/last_db/alignments.tab ${OUTPUT}/assemblies/${INDEX}/temp.fa)
+    genomesize=$(estimate_genome_size -- ${reads} ${REFERENCE} ${OUTPUT}/last_db/alignments.tab ${OUTPUT}/assemblies/${INDEX}/temp.fa)
     flye \
         --pacbio-raw \
         ${OUTPUT}/assemblies/${INDEX}/temp.fa \
@@ -75,7 +62,7 @@ do
 done
 
 # ---- Align back all reads ----
-cargo run --release --bin collect_contigs -- ${OUTPUT}/assemblies/ ${OUTPUT}
+collect_contigs -- ${OUTPUT}/assemblies/ ${OUTPUT}
 for contigs in  $( find ${OUTPUT} -maxdepth 1 -name "*contigs.fasta" )
 do
     reads=${contigs%%.contigs.fasta}.fasta
@@ -87,7 +74,7 @@ do
            > temp${name}.maf
     # Remove unnessary sequence.
     cd ${ROOT}
-    cargo run --release --bin remove_low_coverage \
+    remove_low_coverage \
           ${contigs} ${OUTPUT}/last_db/temp${name}.maf > ${OUTPUT}/last_db/temp.fa
     cd ${OUTPUT}/last_db
     mv temp.fa ${contigs}
