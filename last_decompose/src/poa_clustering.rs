@@ -10,7 +10,7 @@ const BETA_DECREASE: f64 = 1.05;
 const BETA_MAX: f64 = 0.8;
 const SMALL_WEIGHT: f64 = 0.000_000_001;
 const REP_NUM: usize = 3;
-const GIBBS_PRIOR: f64 = 0.02;
+const GIBBS_PRIOR: f64 = 0.0;
 const STABLE_LIMIT: u32 = 8;
 const IS_STABLE: u32 = 3;
 const VARIANT_FRACTION: f64 = 0.9;
@@ -141,17 +141,20 @@ where
         }
     }
     chunks
+        .iter_mut()
+        .for_each(|cluster| cluster.iter_mut().for_each(|cs| cs.shuffle(rng)));
+    chunks
         .par_iter()
         .map(|cluster| {
-            let poa = POA::default();
             cluster
                 .par_iter()
                 .zip(use_position.par_iter())
                 .map(|(cs, &b)| {
+                    let len = cs.len().min(30);
                     if b {
-                        poa.clone().update(cs, &vec![1.; cs.len()], param)
+                        POA::from_slice(&cs[..len], &vec![1.; len], param)
                     } else {
-                        poa.clone()
+                        POA::default()
                     }
                 })
                 .collect()
@@ -457,7 +460,7 @@ where
         beta = beta.min(BETA_MAX);
         info!("LK\t{}\t{:.3}\t{:.3}\t{:.1}", count, next_lk, lk, beta);
         lk = next_lk;
-        let changed_num = (0..pick_prob.recip().ceil() as usize / 2)
+        let changed_num = (0..pick_prob.recip().ceil() as usize)
             .map(|_| {
                 let s: Vec<bool> = (0..data.len())
                     .map(|i| match i.cmp(&label.len()) {
@@ -471,20 +474,17 @@ where
             })
             .sum::<u32>();
         debug!("CHANGENUM\t{}", changed_num);
-        if changed_num <= (data.len() as f64 * pick_prob / 2.).max(4.) as u32 {
-            count += 1;
-        } else {
-            count = 0;
-        }
+        let has_changed = changed_num <= (data.len() as f64 * 0.01).max(2.) as u32;
+        count += has_changed as u32;
+        count *= has_changed as u32;
         predictions.push_back(asn.clone());
         if predictions.len() as u32 > STABLE_LIMIT {
             predictions.pop_front();
-            assert_eq!(predictions.len(), STABLE_LIMIT as usize);
         }
         report_gibbs(asn, answer, label, count, id, cluster_num, pick_prob);
         let elapsed = (std::time::Instant::now() - start).as_secs();
-        if elapsed > limit && count < STABLE_LIMIT / 2 && predictions.len() as u32 == STABLE_LIMIT {
-            info!("Break by timelimit:{:?}", std::time::Instant::now() - start);
+        if elapsed > limit {
+            debug!("Break {} elapsed", elapsed);
             let result = predictions_into_assignments(predictions, cluster_num, data.len());
             return (result, false);
         }
@@ -497,40 +497,46 @@ where
 }
 
 fn predictions_into_assignments(
-    predictions: std::collections::VecDeque<Vec<u8>>,
-    cluster_num: usize,
-    data: usize,
+    mut predictions: std::collections::VecDeque<Vec<u8>>,
+    _cluster_num: usize,
+    _data: usize,
 ) -> Vec<Option<u8>> {
-    let maximum_a_posterior = |xs: Vec<u8>| {
-        let mut counts: Vec<u32> = vec![0; cluster_num];
-        for x in xs {
-            counts[x as usize] += 1;
-        }
-        let (cluster, count): (usize, u32) = counts
-            .into_iter()
-            .enumerate()
-            .max_by_key(|e| e.1)
-            .unwrap_or((0, 0));
-        if count > IS_STABLE / 2 {
-            Some(cluster as u8)
-        } else {
-            None
-        }
-    };
-    let skip_len = predictions.len() - IS_STABLE as usize;
+    // let maximum_a_posterior = |xs: Vec<u8>| {
+    //     let mut counts: Vec<u32> = vec![0; cluster_num];
+    //     for x in xs {
+    //         counts[x as usize] += 1;
+    //     }
+    //     let (cluster, count): (usize, u32) = counts
+    //         .into_iter()
+    //         .enumerate()
+    //         .max_by_key(|e| e.1)
+    //         .unwrap_or((0, 0));
+    //     if count > IS_STABLE / 2 {
+    //         Some(cluster as u8)
+    //     } else {
+    //         None
+    //     }
+    // };
     predictions
+        .pop_back()
+        .unwrap()
         .into_iter()
-        .skip(skip_len)
-        .fold(vec![vec![]; data], |mut acc, xs| {
-            assert_eq!(acc.len(), xs.len());
-            for (y, x) in acc.iter_mut().zip(xs) {
-                y.push(x)
-            }
-            acc
-        })
-        .into_iter()
-        .map(maximum_a_posterior)
+        .map(|x| Some(x))
         .collect()
+    // let skip_len = predictions.len() - IS_STABLE as usize;
+    // predictions
+    //     .into_iter()
+    //     .skip(skip_len)
+    //     .fold(vec![vec![]; data], |mut acc, xs| {
+    //         assert_eq!(acc.len(), xs.len());
+    //         for (y, x) in acc.iter_mut().zip(xs) {
+    //             y.push(x)
+    //         }
+    //         acc
+    //     })
+    //     .into_iter()
+    //     .map(maximum_a_posterior)
+    //     .collect()
 }
 
 fn report_gibbs(asn: &[u8], ans: &[u8], lab: &[u8], lp: u32, id: u64, cl: usize, pp: f64) {

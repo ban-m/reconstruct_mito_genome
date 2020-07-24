@@ -2,6 +2,15 @@
 ROOT=${PWD}
 DATA=${PWD}/data/synthetic_data/
 OUTPUT=${PWD}/result/synthetic_data/
+
+coverage=150
+qsub -o ./logfiles/test.log -j y -S /bin/bash -cwd -pe smp 24 -V \
+     ./script/disassembly.sh \
+     ${DATA}/${coverage}_01/${coverage}_01_reference.fa \
+     ${DATA}/${coverage}_01/${coverage}_01_reads.fa \
+     ${OUTPUT}/test 2 4000 24
+exit 0;
+
 qsub -o ./logfiles/complex01.log -j y -S /bin/bash -cwd -pe smp 24 -V \
      ./script/disassembly.sh \
      ${DATA}/mut01/reference.fa \

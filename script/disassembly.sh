@@ -40,17 +40,18 @@ mmmm decompose --alignments ${OUTPUT}/last_db/alignments.tab \
      --reads ${READ} --contigs ${REFERENCE} \
      --self_alignments ${OUTPUT}/last_db/self.tab \
      --threads ${CORES} \
-     --no_merge -vv 
+     --no_merge
 
 # ---- Assembly(by Flye) ----
 set +e
 mkdir -p ${OUTPUT}/assemblies/
 for reads in $( find ${OUTPUT} -maxdepth 1 -name "*.fasta" )
 do
+    echo "assembling ${reads}"
     ASM_PATH=${reads%%.fasta}
     INDEX=${ASM_PATH##*/}
     mkdir -p ${OUTPUT}/assemblies/${INDEX}
-    genomesize=$(estimate_genome_size -- ${reads} ${REFERENCE} ${OUTPUT}/last_db/alignments.tab ${OUTPUT}/assemblies/${INDEX}/temp.fa)
+    genomesize=$(estimate_genome_size ${reads} ${REFERENCE} ${OUTPUT}/last_db/alignments.tab ${OUTPUT}/assemblies/${INDEX}/temp.fa)
     flye \
         --pacbio-raw \
         ${OUTPUT}/assemblies/${INDEX}/temp.fa \
@@ -61,8 +62,9 @@ do
     rm ${OUTPUT}/assemblies/${INDEX}/temp.fa
 done
 
+set -ue
 # ---- Align back all reads ----
-collect_contigs -- ${OUTPUT}/assemblies/ ${OUTPUT}
+collect_contigs ${OUTPUT}/assemblies/ ${OUTPUT}
 for contigs in  $( find ${OUTPUT} -maxdepth 1 -name "*contigs.fasta" )
 do
     reads=${contigs%%.contigs.fasta}.fasta

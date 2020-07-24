@@ -28,7 +28,7 @@ fn main() {
     let len = 100;
     let divs = [1, 3];
     let errors = [0.01, 0.10, 0.15];
-    let test_nums: Vec<_> = (80..=150).step_by(10).collect();
+    let test_nums = [80, 110, 140];
     for &div in divs.iter() {
         for &error in errors.iter() {
             for &test_num in &test_nums {

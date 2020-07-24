@@ -9,14 +9,25 @@
 #$ -m e
 set -ue
 OUTPUT=${PWD}/result/posterior_probability/
+PATH="${PWD}/target/release:${PATH}"
 mkdir -p ${OUTPUT}
-TEST_NUM=360
+
+TESTNUM=360
 COVERAGE=0
+SEED=3320
+DIV_RATE=0.0005
 PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
-RUST_LOG=trace ${PWD}/target/release/test_last_decompose_multiple \
-        ${TEST_NUM} ${COVERAGE} 3320 0.0005 ${PROBS}  2>&1 > ${OUTPUT}/six_cluster.tsv |\
+RUST_LOG=trace test_last_decompose_multiple ${TESTNUM} ${COVERAGE} \
+        ${SEED} ${DIV_RATE} ${PROBS}  \
+        2>&1 > ${OUTPUT}/six_cluster.tsv |\
     grep FEATURE | cut -f2- > ${OUTPUT}/six_cluster_posterior.tsv
 
-RUST_LOG=trace ${PWD}/target/release/test_last_decompose_multiple \
-        200 0 34 0.001 0.2 0.8 2>&1 > ${OUTPUT}/two_cluster.tsv  |\
+TESTNUM=200
+COVERAGE=0
+SEED=34
+DIV_RATE=0.001
+PROBS="0.2 0.8"
+RUST_LOG=trace test_last_decompose_multiple ${TESTNUM} ${COVERAGE} \
+        ${SEED} ${DIV_RATE} ${PROBS}  \
+        2>&1 > ${OUTPUT}/two_cluster.tsv  |\
     grep FEATURE | cut -f2- > ${OUTPUT}/two_cluster_posterior.tsv

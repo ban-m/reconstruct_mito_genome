@@ -9,7 +9,7 @@ badread simulate \
         --reference ${OUTPUT}/mut01/complex.fa \
         --quantity 200x --error_model pacbio \
         --seed 10\
-        --qscore_model pacbio --identity 85,95,3 \
+        --qscore_model pacbio --identity 90,95,3 \
         --junk_reads 0 --random_reads 0 --chimeras 0 \
         --length 15000,5000 > ${OUTPUT}/mut01/read_01.fq
 cat ${OUTPUT}/mut01/read_01.fq | paste - - - - | cut -f 1,2 |\
@@ -21,7 +21,7 @@ badread simulate \
         --reference ${OUTPUT}/mut02/complex.fa \
         --quantity 200x --error_model pacbio \
         --seed 10\
-        --qscore_model pacbio --identity 85,95,3 \
+        --qscore_model pacbio --identity 90,95,3 \
         --junk_reads 0 --random_reads 0 --chimeras 0 \
         --length 15000,5000 > ${OUTPUT}/mut02/read_02.fq
 cat ${OUTPUT}/mut02/read_02.fq | paste - - - - | cut -f 1,2 |\
@@ -38,7 +38,7 @@ do
             --reference ${OUTPUT}/${coverage}_01/${coverage}_01_contigs.fa \
             --quantity ${coverage}x --error_model pacbio \
             --seed 10\
-            --qscore_model pacbio --identity 85,95,3 \
+            --qscore_model pacbio --identity 90,95,3 \
             --junk_reads 0 --random_reads 0 --chimeras 0 \
             --length 15000,5000 > ${OUTPUT}/${coverage}_01/${coverage}_01_reads.fq
     cat ${OUTPUT}/${coverage}_01/${coverage}_01_reads.fq |\
@@ -53,7 +53,7 @@ do
             --reference ${OUTPUT}/${coverage}_005/${coverage}_005_contigs.fa \
             --quantity ${coverage}x --error_model pacbio \
             --seed 10\
-            --qscore_model pacbio --identity 85,95,3 \
+            --qscore_model pacbio --identity 90,95,3 \
             --junk_reads 0 --random_reads 0 --chimeras 0 \
             --length 15000,5000 > ${OUTPUT}/${coverage}_005/${coverage}_005_reads.fq
     cat ${OUTPUT}/${coverage}_005/${coverage}_005_reads.fq |\
@@ -68,7 +68,7 @@ do
             --reference ${OUTPUT}/${coverage}_001/${coverage}_001_contigs.fa \
             --quantity ${coverage}x --error_model pacbio \
             --seed 10\
-            --qscore_model pacbio --identity 85,95,3 \
+            --qscore_model pacbio --identity 90,95,3 \
             --junk_reads 0 --random_reads 0 --chimeras 0 \
             --length 15000,5000 > ${OUTPUT}/${coverage}_001/${coverage}_001_reads.fq
     cat ${OUTPUT}/${coverage}_001/${coverage}_001_reads.fq |\

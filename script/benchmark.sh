@@ -10,6 +10,9 @@ do
     seed=1213
     seed=$(( $seed * $i ))
     ${PWD}/target/release/test_last_decompose_multiple_varying_errorate \
-          ${seed} ${PROBS} >> ${OUTPUT} \
-          2>> ${OUTLOG_PREFIX}.log
+          ${seed} ${PROBS} > ${OUTPUT} \
+          2> ${OUTLOG_PREFIX}.log
 done
+
+cat ${PWD}/result/benchmark/benchmark*.txt |\
+    grep RESULT > ${PWD}/result/benchmark/benchmark.tsv
