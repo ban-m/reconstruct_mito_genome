@@ -2,7 +2,7 @@
 #$ -S /bin/bash
 #$ -N Post
 #$ -cwd
-#$ -pe smp 12
+#$ -pe smp 1
 #$ -j y
 #$ -o ./logfiles/posterior.log
 #$ -V

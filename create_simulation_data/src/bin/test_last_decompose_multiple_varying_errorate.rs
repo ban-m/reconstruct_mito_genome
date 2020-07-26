@@ -1,15 +1,16 @@
 #[macro_use]
 extern crate log;
-use last_decompose::ERead;
+// use last_decompose::ERead;
 use poa_hmm::gen_sample;
 use rand::Rng;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
+use rayon::prelude::*;
 const LIMIT: u64 = 3600;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("info")).init();
     rayon::ThreadPoolBuilder::new()
-        .num_threads(8)
+        .num_threads(19)
         .build_global()
         .unwrap();
     let args: Vec<_> = std::env::args().collect();
@@ -26,51 +27,62 @@ fn main() {
     let coverage = 0;
     let chain_len = 90;
     let len = 100;
+    // divs, errors, test_nums
     let divs = [1, 3];
     let errors = [0.01, 0.10, 0.15];
     let test_nums = [80, 110, 140];
+    let mut params = vec![];
     for &div in divs.iter() {
         for &error in errors.iter() {
-            for &test_num in &test_nums {
-                let seed = seed + (test_num + div) as u64;
-                println!("TestNum:{}\tLabeled:{}", test_num, coverage);
-                use std::time::Instant;
-                let s = Instant::now();
-                let (hmm, dists) = benchmark(
-                    seed, div, error, coverage, test_num, chain_len, len, &probs, clusters,
-                );
-                debug!("Elapsed {:?}", Instant::now() - s);
-                let mut line = "RESULT".to_string();
-                let num_of_reads: Vec<_> = (0..clusters)
-                    .map(|cl| hmm.iter().map(|pred| pred[cl]).sum::<u32>())
-                    .collect();
-                for nor in &num_of_reads {
-                    line += &format!("\t{}", nor);
-                }
-                for (idx, preds) in hmm.into_iter().enumerate() {
-                    let tp = preds[idx];
-                    let tot = num_of_reads[idx];
-                    print!("Predicted as {}:", idx);
-                    for ans in preds {
-                        print!("{}\t", ans);
-                        line += &format!("\t{}", ans);
-                    }
-                    println!("Total:{:.4}", tp as f64 / tot as f64);
-                }
-                for (idx, ds) in dists.into_iter().enumerate() {
-                    print!("Distance from {}:", idx);
-                    for d in ds {
-                        line += &format!("\t{}", d);
-                        print!("{}\t", d);
-                    }
-                    println!();
-                }
-                line += &format!("\t{}", test_num);
-                line += &format!("\t{:.3}", error);
-                line += &format!("\t{}", div);
-                println!("{}", line);
+            for &test_num in test_nums.iter() {
+                params.push((div, error, test_num));
             }
         }
+    }
+    let result: Vec<_> = params
+        .into_par_iter()
+        .map(|(div, error, test_num)| {
+            let seed = seed + (test_num + div) as u64;
+            use std::time::Instant;
+            let s = Instant::now();
+            let (hmm, dists) = benchmark(
+                seed, div, error, coverage, test_num, chain_len, len, &probs, clusters,
+            );
+            println!("TestNum:{}\tLabeled:{}", test_num, coverage);
+            debug!("Elapsed {:?}", Instant::now() - s);
+            let mut line = "RESULT".to_string();
+            let num_of_reads: Vec<_> = (0..clusters)
+                .map(|cl| hmm.iter().map(|pred| pred[cl]).sum::<u32>())
+                .collect();
+            for nor in &num_of_reads {
+                line += &format!("\t{}", nor);
+            }
+            for (idx, preds) in hmm.into_iter().enumerate() {
+                let tp = preds[idx];
+                let tot = num_of_reads[idx];
+                print!("Predicted as {}:", idx);
+                for ans in preds {
+                    print!("{}\t", ans);
+                    line += &format!("\t{}", ans);
+                }
+                println!("Total:{:.4}", tp as f64 / tot as f64);
+            }
+            for (idx, ds) in dists.into_iter().enumerate() {
+                print!("Distance from {}:", idx);
+                for d in ds {
+                    line += &format!("\t{}", d);
+                    print!("{}\t", d);
+                }
+                println!();
+            }
+            line += &format!("\t{}", test_num);
+            line += &format!("\t{:.3}", error);
+            line += &format!("\t{}", div);
+            line
+        })
+        .collect();
+    for line in result {
+        println!("{}", line);
     }
 }
 
@@ -120,6 +132,51 @@ fn benchmark(
                 .collect()
         })
         .collect();
+    use create_simulation_data::generate_mul_data;
+    let profile = gen_sample::PROFILE.norm().mul(error);
+    let (dataset, label, answer, _border) =
+        generate_mul_data(&templates, coverage, test_num, &mut rng, probs, &profile);
+    let c = &poa_hmm::DEFAULT_CONFIG;
+    let data: Vec<Vec<_>> = dataset
+        .clone()
+        .into_iter()
+        .map(|read| read.into_iter().enumerate().collect())
+        .collect();
+    // let data: Vec<_> = dataset
+    //     .into_iter()
+    //     .enumerate()
+    //     .map(|(idx, e)| {
+    //         let id = format!("{}", idx);
+    //         let read = ERead::new_with_lowseq(e, &id);
+    //         read
+    //     })
+    //     .collect();
+    let forbidden = vec![vec![]; data.len()];
+    // use last_decompose::poa_clustering::{poa_clustering, DEFAULT_ALN};
+    // let coverage = data.iter().map(|r| r.seq.len()).sum::<usize>() / chain_len;
+    // let em_pred = gibbs_sampling(
+    //     &data,
+    //     (&label, &answer),
+    //     &forbidden,
+    //     clusters,
+    //     LIMIT,
+    //     c,
+    //     &DEFAULT_ALN,
+    //     coverage,
+    // );
+    use last_decompose::poa_clustering::{gibbs_sampling, DEFAULT_ALN};
+    let pred = gibbs_sampling(
+        &data,
+        &label,
+        Some(&answer),
+        &forbidden,
+        chain_len,
+        clusters,
+        LIMIT,
+        c,
+        &DEFAULT_ALN,
+        coverage,
+    );
     debug!("Index1\tIndex2\tDist");
     let dists: Vec<Vec<_>> = (0..clusters)
         .map(|i| {
@@ -141,55 +198,17 @@ fn benchmark(
                 .collect::<Vec<_>>()
         })
         .collect();
-    let _ok_chunk: Vec<bool> = (0..chain_len)
-        .map(|idx| {
-            (0..clusters).any(|i| {
-                (i + 1..clusters).any(|j| {
-                    let d =
-                        bio_utils::alignments::edit_dist(&templates[i][idx], &templates[j][idx]);
-                    d != 0
-                })
-            })
-        })
-        .collect();
-    use create_simulation_data::generate_mul_data;
-    let profile = gen_sample::PROFILE.norm().mul(error);
-    let (dataset, label, answer, _border) =
-        generate_mul_data(&templates, coverage, test_num, &mut rng, probs, &profile);
-    let c = &poa_hmm::DEFAULT_CONFIG;
     {
         let probs: Vec<_> = probs.iter().map(|e| format!("{:3}", e)).collect();
         debug!("Probs:[{}]", probs.join(","));
     };
-    let data: Vec<_> = dataset
-        .into_iter()
-        .enumerate()
-        .map(|(idx, e)| {
-            let id = format!("{}", idx);
-            let read = ERead::new_with_lowseq(e, &id);
-            read
-        })
-        .collect();
-    let forbidden = vec![vec![]; data.len()];
-    use last_decompose::poa_clustering::{gibbs_sampling, DEFAULT_ALN};
-    let coverage = data.iter().map(|r| r.seq.len()).sum::<usize>() / chain_len;
-    let em_pred = gibbs_sampling(
-        &data,
-        (&label, &answer),
-        &forbidden,
-        clusters,
-        LIMIT,
-        c,
-        &DEFAULT_ALN,
-        coverage,
-    );
     let mut result = vec![vec![0; clusters]; clusters];
-    for (pred, ans) in em_pred.into_iter().zip(answer) {
-        let pred = match pred {
-            Some(res) => res as usize,
-            None => 0,
-        };
-        result[pred][ans as usize] += 1;
+    for (pred, ans) in pred.into_iter().zip(answer) {
+        // let pred = match pred {
+        //     Some(res) => res as usize,
+        //     None => 0,
+        // };
+        result[pred as usize][ans as usize] += 1;
     }
     (result, dists)
 }

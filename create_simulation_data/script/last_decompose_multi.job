@@ -3,13 +3,13 @@
 #$ -N DecMult
 #$ -cwd
 #$ -pe smp 12
-#$ -e ./logfiles/last_decompose_gibbs.log
-#$ -o ./logfiles/last_decompose_gibbs.out
+#$ -j y
+#$ -o ./logfiles/multi_test.log
 #$ -V
 #$ -m e
 set -ue
 
-OUTPUT=./result/multi_test.txt
+OUTPUT=./result/multi_test.tsv
 OUTLOG=./logfiles/multi_test.log
 echo "start" > ${OUTPUT}
 TEST_NUM=360
@@ -17,45 +17,46 @@ COVERAGE=0
 PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
 RUST_LOG=trace ./../target/release/test_last_decompose_multiple \
         ${TEST_NUM} ${COVERAGE} 3320 0.0005 ${PROBS} >> ${OUTPUT} \
-        2>> ${OUTLOG}
+        2>> ${OUTLOG} & 
 TEST_NUM=300
 COVERAGE=0
 PROBS="0.16 0.16 0.16 0.16 0.16"
 RUST_LOG=debug ./../target/release/test_last_decompose_multiple \
         ${TEST_NUM} ${COVERAGE} 33209 0.0005 ${PROBS} >> ${OUTPUT} \
-        2>> ${OUTLOG}
+        2>> ${OUTLOG} & 
 TEST_NUM=360
 COVERAGE=0
 PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
 RUST_LOG=trace ./../target/release/test_last_decompose_multiple \
         ${TEST_NUM} ${COVERAGE} 310 0.002 ${PROBS} >> ./result/six_test_gibbs_trace.tsv\
-        2>> ./logfiles/six_test_gibbs_trace.log
+        2>> ./logfiles/six_test_gibbs_trace.log & 
 
 TEST_NUM=300
 COVERAGE=0
 PROBS="0.16 0.16 0.16 0.16 0.16"
 RUST_LOG=debug ./../target/release/test_last_decompose_multiple \
         ${TEST_NUM} ${COVERAGE} 33209 0.002 ${PROBS} >> ${OUTPUT} \
-        2>> ${OUTLOG}
+        2>> ${OUTLOG} & 
 
 TEST_NUM=300
 COVERAGE=0
 PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
 RUST_LOG=debug ./../target/release/test_last_decompose_multiple \
     ${TEST_NUM} ${COVERAGE} 100 0.002 ${PROBS} >> ${OUTPUT}\
-    2>> ${OUTLOG}
+    2>> ${OUTLOG} & 
 
 TEST_NUM=240
 COVERAGE=0
 PROBS="0.16 0.16 0.16 0.16 0.16 0.16 0.0"
 RUST_LOG=debug ./../target/release/test_last_decompose_multiple \
     ${TEST_NUM} ${COVERAGE} 129080 0.002 ${PROBS} >> ${OUTPUT}\
-    2>> ${OUTLOG}
+    2>> ${OUTLOG} & 
 
 TEST_NUM=300
 COVERAGE=0
 PROBS="0.16 0.16 0.16 0.16 0.16"
 RUST_LOG=debug ./../target/release/test_last_decompose_multiple \
         ${TEST_NUM} ${COVERAGE} 33209 0.001 ${PROBS} >> ${OUTPUT} \
-        2>> ${OUTLOG}
+        2>> ${OUTLOG} & 
 
+wait

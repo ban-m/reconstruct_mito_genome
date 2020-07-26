@@ -1,16 +1,10 @@
+#![allow(dead_code)]
 #[macro_use]
 extern crate log;
-extern crate bio_utils;
-extern crate env_logger;
-extern crate last_tiling;
-extern crate md5;
 extern crate nalgebra as na;
-extern crate rand;
-extern crate rand_xoshiro;
-extern crate rayon;
-extern crate serde_json;
 #[macro_use]
 extern crate serde;
+mod de_bruijn_graph;
 pub use find_breakpoint::critical_regions;
 use rayon::prelude::*;
 pub mod bipartite_matching;
@@ -34,8 +28,10 @@ pub mod poa_clustering;
 use poa_hmm::Config;
 pub mod variant_calling;
 // mod digamma;
-const WINDOW_SIZE: usize = 300;
-const OVERLAP: usize = 50;
+// const WINDOW_SIZE: usize = 100;
+// const OVERLAP: usize = 50;
+const WINDOW_SIZE: usize = 20;
+const OVERLAP: usize = 5;
 const MIN_LEN: usize = 6_000;
 const CONNECTION_THR: f64 = 0.5;
 const MERGE_THR: usize = 50;
@@ -67,7 +63,7 @@ pub fn decompose(
         .enumerate()
         .flat_map(|(idx, (len, cov))| create_windows(idx, *len, &cov))
         .collect();
-    let predicts = clustering_chunking(
+    let predicts = clustering_chunking_2(
         &dataset,
         &labels,
         &forbidden,
@@ -265,6 +261,7 @@ pub fn create_windows(idx: usize, len: usize, covs: &[u32]) -> Vec<(u16, u16, u1
             sub_windows.push((start, end));
             start = end + 1;
         }
+
         sub_windows
             .into_iter()
             .filter(|(s, e)| e - s > WINDOW_SIZE / 3)
@@ -272,21 +269,21 @@ pub fn create_windows(idx: usize, len: usize, covs: &[u32]) -> Vec<(u16, u16, u1
     };
     sub_windows
         .into_iter()
-        .flat_map(|(start, len)| {
-            if len - start < WINDOW_SIZE {
-                return vec![(start, len)];
+        .flat_map(|(start, end)| {
+            if end - start < WINDOW_SIZE {
+                return vec![(start, end)];
             }
-            let window_num = (len - start) / (WINDOW_SIZE - OVERLAP);
-            let last_pos = len - start - (window_num - 1) * (WINDOW_SIZE - OVERLAP);
+            let window_num = (end - start) / (WINDOW_SIZE - OVERLAP);
+            let last_pos = start + (window_num - 1) * (WINDOW_SIZE - OVERLAP);
             assert!(last_pos >= 1);
-            if last_pos < WINDOW_SIZE / 2 {
+            if end - last_pos < WINDOW_SIZE / 2 {
                 (0..window_num)
                     .map(|i| {
                         let s = start + i * (WINDOW_SIZE - OVERLAP);
                         if i < last_pos - 1 {
                             (s, s + WINDOW_SIZE)
                         } else {
-                            (s, len)
+                            (s, end)
                         }
                     })
                     .collect::<Vec<_>>()
@@ -297,7 +294,7 @@ pub fn create_windows(idx: usize, len: usize, covs: &[u32]) -> Vec<(u16, u16, u1
                         if i < last_pos {
                             (s, s + WINDOW_SIZE)
                         } else {
-                            (s, len)
+                            (s, end)
                         }
                     })
                     .collect::<Vec<_>>()
@@ -551,6 +548,172 @@ pub fn clustering_chunking(
     )
 }
 
+#[derive(Clone, Debug)]
+struct Entry<'a> {
+    id: &'a str,
+    window: usize,
+    read_position: usize,
+    seq: Vec<(usize, Vec<u8>)>,
+    forbid: &'a [u8],
+    label: Option<u8>,
+}
+impl<'a> Entry<'a> {
+    fn new(
+        id: &'a str,
+        window: usize,
+        read_position: usize,
+        seq: Vec<(usize, Vec<u8>)>,
+        forbid: &'a [u8],
+        label: Option<u8>,
+    ) -> Self {
+        Self {
+            id,
+            window,
+            read_position,
+            seq,
+            forbid,
+            label,
+        }
+    }
+}
+
+pub fn clustering_chunking_2(
+    data: &[ERead],
+    label: &[u8],
+    forbidden: &HashMap<String, Vec<u8>>,
+    _initial_clusters: &[Cluster],
+    cluster_num: usize,
+    _contigs: &[usize],
+    c: &Config,
+    limit: u64,
+    windows: &[(u16, u16, u16)],
+) -> Vec<Option<u8>> {
+    let mut pileups: Vec<Vec<_>> = vec![vec![]; windows.len()];
+    for (pos, &(contig, start, end)) in windows.iter().enumerate() {
+        for (idx, read) in data.iter().enumerate() {
+            let contained_window = read
+                .seq
+                .iter()
+                .any(|u| u.contig == contig && start <= u.unit && u.unit < end);
+            if contained_window {
+                let filtered = read
+                    .seq
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, u)| u.contig == contig && start <= u.unit && u.unit < end);
+                let read_position: usize = filtered.clone().next().unwrap().0;
+                let seq: Vec<_> = filtered
+                    .clone()
+                    .map(|(_, u)| ((u.unit - start) as usize, u.bases.clone()))
+                    .collect();
+                let lab = label.get(idx).cloned();
+                let forb = forbidden.get(&read.id).unwrap();
+                let entry = Entry::new(&read.id, pos, read_position, seq, forb, lab);
+                pileups[pos].push(entry);
+            }
+        }
+    }
+    debug!("Distributed!");
+    let id2desc: HashMap<_, _> = data
+        .iter()
+        .filter_map(|read| read.desc.clone().map(|d| (read.id.to_string(), d)))
+        .collect();
+    let mut encoded_reads: HashMap<String, Vec<_>> = HashMap::new();
+    // Parallelize here to get most efficient algorithm.
+    let result: Vec<Vec<(&str, (usize, usize, u8))>> = pileups
+        .into_par_iter()
+        .zip(windows.into_par_iter())
+        .enumerate()
+        .map(|(idx, (pileup, range))| {
+            let labels: Vec<_> = pileup.iter().filter_map(|entry| entry.label).collect();
+            debug!("Start {:?}", range);
+            let forbs = pileup
+                .iter()
+                .filter(|entry| !entry.forbid.is_empty())
+                .count();
+            debug!("{} labels and {} noempty forbidden", label.len(), forbs);
+            let coverage = pileup.len();
+            debug!("Coverage is {}", coverage);
+            let cluster_num = labels
+                .iter()
+                .copied()
+                .collect::<HashSet<_>>()
+                .len()
+                .max(cluster_num);
+            let forbidden: Vec<_> = pileup.iter().map(|entry| entry.forbid.to_vec()).collect();
+            let chain_len = (range.2 - range.1) as usize;
+            let data: Vec<_> = pileup.iter().map(|entry| entry.seq.clone()).collect();
+            let predictions = poa_clustering::gibbs_sampling(
+                &data,
+                &label,
+                None,
+                &forbidden,
+                chain_len,
+                cluster_num,
+                limit,
+                c,
+                &poa_clustering::DEFAULT_ALN,
+                coverage,
+            );
+            for (pred, read) in predictions.iter().zip(pileup.iter()) {
+                if let Some(desc) = id2desc.get(read.id) {
+                    debug!("{}\t{}\t{}", idx, pred, desc);
+                }
+            }
+            predictions
+                .into_iter()
+                .zip(pileup)
+                .map(|(pred, r)| (r.id, (r.read_position, r.window, pred)))
+                .collect()
+        })
+        .collect();
+    for pileup in result {
+        for (id, elm) in pileup {
+            encoded_reads.entry(id.to_string()).or_default().push(elm);
+        }
+    }
+    encoded_reads
+        .iter_mut()
+        .for_each(|(_, ref mut seqs)| seqs.sort_by_key(|x| x.0));
+    {
+        let mut f = std::io::BufWriter::new(std::fs::File::create("reads.json").unwrap());
+        let result = serde_json::ser::to_string(&encoded_reads).unwrap();
+        use std::io::Write;
+        writeln!(&mut f, "{}", result).unwrap();
+    }
+    let predict = de_bruijn_clustering(&encoded_reads);
+    data.iter()
+        .map(|read| predict.get(&read.id).map(|&x| x))
+        .collect()
+}
+
+fn de_bruijn_clustering(reads: &HashMap<String, Vec<(usize, usize, u8)>>) -> HashMap<String, u8> {
+    let graph = {
+        let reads: Vec<_> = reads
+            .values()
+            .map(|seq| {
+                seq.iter()
+                    .map(|&(_, pos, cluster)| (pos as u64, cluster as u64))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        de_bruijn_graph::DeBruijnGraph::new(&reads, 3)
+    };
+    let mut graph = graph.clean_up_auto();
+    graph.coloring();
+    reads
+        .iter()
+        .map(|(id, read)| {
+            let read = read
+                .iter()
+                .map(|&(_, pos, cluster)| (pos as u64, cluster as u64))
+                .collect::<Vec<_>>();
+            let cluster = graph.assign_read(&read).unwrap_or(0usize) as u8;
+            (id.to_string(), cluster)
+        })
+        .collect()
+}
+
 fn merge_windows_by_bipartite(
     clusterings: Vec<Vec<HashSet<String>>>,
     windowlen: usize,
@@ -775,20 +938,21 @@ fn dump_pred(assignments: &[Option<u8>], data: &[ERead], idx: usize) {
     }
 }
 
-/// Return clustering. If the value is None,
-/// the element can not be assigned to any cluster.
+// Return clustering. If the value is None,
+// the element can not be assigned to any cluster.
 pub fn clustering(
-    data: &[ERead],
-    labels: &[u8],
-    forbidden: &[Vec<u8>],
-    cluster_num: usize,
-    limit: u64,
-    c: &Config,
-    coverage: usize,
+    _data: &[ERead],
+    _labels: &[u8],
+    _forbidden: &[Vec<u8>],
+    _cluster_num: usize,
+    _limit: u64,
+    _c: &Config,
+    _coverage: usize,
 ) -> Vec<Option<u8>> {
-    assert_eq!(forbidden.len(), data.len());
-    use poa_clustering::{gibbs_sampling, DEFAULT_ALN};
-    let answer = vec![0u8; data.len() - labels.len()];
-    let (ls, cl) = ((labels, answer.as_slice()), cluster_num);
-    gibbs_sampling(data, ls, forbidden, cl, limit, c, &DEFAULT_ALN, coverage)
+    vec![]
+    // assert_eq!(forbidden.len(), data.len());
+    // use poa_clustering::{gibbs_sampling, DEFAULT_ALN};
+    // let answer = vec![0u8; data.len() - labels.len()];
+    // let (ls, cl) = ((labels, answer.as_slice()), cluster_num);
+    // gibbs_sampling(data, ls, forbidden, cl, limit, c, &DEFAULT_ALN, coverage)
 }

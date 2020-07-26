@@ -2,15 +2,15 @@
 #$ -S /bin/bash
 #$ -N DecError
 #$ -cwd
-#$ -pe smp 8
+#$ -pe smp 18
 #$ -e ./logfiles/last_decompose_poa.log
 #$ -o ./logfiles/last_decompose_poa.log
 #$ -V
 #$ -m e
-#$ -t 1:2
+#$ -t 1:20
 set -ue
-OUTPUT=${PWD}/result/benchmark/benchmark_t_${SGE_TASK_ID}.txt
-OUTLOG_PREFIX=${PWD}/result/benchmark/benchmark_log_${SGE_TASK_ID}
+OUTPUT=${PWD}/result/benchmark/benchmark_${SGE_TASK_ID}.txt
+OUTLOG_PREFIX=${PWD}/result/benchmark/log_${SGE_TASK_ID}
 
 mkdir -p ${PWD}/result/benchmark
 COVERAGE=0
