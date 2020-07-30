@@ -37,7 +37,7 @@ fn main() -> std::io::Result<()> {
         eprintln!("MEAN\tSD\tTHR:{}\t{}\t{}", mean, sd, thr);
         let (start, stop) = get_range(coverage, thr);
         let seq: Vec<_> = record.seq()[start..stop].to_vec();
-        let desc = record.desc().map(|e| e.clone());
+        let desc = record.desc().cloned();
         let record = fasta::Record::with_data(record.id(), &desc, &seq);
         wtr.write_record(&record)?;
     }

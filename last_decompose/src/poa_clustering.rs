@@ -100,6 +100,7 @@ fn get_cluster_fraction(asns: &[u8], flags: &[bool], cluster_num: usize) -> Vec<
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn get_models<F, R>(
     data: &[Read],
     assignments: &[u8],
@@ -211,7 +212,6 @@ fn get_new_assignment(
         .collect();
     let cluster_num = fractions.len();
     let weights: Vec<_> = (0..cluster_num)
-        .into_iter()
         .map(|l| {
             (0..cluster_num)
                 .map(|k| {
@@ -242,6 +242,7 @@ fn get_new_assignment(
     argmax
 }
 
+#[allow(clippy::too_many_arguments)]
 fn update_assignments(
     models: &[Vec<POA>],
     assignments: &mut [u8],
@@ -313,6 +314,7 @@ where
     (variants, prev_lk)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn gibbs_sampling<F>(
     data: &[Read],
     labels: &[u8],
@@ -372,6 +374,7 @@ where
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn print_lk_gibbs<F>(
     (cluster_num, chain_len): (usize, usize),
     asns: &[u8],
@@ -435,6 +438,7 @@ fn gen_assignment<R: Rng>(not_allowed: &[u8], _occed: &[u8], rng: &mut R, c: usi
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn gibbs_sampling_inner<F>(
     data: &[Read],
     label: &[u8],
@@ -664,7 +668,7 @@ where
 
 fn report_gibbs(asn: &[u8], change_num: u32, lp: u32, id: u64, cl: usize, pp: f64) {
     let line = (0..cl)
-        .map(|c| asn.iter().filter(|&&a| a == c as u8).count())
+        .map(|c| bytecount::count(&asn, c as u8))
         .map(|e| format!("{}", e))
         .collect::<Vec<_>>()
         .join("\t");
@@ -705,7 +709,6 @@ fn calc_probs(
         .collect();
     let cluster_num = ws.len();
     let weights: Vec<_> = (0..cluster_num)
-        .into_iter()
         .map(|l| {
             (0..cluster_num)
                 .map(|k| {

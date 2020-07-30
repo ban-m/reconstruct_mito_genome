@@ -41,6 +41,7 @@ impl fmt::Display for ERead {
     }
 }
 
+type UnitWithDirection<'a> = (&'a CUnit, bool);
 impl ERead {
     pub fn new_no_gapfill(er: &EncodedRead) -> Self {
         use last_tiling::unit::ChunkedUnit;
@@ -224,7 +225,7 @@ impl ERead {
     pub fn seq_mut(&mut self) -> &mut Vec<CUnit> {
         self.seq.as_mut()
     }
-    pub fn get_edges(&self) -> Option<((&CUnit, bool), (&CUnit, bool))> {
+    pub fn get_edges(& self) -> Option<(UnitWithDirection, UnitWithDirection)> {
         if self.seq.len() > DIRECTION_MERGIN * 2 {
             let first_direction = {
                 let (count, to_down) = self

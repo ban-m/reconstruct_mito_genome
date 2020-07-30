@@ -98,7 +98,7 @@ fn summarize_contig(
             }
         }
         if let Some(last_tiling::unit::ChunkedUnit::En(encode)) =
-            &read.seq.iter().rev().filter(|e| e.is_encode()).nth(0)
+            &read.seq.iter().rev().find(|e| e.is_encode())
         {
             cs[encode.contig as usize].start_stop[encode.unit as usize] += 1;
         }
@@ -187,6 +187,6 @@ fn get_cluster(read: &EncodedRead, clusters: &[Cluster]) -> i32 {
         .iter()
         .filter(|cluster| cluster.has(read.id()))
         .map(|cluster| cluster.id as i32)
-        .nth(0)
+        .next()
         .unwrap_or(-1)
 }

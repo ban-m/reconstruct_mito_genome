@@ -86,7 +86,7 @@ fn main() -> std::io::Result<()> {
         0 => "warn",
         1 => "info",
         2 => "debug",
-        3 | _ => "trace",
+        _ => "trace",
     };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(level)).init();
     let reads = matches
@@ -177,19 +177,20 @@ fn find<'a>(gff: &'a [GFF], refname: &str, pos: usize) -> Option<&'a str> {
                 None
             }
         })
-        .nth(0)
+        .next()
 }
 
 use bio_utils::fasta::Record;
 use rust_htslib::bam::Read;
 use rust_htslib::bam::Reader;
+type VariantCallResult = Vec<(String, Vec<(usize, u32, u32, u8, u8)>)>;
 fn variant_calling(
     reads: &[Record],
     reference: &[Record],
     mut bam: Reader,
     is_all: bool,
     param: (f64, u32),
-) -> Vec<(String, Vec<(usize, u32, u32, u8, u8)>)> {
+) -> VariantCallResult {
     let header = bam.header().clone();
     let reads: HashMap<_, _> = reads
         .iter()
@@ -255,7 +256,7 @@ fn variant_calling(
         .map(|(tid, vs)| (tid as u32, vs))
         .filter_map(|(tid, vs)| Some((String::from_utf8(header.tid2name(tid).to_vec()).ok()?, vs)))
         .filter_map(|(refname, counts)| {
-            let reference = reference.iter().filter(|r| r.id() == &refname).nth(0)?;
+            let reference = reference.iter().find(|r| refname == r.id())?;
             // assert_eq!(reference.seq().len(), counts.len());
             let vs = variant_calling_filter(reference.seq(), &counts, param, is_all);
             Some((refname, vs))
@@ -305,7 +306,7 @@ fn get_max_base(bc: &[u32]) -> (u8, u32) {
 
 #[inline]
 fn revcmp(seq: &[u8]) -> Vec<u8> {
-    seq.into_iter()
+    seq.iter()
         .rev()
         .map(|&e| match e {
             b'A' | b'a' => b'T',
@@ -324,7 +325,7 @@ fn open_gff(file: &str) -> std::io::Result<Vec<GFF>> {
         .lines()
         .filter_map(|x| x.ok())
         .filter_map(|line| {
-            let line: Vec<_> = line.split("\t").collect();
+            let line: Vec<_> = line.split('\t').collect();
             if line.len() < 5 {
                 None
             } else {
@@ -345,7 +346,7 @@ fn open_gff_convert(file: &str) -> std::io::Result<HashMap<String, String>> {
             .lines()
             .filter_map(|e| e.ok())
             .map(|line| {
-                let line: Vec<_> = line.split("\t").collect();
+                let line: Vec<_> = line.split('\t').collect();
                 (line[0].to_string(), line[1].to_string())
             })
             .collect()

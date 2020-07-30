@@ -101,10 +101,10 @@ fn centrize(mut matrices: Vec<Vec<f64>>, row: usize, column: usize) -> Vec<Vec<f
 
 fn maximize_margin_of(matrices: &[Vec<f64>], row: usize, column: usize) -> Option<Vec<f64>> {
     let matrix = matrices
-        .into_iter()
+        .iter()
         .map(|matrix| DMatrix::from_row_slice(row, column, &matrix))
         .fold(DMatrix::zeros(column, column), |x, l| {
-            let trans = l.clone().transpose();
+            let trans = l.transpose();
             let ones = DMatrix::repeat(row, row, 1.);
             let unit = DMatrix::identity(row, row);
             let reg = unit - ones / row as f64;

@@ -84,7 +84,13 @@ pub fn predict_by_independent(ps: &[(f64, f64)]) -> u8 {
 }
 
 pub fn predict_by_sol(ps: &[(f64, f64)]) -> u8 {
-    let xlnx = |x: &f64| if x == &0. { 0. } else { x * x.ln() };
+    let xlnx = |x: &f64| {
+        if x.abs() < f64::EPSILON {
+            0.
+        } else {
+            x * x.ln()
+        }
+    };
     let entropy: Vec<_> = ps
         .iter()
         .map(|(o, m)| {
@@ -106,7 +112,13 @@ pub fn predict_by_sol(ps: &[(f64, f64)]) -> u8 {
 }
 
 pub fn predict_by_sow(ps: &[(f64, f64)]) -> u8 {
-    let xlnx = |x: &f64| if x == &0. { 0. } else { x * x.ln() };
+    let xlnx = |x: &f64| {
+        if x.abs() < f64::EPSILON {
+            0.
+        } else {
+            x * x.ln()
+        }
+    };
     let entropy: Vec<_> = ps
         .iter()
         .map(|(o, m)| {
@@ -137,25 +149,26 @@ pub fn as_weight(x1: f64, x2: f64) -> (f64, f64) {
 
 pub type Seq = Vec<u8>;
 // UnitID -> Sequences -> (color, seq)
-pub fn construct_predictor<'a>(
-    training: &'a [ERead],
-    is_original: &[bool],
-    len: usize,
-) -> Vec<(Vec<&'a [u8]>, Vec<&'a [u8]>)> {
-    let mut chunks = vec![(vec![], vec![]); len];
-    for (&is_original, read) in is_original.iter().zip(training.iter()) {
-        for unit in read.seq.iter() {
-            let u = unit.unit as usize;
-            let seq = unit.bases.as_slice();
-            if is_original {
-                chunks[u].0.push(seq);
-            } else {
-                chunks[u].1.push(seq);
-            }
-        }
-    }
-    chunks
-}
+
+// pub fn construct_predictor<'a>(
+//     training: &'a [ERead],
+//     is_original: &[bool],
+//     len: usize,
+// ) -> Vec<(Vec<&'a [u8]>, Vec<&'a [u8]>)> {
+//     let mut chunks = vec![(vec![], vec![]); len];
+//     for (&is_original, read) in is_original.iter().zip(training.iter()) {
+//         for unit in read.seq.iter() {
+//             let u = unit.unit as usize;
+//             let seq = unit.bases.as_slice();
+//             if is_original {
+//                 chunks[u].0.push(seq);
+//             } else {
+//                 chunks[u].1.push(seq);
+//             }
+//         }
+//     }
+//     chunks
+// }
 
 /// Conpute Log (w0 * exp(l0) + w1 * exp(l1)). If you want to do the same thing for
 /// two vectors, see calc_logsum_vec
@@ -192,7 +205,7 @@ pub fn generate_mul_data<T: Rng>(
     test_num: usize,
     rng: &mut T,
     probs: &[f64],
-    profile: &gen_sample::Profile
+    profile: &gen_sample::Profile,
 ) -> (Vec<Vec<Vec<u8>>>, Vec<u8>, Vec<u8>, usize) {
     let answer: Vec<_> = (0..probs.len()).flat_map(|i| vec![i; coverage]).collect();
     let answer: Vec<_> = answer

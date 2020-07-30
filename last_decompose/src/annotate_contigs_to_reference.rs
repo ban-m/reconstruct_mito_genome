@@ -23,7 +23,7 @@ pub struct Alignment {
 }
 pub fn annotate_aln_contigs_to_ref(refs: &[Record], alns: &[LastTAB], thr: usize) -> Summary {
     let alignments: Vec<_> = alns
-        .into_iter()
+        .iter()
         .filter(|aln| (aln.seq1_matchlen() + aln.seq2_matchlen()) / 2 > thr)
         .map(|aln| {
             let reference_name = aln.seq1_name().to_string();
@@ -54,7 +54,7 @@ pub fn annotate_aln_contigs_to_ref(refs: &[Record], alns: &[LastTAB], thr: usize
         })
         .collect();
     let references: Vec<_> = refs
-        .into_iter()
+        .iter()
         .map(|rec| {
             let id = rec.id().to_string();
             let length = rec.seq().len();

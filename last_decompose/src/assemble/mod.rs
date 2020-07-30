@@ -2,7 +2,13 @@ mod chunked_read;
 mod ditch_graph;
 use super::Entry;
 pub use chunked_read::ChunkedRead;
-use de_bruijn_graph;
+
+#[derive(Debug, Clone)]
+pub struct DecomposedResult {
+    pub assignments: Vec<(String, Option<u8>)>,
+    pub gfa: gfa::GFA,
+    pub contigs: Vec<bio_utils::fasta::Record>,
+}
 
 impl de_bruijn_graph::AsDeBruijnNode for chunked_read::Node {
     fn as_node(w: &[chunked_read::Node]) -> de_bruijn_graph::Node {
@@ -25,13 +31,7 @@ impl de_bruijn_graph::IntoDeBruijnNodes for chunked_read::ChunkedRead {
     }
 }
 
-pub fn assemble_reads(
-    reads: &mut [ChunkedRead],
-) -> (
-    Vec<(String, Option<u8>)>,
-    Vec<bio_utils::fasta::Record>,
-    gfa::GFA,
-) {
+pub fn assemble_reads(reads: &mut [ChunkedRead]) -> DecomposedResult {
     let mut dbg = de_bruijn_graph::DeBruijnGraph::from(reads, 3);
     dbg.resolve_bubbles(reads);
     let max_cluster = dbg.coloring();
@@ -68,7 +68,11 @@ pub fn assemble_reads(
         .collect();
     header.extend(records.into_iter().flat_map(|e| e.1));
     let gfa = gfa::GFA::from_records(header);
-    (assignments, contigs, gfa)
+    DecomposedResult {
+        assignments,
+        contigs,
+        gfa,
+    }
 }
 
 fn reads_to_contig(cl: usize, reads: &[&ChunkedRead]) -> Option<bio_utils::fasta::Record> {

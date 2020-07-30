@@ -18,7 +18,7 @@ fn main() -> std::io::Result<()> {
         .collect();
     let subst: Vec<_> = maf.clone().into_iter().filter_map(Aln::new).collect();
     let ins: Vec<_> = maf.clone().into_iter().filter_map(Ins::new).collect();
-    let del: Vec<_> = maf.clone().into_iter().filter_map(Del::new).collect();
+    let del: Vec<_> = maf.into_iter().filter_map(Del::new).collect();
     let mut pileups: Vec<_> = (0..1_000_000).map(PileUp::new).collect();
     let mut pileups_ins: Vec<_> = (0..1_000_000).map(PileUp::new).collect();
     let mut pileups_del: Vec<_> = (0..1_000_000).map(PileUp::new).collect();
@@ -71,15 +71,15 @@ fn main() -> std::io::Result<()> {
         Err(why) => why,
     };
     debug!("Collecting spanning reads:{}", subst.len());
-    let result: Arc<Mutex<Vec<HashMap<_, (u16, u16, u16, u16, u16)>>>> =
-        Arc::new(Mutex::new(vec![HashMap::new(); variants.len()]));
+    type Slots = Arc<Mutex<Vec<HashMap<usize, (u16, u16, u16, u16, u16)>>>>;
+    let result: Slots = Arc::new(Mutex::new(vec![HashMap::new(); variants.len()]));
     subst.par_iter().for_each(|aln| {
         let start = aln.start;
         let end = start + aln.seq.len();
         let start = unwrap(variants.binary_search_by_key(&start, |&(ref e, _)| e.pos));
         let end = unwrap(variants.binary_search_by_key(&end, |&(ref e, _)| e.pos));
         let mut temp = vec![];
-        (start..end).into_iter().for_each(|i1| {
+        (start..end).for_each(|i1| {
             let &(ref v1, base1) = &variants[i1];
             variants[i1 + 1..end].iter().for_each(|&(ref v2, base2)| {
                 if aln.does_share(v1, v2) {

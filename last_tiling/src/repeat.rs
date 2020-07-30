@@ -1,6 +1,4 @@
 //! The definitions of repeats.
-use serde_json;
-
 /// A repeat pairs.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RepeatPairs {

@@ -38,8 +38,8 @@ fn calc_confidence(aln: &LastAln, annot: &Annotation) -> f64 {
 }
 
 fn find_ovlpping_genes_from_species<'a>(
-    aln: &LastAln,
-    genes: &'a Vec<Annotation>,
+    aln: &'a LastAln,
+    genes: &'a [Annotation],
 ) -> Vec<&'a Annotation> {
     let index = match genes.binary_search_by_key(&aln.ref_start, |e| e.start) {
         Ok(res) => res,
@@ -53,7 +53,7 @@ fn find_ovlpping_genes_from_species<'a>(
 }
 
 fn find_overlapping_genes<'a>(
-    aln: &LastAln,
+    aln: &'a LastAln,
     annot: &'a HashMap<String, Vec<Annotation>>,
 ) -> Option<Vec<&'a Annotation>> {
     let bucket = annot.get(&aln.ref_name)?;
@@ -63,12 +63,17 @@ fn find_overlapping_genes<'a>(
 fn locate_gene_to_contig(aln: &LastAln, annot: &Annotation) -> (u64, u64) {
     let start = aln.get_corresponding_point_of_query(annot.start) as u64;
     let end = aln.get_corresponding_point_of_query(annot.end) as u64;
-    eprintln!("Alignment [{},{}) -> [{},{}). Gene:[{},{}).",
-              aln.ref_start,aln.ref_end,aln.query_start,aln.query_end,
-              annot.start,
-              annot.end);
-    eprintln!("Mapping [{},{}) ({} % confidence)",start,end,calc_confidence(aln,annot)*100.);
-    (start,end)
+    eprintln!(
+        "Alignment [{},{}) -> [{},{}). Gene:[{},{}).",
+        aln.ref_start, aln.ref_end, aln.query_start, aln.query_end, annot.start, annot.end
+    );
+    eprintln!(
+        "Mapping [{},{}) ({} % confidence)",
+        start,
+        end,
+        calc_confidence(aln, annot) * 100.
+    );
+    (start, end)
 }
 
 fn convert_to_map(aln: &LastAln, annot: &Annotation) -> Map {
@@ -180,7 +185,7 @@ impl LastAln {
         let blocks = Self::parse_blocks(contents[11])?;
         if read_strand == '+' {
             Some(LastAln {
-                score: score,
+                score,
                 ref_name: ctgname,
                 ref_start: ctgstart,
                 ref_end: ctgstart + ctg_aln_length,
@@ -188,11 +193,11 @@ impl LastAln {
                 query_start: read_start,
                 query_end: read_start + read_aln_length,
                 strand: 1,
-                blocks: blocks,
+                blocks,
             })
         } else {
             Some(LastAln {
-                score: score,
+                score,
                 ref_start: ctgstart,
                 ref_name: ctgname,
                 ref_end: ctgstart + ctg_aln_length,

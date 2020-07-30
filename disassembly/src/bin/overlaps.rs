@@ -21,9 +21,7 @@ fn main() -> std::io::Result<()> {
         if let Some(reference) = references.get_mut(alignment.seq1_name()) {
             let start = alignment.seq1_start_from_forward();
             let end = alignment.seq1_end_from_forward();
-            for i in start..end {
-                reference[i] = true;
-            }
+            reference.iter_mut().take(end).skip(start).for_each(|x|*x = true);
         }
     }
     let (tot, covered) = references

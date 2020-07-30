@@ -85,7 +85,7 @@ impl Repeat {
                 start: pos2,
                 is_forward: isf2,
             },
-            k: k,
+            k,
         }
     }
 }
@@ -122,7 +122,7 @@ fn parse_mummer(file: &str) -> std::io::Result<RepeatAnnotation> {
     Ok(RepeatAnnotation { repeats })
 }
 
-fn parse_mummer_bucket(buffer: &Vec<String>) -> Vec<Repeat> {
+fn parse_mummer_bucket(buffer: &[String]) -> Vec<Repeat> {
     if buffer.is_empty() {
         return vec![];
     };

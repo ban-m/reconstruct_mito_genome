@@ -25,7 +25,7 @@ fn main() -> std::io::Result<()> {
                 let end = end as u16;
                 let c_contig = confluent.contig().contig();
                 let first_boundary = {
-                    let (&contig, &pos) = units.clone().nth(0).unwrap();
+                    let (&contig, &pos) = units.clone().next().unwrap();
                     c_contig == contig && start <= pos && pos < end
                 };
                 let last_boundary = {

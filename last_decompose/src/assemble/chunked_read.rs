@@ -93,8 +93,8 @@ impl ChunkedRead {
             .collect();
         let id = r.id.clone();
         let desc = r.desc.clone();
-        let label = label.map(|&e| e);
-        let forbidden = forbidden.cloned().unwrap_or(vec![]);
+        let label = label.copied();
+        let forbidden = forbidden.cloned().unwrap_or_else(Vec::new);
         Self {
             id,
             desc,

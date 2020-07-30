@@ -563,6 +563,7 @@ name = "last_decompose"
 version = "0.1.0"
 dependencies = [
  "bio_utils",
+ "bytecount",
  "de_bruijn_graph",
  "env_logger",
  "gfa",

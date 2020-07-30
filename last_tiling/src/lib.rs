@@ -33,7 +33,7 @@ const CHECK_POINT: usize = 550;
 /// Parse given aln files into repeats. It needs contig information such as index of a contig.
 const THR: usize = 1_000;
 pub fn into_repeats(alns: &[LastTAB], contig: &Contigs) -> Vec<RepeatPairs> {
-    alns.into_iter()
+    alns.iter()
         .filter(|aln| {
             // Check complete alignment.
             let seq1_cmp = aln.seq1_matchlen() != aln.seq1_len();
@@ -47,7 +47,7 @@ pub fn into_repeats(alns: &[LastTAB], contig: &Contigs) -> Vec<RepeatPairs> {
 }
 
 pub fn into_repeats_full(alns: &[LastTAB], contig: &Contigs) -> Vec<RepeatPairs> {
-    alns.into_iter()
+    alns.iter()
         .filter(|aln| {
             // Check complete alignment.
             let seq1_cmp = aln.seq1_matchlen() != aln.seq1_len();
@@ -116,7 +116,7 @@ pub fn encoding(fasta: &[fasta::Record], defs: &Contigs, alns: &[LastTAB]) -> Ve
         .map(|(bucket, seq)| {
             if bucket.is_empty() {
                 let read = vec![ChunkedUnit::Gap(GapUnit::new(seq.seq(), None))];
-                let desc = seq.desc().map(|e| e.clone());
+                let desc = seq.desc().cloned();
                 EncodedRead::from(seq.id().to_string(), read, desc)
             } else {
                 into_encoding(bucket, seq, defs)
@@ -142,7 +142,7 @@ pub fn encoding_w_repeat(
             let bucket = trim_aln_in_repetitive(bucket, repeat);
             if bucket.is_empty() {
                 let read = vec![ChunkedUnit::Gap(GapUnit::new(seq.seq(), None))];
-                let desc = seq.desc().map(|e| e.clone());
+                let desc = seq.desc().cloned();
                 EncodedRead::from(seq.id().to_string(), read, desc)
             } else {
                 into_encoding(bucket, seq, defs)
@@ -157,10 +157,10 @@ fn trim_aln_in_repetitive<'a>(
 ) -> Vec<&'a LastTAB> {
     bucket
         .iter()
-        .filter_map(|aln| match is_in_repeat(aln, repeat) {
-            None => Some(aln),
-            Some(rep) if has_flanking(rep, &bucket) => Some(aln),
-            Some(_) => None,
+        .filter(|aln| match is_in_repeat(aln, repeat) {
+            None => true,
+            Some(rep) if has_flanking(rep, &bucket) => true,
+            Some(_) => false,
         })
         .copied()
         .collect()
@@ -174,17 +174,14 @@ fn is_in_repeat<'a>(aln: &LastTAB, repeat: &'a [RepeatPairs]) -> Option<&'a Repe
     repeat
         .iter()
         .filter_map(|rs| {
-            rs.inner()
-                .iter()
-                .filter(|r| {
-                    let r_start = r.start().max(margin) - margin;
-                    let r_end = r.end() + margin;
-                    let b = r.name() == contig && r_start <= start && end <= r_end;
-                    b
-                })
-                .nth(0)
+            rs.inner().iter().find(|r| {
+                let r_start = r.start().max(margin) - margin;
+                let r_end = r.end() + margin;
+                let b = r.name() == contig && r_start <= start && end <= r_end;
+                b
+            })
         })
-        .nth(0)
+        .next()
 }
 
 fn has_flanking(rep: &Repeat, bucket: &[&LastTAB]) -> bool {
@@ -212,7 +209,7 @@ fn into_encoding(bucket: Vec<&LastTAB>, seq: &fasta::Record, defs: &Contigs) -> 
     // The procedure here would be a little bit tricky.
     let mut bucket = bucket.iter();
     let mut target = bucket.next().unwrap();
-    while let Some(next) = bucket.next() {
+    for next in bucket {
         let (sp, units) =
             encoding_single_alignment(target, next, defs, bases, start_pos, prev_contig_id);
         read.extend(units);
@@ -235,7 +232,7 @@ fn into_encoding(bucket: Vec<&LastTAB>, seq: &fasta::Record, defs: &Contigs) -> 
         let gapunit = ChunkedUnit::Gap(GapUnit::new(&bases[start_pos..], Some((c, c))));
         read.push(gapunit);
     }
-    let desc = seq.desc().map(|e| e.clone());
+    let desc = seq.desc().cloned();
     unit::EncodedRead::from(seq.id().to_string(), read, desc)
 }
 
@@ -252,10 +249,10 @@ fn encoding_single_alignment(
     // Check overlapping. We are encoding the `target` alignment.
     let former_stop = target.seq2_end_from_forward();
     let later_start = next.seq2_start_from_forward();
-    let (encodes, start, end) = if former_stop < later_start {
-        // No overlap.
-        aln_to_encode(target, target.seq2_end_from_forward(), defs, bases)
-    } else if defs.get_id(target.seq1_name()).unwrap() < defs.get_id(next.seq1_name()).unwrap() {
+    let (encodes, start, end) = if former_stop < later_start
+        || defs.get_id(target.seq1_name()).unwrap() < defs.get_id(next.seq1_name()).unwrap()
+    {
+        // No overlap. or
         // Overlap.Take the younger contig.
         aln_to_encode(target, target.seq2_end_from_forward(), defs, bases)
     } else {
@@ -312,7 +309,7 @@ fn is_not_contained(r: &repeat::Repeat, a: &LastTAB, s: usize, t: usize) -> bool
 
 #[inline]
 pub fn revcmp(seq: &[u8]) -> Vec<u8> {
-    seq.into_iter()
+    seq.iter()
         .rev()
         .map(|&e| match e {
             b'A' | b'a' => b'T',

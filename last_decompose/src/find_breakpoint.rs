@@ -1,6 +1,5 @@
 use super::ERead;
-use last_tiling::repeat::RepeatPairs;
-use last_tiling::{Contigs, EncodedRead, LastTAB};
+use last_tiling::{Contigs, EncodedRead};
 use serde::{Deserialize, Serialize};
 use std::cmp::{Ord, Ordering, PartialOrd};
 use std::collections::HashSet;
@@ -133,14 +132,9 @@ fn merge(
     crs[i].extend(j_clusters);
 }
 
-pub fn initial_clusters(
-    reads: &[EncodedRead],
-    contigs: &Contigs,
-    repeats: &[RepeatPairs],
-    alignments: &[LastTAB],
-) -> Vec<Cluster> {
-    let reads: Vec<_> = reads.into_iter().map(ERead::new_no_gapfill).collect();
-    let crs: Vec<_> = critical_regions(&reads, contigs, repeats, alignments);
+pub fn initial_clusters(reads: &[EncodedRead], contigs: &Contigs) -> Vec<Cluster> {
+    let reads: Vec<_> = reads.iter().map(ERead::new_no_gapfill).collect();
+    let crs: Vec<_> = critical_regions(&reads, contigs);
     let mut crs: Vec<_> = crs.into_iter().map(|e| vec![e]).collect();
     'merge: loop {
         let len = crs.len();
@@ -587,12 +581,7 @@ impl ReadClassify for ConfluentRegion {
 }
 
 /// Return critical regions.
-pub fn critical_regions(
-    reads: &[ERead],
-    contigs: &Contigs,
-    _repeats: &[RepeatPairs],
-    _alignments: &[LastTAB],
-) -> Vec<CriticalRegion> {
+pub fn critical_regions(reads: &[ERead], contigs: &Contigs) -> Vec<CriticalRegion> {
     let contig_pairs = contigpair_position(reads, contigs);
     let confluent_regions = confluent_position(reads, contigs, last_tiling::UNIT_SIZE);
     let confluent_regions: Vec<_> = confluent_regions
@@ -712,7 +701,7 @@ fn search_jump_start(
     let mut counts: HashMap<_, usize> = HashMap::new();
     for (position, edges) in jumps.iter().enumerate().skip(s) {
         for key in edges.iter() {
-            *counts.entry(key.clone()).or_default() += 1;
+            *counts.entry(*key).or_default() += 1;
         }
         if let Some((&(x, y, z), _)) = counts
             .iter()

@@ -20,8 +20,8 @@ fn pacbio_fasta(records: Vec<fasta::Record>) -> std::io::Result<()> {
             "".to_string()
         }
     };
-    let mut flush = |buffer: &mut Vec<fasta::Record>| -> () {
-        if let Some(res) = buffer.into_iter().max_by_key(|e| e.seq().len()) {
+    let mut flush = |buffer: &mut Vec<fasta::Record>| {
+        if let Some(res) = buffer.iter().max_by_key(|e| e.seq().len()) {
             rem += res.seq().len();
             stdout.write_record(&res).unwrap();
         }

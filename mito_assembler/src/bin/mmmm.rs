@@ -7,6 +7,7 @@ extern crate serde_json;
 extern crate log;
 extern crate env_logger;
 extern crate mito_assembler;
+use bio_utils::fasta;
 use clap::{App, Arg, SubCommand};
 use mito_assembler::dump_viewer;
 use std::collections::HashMap;
@@ -256,30 +257,86 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
         .unwrap();
     let no_merge = matches.is_present("no_merge");
     let contigs = last_tiling::contig::Contigs::new(reference);
-    let repeats = last_tiling::into_repeats(&self_aln, &contigs);
     let encoded_reads = last_tiling::encoding(&reads, &contigs, &alignments);
-    let start_stop = last_tiling::get_start_stop(&encoded_reads, &contigs);
-    let initial_clusters =
-        last_decompose::initial_clusters(&encoded_reads, &contigs, &repeats, &alignments);
+    let initial_clusters = last_decompose::initial_clusters(&encoded_reads, &contigs);
     debug!("Initial clusters constructed");
+    {
+        if let Err(why) = std::fs::create_dir_all(output_dir) {
+            error!("Error Occured while outputing reads.");
+            error!("{:?}", why);
+            error!("This program did not work successfully.");
+            error!("Shutting down...");
+            std::process::exit(1);
+        }
+        let start_stop = last_tiling::get_start_stop(&encoded_reads, &contigs);
+        let file = format!("{}/start_stop.tsv", output_dir);
+        let mut writer = BufWriter::new(std::fs::File::create(&file)?);
+        for (contig, stst) in start_stop {
+            for (pos, count) in stst {
+                writeln!(&mut writer, "{}\t{}\t{}", contig, pos, count)?;
+            }
+        }
+        let file = format!("{}/split_count.tsv", output_dir);
+        let mut writer = BufWriter::new(std::fs::File::create(&file)?);
+        for cluster in initial_clusters.iter() {
+            for cp in cluster.members.iter().filter_map(|e| e.cr.contig_pair()) {
+                let count = cp.reads().len();
+                let (s1, e1) = cp.contig1().range();
+                let (s2, e2) = cp.contig2().range();
+                writeln!(&mut writer, "{}\t{}\t{}\t{}\t{}", s1, e1, s2, e2, count)?;
+            }
+        }
+        let dir = format!("{}/viewer", output_dir);
+        if let Err(why) = std::fs::create_dir_all(&dir) {
+            error!("Error Occured while outputing reads.");
+            error!("{:?}", why);
+            error!("This program did not work successfully.");
+            error!("Shutting down...");
+            std::process::exit(1);
+        }
+        let repeats = last_tiling::into_repeats(&self_aln, &contigs);
+        let file = format!("{}/repeats.json", dir);
+        let mut writer = BufWriter::new(std::fs::File::create(&file)?);
+        let repeats = serde_json::ser::to_string(&repeats).unwrap();
+        writeln!(&mut writer, "{}", repeats)?;
+        let file = format!("{}/circos.html", dir);
+        let mut writer = BufWriter::new(std::fs::File::create(&file)?);
+        writeln!(&mut writer, "{}", mito_assembler::template::TEMPLATE)?;
+        let file = format!("{}/style.css", dir);
+        let mut writer = BufWriter::new(std::fs::File::create(&file)?);
+        writeln!(&mut writer, "{}", mito_assembler::template::STYLE)?;
+        debug!("Dumped files");
+    }
     for c in &initial_clusters {
         let counts = c.ids().len();
         debug!("{:?} having {} reads.", c, counts);
     }
     let cl = cluster_num;
     debug!("Profiled Error Rates:{}", config);
-    let results: HashMap<String, u8> = if matches.is_present("resume") {
-        let mut chunked_reads: Vec<last_decompose::assemble::ChunkedRead> = matches
-            .value_of("resume")
-            .and_then(|e| std::fs::File::open(e).map(BufReader::new).ok())
-            .and_then(|e| serde_json::de::from_reader(e).ok())
-            .unwrap();
-        last_decompose::assemble::assemble_reads(&mut chunked_reads)
-            .0
+    let results: HashMap<String, u8> = if !no_merge {
+        let result = if matches.is_present("resume") {
+            let mut chunked_reads: Vec<last_decompose::assemble::ChunkedRead> = matches
+                .value_of("resume")
+                .and_then(|e| std::fs::File::open(e).map(BufReader::new).ok())
+                .and_then(|e| serde_json::de::from_reader(e).ok())
+                .unwrap();
+            last_decompose::assemble::assemble_reads(&mut chunked_reads)
+        } else {
+            last_decompose::decompose(
+                encoded_reads,
+                &initial_clusters,
+                &contigs,
+                &config,
+                cl,
+                limit,
+            )
+        };
+        result
+            .assignments
             .into_iter()
-            .filter_map(|(id, c)| c.map(|c| (id, c)))
+            .filter_map(|(id, asn)| asn.map(|x| (id, x)))
             .collect()
-    } else if no_merge {
+    } else {
         use last_decompose::find_breakpoint::ReadClassify;
         encoded_reads
             .iter()
@@ -291,24 +348,9 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
                     .map(|cl| (r.id().to_string(), cl.id as u8))
             })
             .collect()
-    } else {
-        last_decompose::decompose(
-            encoded_reads,
-            &initial_clusters,
-            &contigs,
-            &repeats,
-            &config,
-            cl,
-            limit,
-        )
-        .assignments
-        .into_iter()
-        .filter_map(|(id, c)| c.map(|c| (id, c)))
-        .collect()
     };
-    use bio_utils::fasta;
     let mut decomposed: HashMap<u8, Vec<&fasta::Record>> = HashMap::new();
-    let unassigned = results.values().map(|&c| c).max().unwrap_or(0) + 1;
+    let unassigned = results.values().copied().max().unwrap_or(0) + 1;
     for read in &reads {
         if let Some(cluster) = results.get(read.id()) {
             let cls = decomposed.entry(*cluster).or_insert(vec![]);
@@ -318,20 +360,13 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
             cls.push(read);
         }
     }
-    if let Err(why) = std::fs::create_dir_all(output_dir) {
-        error!("Error Occured while outputing reads.");
-        error!("{:?}", why);
-        error!("This program did not work successfully.");
-        error!("Shutting down...");
-        std::process::exit(1);
-    }
     let readlist = format!("{}/readlist.tsv", output_dir);
     let mut readlist = BufWriter::new(std::fs::File::create(readlist)?);
     let decomposed: HashMap<u8, Vec<_>> = decomposed
         .into_iter()
         .filter(|(_, rs)| rs.len() > last_decompose::find_breakpoint::COVERAGE_THR)
         .collect();
-    if !no_merge {
+    {
         for (&cluster_id, reads) in decomposed.iter() {
             let outpath = format!("{}/{}.fasta", output_dir, cluster_id);
             let wtr = match std::fs::File::create(&outpath) {
@@ -353,45 +388,11 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
         }
     }
     let encoded_reads = last_tiling::encoding(&reads, &contigs, &alignments);
-    let file = format!("{}/start_stop.tsv", output_dir);
-    let mut writer = BufWriter::new(std::fs::File::create(&file)?);
-    for (contig, stst) in start_stop {
-        for (pos, count) in stst {
-            writeln!(&mut writer, "{}\t{}\t{}", contig, pos, count)?;
-        }
-    }
-    let file = format!("{}/split_count.tsv", output_dir);
-    let mut writer = BufWriter::new(std::fs::File::create(&file)?);
-    for cluster in initial_clusters.iter() {
-        for cp in cluster.members.iter().filter_map(|e| e.cr.contig_pair()) {
-            let count = cp.reads().len();
-            let (s1, e1) = cp.contig1().range();
-            let (s2, e2) = cp.contig2().range();
-            writeln!(&mut writer, "{}\t{}\t{}\t{}\t{}", s1, e1, s2, e2, count)?;
-        }
-    }
     let dir = format!("{}/viewer", output_dir);
-    if let Err(why) = std::fs::create_dir_all(&dir) {
-        error!("Error Occured while outputing reads.");
-        error!("{:?}", why);
-        error!("This program did not work successfully.");
-        error!("Shutting down...");
-        std::process::exit(1);
-    }
     let file = format!("{}/data.json", dir);
     let mut writer = BufWriter::new(std::fs::File::create(&file)?);
     let res = dump_viewer(&results, &encoded_reads, &initial_clusters, &contigs)?;
     writeln!(&mut writer, "{}", res)?;
-    let file = format!("{}/repeats.json", dir);
-    let mut writer = BufWriter::new(std::fs::File::create(&file)?);
-    let repeats = serde_json::ser::to_string(&repeats).unwrap();
-    writeln!(&mut writer, "{}", repeats)?;
-    let file = format!("{}/circos.html", dir);
-    let mut writer = BufWriter::new(std::fs::File::create(&file)?);
-    writeln!(&mut writer, "{}", mito_assembler::template::TEMPLATE)?;
-    let file = format!("{}/style.css", dir);
-    let mut writer = BufWriter::new(std::fs::File::create(&file)?);
-    writeln!(&mut writer, "{}", mito_assembler::template::STYLE)?;
     Ok(())
 }
 
@@ -400,7 +401,7 @@ fn create_viewer(matches: &clap::ArgMatches) -> std::io::Result<()> {
         0 => "warn",
         1 => "info",
         2 => "debug",
-        3 | _ => "trace",
+        _ => "trace",
     };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(level)).init();
     let reads = matches
@@ -463,7 +464,7 @@ fn create_viewer(matches: &clap::ArgMatches) -> std::io::Result<()> {
         .and_then(|num| num.parse().ok())
         .unwrap();
     let output_dir = matches.value_of("output_dir").unwrap();
-    let dir = format!("{}", output_dir);
+    let dir = output_dir.to_string();
     if let Err(why) = std::fs::create_dir_all(&dir) {
         error!("Error Occured while outputing reads.");
         error!("{:?}", why);
@@ -477,7 +478,7 @@ fn create_viewer(matches: &clap::ArgMatches) -> std::io::Result<()> {
     let mut writer = BufWriter::new(std::fs::File::create(&file)?);
     let contigs_to_ref = serde_json::ser::to_string(&contigs_to_ref)?;
     writeln!(&mut writer, "{}", contigs_to_ref)?;
-    let contigs = last_tiling::Contigs::new(contigs.clone());
+    let contigs = last_tiling::Contigs::new(contigs);
     let reads = last_tiling::encoding(&reads, &contigs, &read_aln);
     use last_decompose::d3_data::convert_result_to_d3_data;
     let result_summary = convert_result_to_d3_data(&contigs, &reads, &assignments);

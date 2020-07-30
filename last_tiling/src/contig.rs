@@ -50,8 +50,8 @@ impl Contigs {
         self.names
             .iter()
             .enumerate()
-            .filter_map(|(idx, name)| if name == key { Some(idx as u16) } else { None })
-            .nth(0)
+            .find(|(_, name)|name.as_str() == key)
+            .map(|(idx, _)|idx as u16)
     }
     pub fn get_name_by_id(&self, id: u16) -> &str {
         &self.names[id as usize]

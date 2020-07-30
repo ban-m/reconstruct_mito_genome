@@ -43,7 +43,7 @@ pub fn open_annotation(file: &str) -> std::io::Result<HashMap<String, Vec<Annota
         .filter_map(|e| e.ok())
         .filter_map(|e| Annotation::new(&e))
     {
-        let entry = res.entry(spname).or_insert(vec![]);
+        let entry = res.entry(spname).or_insert_with(Vec::new);
         entry.push(annot);
     }
     for (_spname, ants) in res.iter_mut() {
@@ -65,6 +65,7 @@ pub struct Map {
 }
 
 impl Map {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         contig_name: &str,
         is_tRNA: bool,

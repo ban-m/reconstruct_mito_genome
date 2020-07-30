@@ -124,6 +124,9 @@ impl ChunkedUnit {
             ChunkedUnit::Gap(e) => e.len(),
         }
     }
+    pub fn is_empty(&self)->bool{
+        self.len() == 0
+    }
     pub fn recover_raw_sequence(&self) -> Vec<u8> {
         match self {
             ChunkedUnit::En(e) => e.bases.as_bytes().to_vec(),

@@ -15,7 +15,6 @@ pub use eread::*;
 pub use find_breakpoint::initial_clusters;
 pub use find_breakpoint::Cluster;
 use find_breakpoint::ReadClassify;
-use last_tiling::repeat::RepeatPairs;
 use rand::Rng;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
@@ -37,23 +36,16 @@ const CONNECTION_THR: f64 = 0.5;
 const MERGE_THR: usize = 50;
 const NG_THR: usize = 10;
 type Read<'a> = Vec<(usize, &'a [u8])>;
-#[derive(Debug, Clone)]
-pub struct DecomposedResult {
-    pub assignments: Vec<(String, Option<u8>)>,
-    pub gfa: gfa::GFA,
-    pub contigs: Vec<bio_utils::fasta::Record>,
-}
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
 pub fn decompose(
     encoded_reads: Vec<last_tiling::EncodedRead>,
     initial_clusters: &[Cluster],
     contigs: &last_tiling::Contigs,
-    _repeats: &[RepeatPairs],
     config: &Config,
     cluster_num: usize,
     limit: u64,
-) -> DecomposedResult {
+) -> assemble::DecomposedResult {
     let ereads: Vec<_> = encoded_reads.iter().map(ERead::new_no_gapfill).collect();
     let coverages = get_coverages(contigs, &ereads);
     let (dataset, labels, forbidden) = initial_clustering(ereads, initial_clusters);
@@ -112,37 +104,8 @@ pub fn decompose(
             }
         }
     }
-    let (assignments, contigs, gfa) = assemble::assemble_reads(&mut chunked_reads);
-    DecomposedResult {
-        assignments,
-        gfa,
-        contigs,
-    }
+    assemble::assemble_reads(&mut chunked_reads)
 }
-
-// pub fn resume_decompose(
-//     encoded_reads: Vec<ERead>,
-//     initial_clusters: &[Cluster],
-//     contigs: &last_tiling::Contigs,
-//     repeats: &[RepeatPairs],
-//     resume: Vec<Vec<HashSet<String>>>,
-// ) -> Vec<(String, Option<u8>)> {
-//     let coverages = get_coverages(contigs, &encoded_reads);
-//     let (dataset, _, forbidden) = initial_clustering(encoded_reads, initial_clusters, repeats);
-
-//     let windowlen = (0..contigs.get_num_of_contigs())
-//         .map(|e| contigs.get_last_unit(e as u16).unwrap() as usize + 1)
-//         .zip(coverages)
-//         .enumerate()
-//         .flat_map(|(idx, (len, coverage))| create_windows(idx, len, &coverage))
-//         .count();
-//     let predicts = resume_clustering(resume, windowlen, &forbidden, initial_clusters, &dataset);
-//     dataset
-//         .into_iter()
-//         .zip(predicts.iter())
-//         .map(|(read, cl)| (read.id().to_string(), *cl))
-//         .collect()
-// }
 
 fn initial_clustering(
     encoded_reads: Vec<ERead>,
@@ -165,7 +128,7 @@ fn initial_clustering(
             let matched_cluster = initial_clusters
                 .iter()
                 .filter_map(|cr| if cr.has(read.id()) { Some(cr.id) } else { None })
-                .nth(0);
+                .next();
             if let Some(idx) = matched_cluster {
                 labels.push(idx as u8);
                 true
@@ -368,7 +331,7 @@ fn select_within(
         let read = read.clone_within(contig, start, end);
         let unit_thr = (MIN_LEN / last_tiling::UNIT_SIZE).min(original_len / 2);
         if read.seq().len() > unit_thr {
-            let mut forbid = forbidden.get(read.id()).cloned().unwrap_or(vec![]);
+            let mut forbid = forbidden.get(read.id()).cloned().unwrap_or_else(Vec::new);
             forbid.extend(additional_forbiddens(&read));
             s_forbid.push(forbid);
             s_data.push(read);

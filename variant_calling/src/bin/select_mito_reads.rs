@@ -20,9 +20,7 @@ fn main() -> std::io::Result<()> {
     for paf in BufReader::new(stdin.lock()).lines().filter_map(|e| e.ok()) {
         let (name, start, end) = region(&paf);
         let rs = mapped_region.get_mut(name).unwrap();
-        for i in start..end {
-            rs[i] = true;
-        }
+        rs.iter_mut().take(end).skip(start).for_each(|x|*x = true);
     }
     let contained_id: HashSet<_> = mapped_region
         .into_iter()
