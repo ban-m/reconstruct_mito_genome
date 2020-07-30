@@ -9,4 +9,7 @@ members = [
 "variant_calling",
 "create_simulation_data",
 "mito_assembler",
+"gfa_rust",
+"de_bruijn_graph",
+"histgram_viz"
 ]

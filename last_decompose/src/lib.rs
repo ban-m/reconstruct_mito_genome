@@ -4,7 +4,6 @@ extern crate log;
 extern crate nalgebra as na;
 #[macro_use]
 extern crate serde;
-mod de_bruijn_graph;
 pub use find_breakpoint::critical_regions;
 use rayon::prelude::*;
 pub mod bipartite_matching;
@@ -22,38 +21,48 @@ use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 use std::collections::{HashMap, HashSet};
 pub mod annotate_contigs_to_reference;
+pub mod assemble;
 pub mod d3_data;
 pub mod error_profile;
 pub mod poa_clustering;
 use poa_hmm::Config;
 pub mod variant_calling;
 // mod digamma;
-// const WINDOW_SIZE: usize = 100;
+// const WINDOW_SIZE: usize = 300;
 // const OVERLAP: usize = 50;
 const WINDOW_SIZE: usize = 20;
-const OVERLAP: usize = 5;
+const OVERLAP: usize = 0;
 const MIN_LEN: usize = 6_000;
 const CONNECTION_THR: f64 = 0.5;
 const MERGE_THR: usize = 50;
 const NG_THR: usize = 10;
-type Read = Vec<(usize, Vec<u8>)>;
+type Read<'a> = Vec<(usize, &'a [u8])>;
+#[derive(Debug, Clone)]
+pub struct DecomposedResult {
+    pub assignments: Vec<(String, Option<u8>)>,
+    pub gfa: gfa::GFA,
+    pub contigs: Vec<bio_utils::fasta::Record>,
+}
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
 pub fn decompose(
-    encoded_reads: Vec<ERead>,
+    encoded_reads: Vec<last_tiling::EncodedRead>,
     initial_clusters: &[Cluster],
     contigs: &last_tiling::Contigs,
-    repeats: &[RepeatPairs],
+    _repeats: &[RepeatPairs],
     config: &Config,
     cluster_num: usize,
     limit: u64,
-) -> Vec<(String, Option<u8>)> {
-    let coverages = get_coverages(contigs, &encoded_reads);
-    let (dataset, labels, forbidden) = initial_clustering(encoded_reads, initial_clusters, repeats);
+) -> DecomposedResult {
+    let ereads: Vec<_> = encoded_reads.iter().map(ERead::new_no_gapfill).collect();
+    let coverages = get_coverages(contigs, &ereads);
+    let (dataset, labels, forbidden) = initial_clustering(ereads, initial_clusters);
     let total_units = dataset.iter().map(|read| read.seq().len()).sum::<usize>();
     debug!("{} reads and {} units.", dataset.len(), total_units);
-    let forbids = forbidden.values().filter(|e| !e.is_empty()).count();
-    debug!("Forbids:{}", forbids);
+    debug!(
+        "Forbids:{}",
+        forbidden.values().filter(|e| !e.is_empty()).count()
+    );
     let contigs: Vec<_> = (0..contigs.get_num_of_contigs())
         .map(|e| contigs.get_last_unit(e as u16).unwrap() as usize + 1)
         .collect();
@@ -63,52 +72,81 @@ pub fn decompose(
         .enumerate()
         .flat_map(|(idx, (len, cov))| create_windows(idx, *len, &cov))
         .collect();
-    let predicts = clustering_chunking_2(
+    let predicts = clustering_chunking(
         &dataset,
         &labels,
         &forbidden,
-        initial_clusters,
         cluster_num,
-        &contigs,
         config,
         limit,
         &windows,
     );
-    dataset
-        .into_iter()
-        .zip(predicts.iter())
-        .map(|(read, cl)| (read.id().to_string(), *cl))
-        .collect()
+    let labels: HashMap<_, _> = dataset
+        .iter()
+        .zip(labels)
+        .map(|(r, l)| (r.id.to_string(), l))
+        .collect();
+    let mut chunked_reads: Vec<_> = encoded_reads
+        .iter()
+        .map(|r| {
+            let label = labels.get(&r.id);
+            let forbs = forbidden.get(&r.id);
+            // Should not panic!!!!
+            let entries = predicts.get(&r.id).unwrap();
+            assemble::ChunkedRead::from(r, label, forbs, entries)
+        })
+        .collect();
+    if log_enabled!(log::Level::Debug) {
+        let mut rng = rand::thread_rng();
+        let filename: u64 = rng.gen::<u64>() % 1000u64;
+        let filename = format!("{}.json", filename);
+        match std::fs::File::create(&filename).map(std::io::BufWriter::new) {
+            Ok(mut wtr) => {
+                if let Err(why) = serde_json::ser::to_writer_pretty(&mut wtr, &chunked_reads) {
+                    debug!("Could not write log file:{:?}", why);
+                }
+                debug!("Wrote log file to {}", filename);
+            }
+            Err(why) => {
+                debug!("Could not write log files. Error:{:?}", why);
+            }
+        }
+    }
+    let (assignments, contigs, gfa) = assemble::assemble_reads(&mut chunked_reads);
+    DecomposedResult {
+        assignments,
+        gfa,
+        contigs,
+    }
 }
 
-pub fn resume_decompose(
-    encoded_reads: Vec<ERead>,
-    initial_clusters: &[Cluster],
-    contigs: &last_tiling::Contigs,
-    repeats: &[RepeatPairs],
-    resume: Vec<Vec<HashSet<String>>>,
-) -> Vec<(String, Option<u8>)> {
-    let coverages = get_coverages(contigs, &encoded_reads);
-    let (dataset, _, forbidden) = initial_clustering(encoded_reads, initial_clusters, repeats);
+// pub fn resume_decompose(
+//     encoded_reads: Vec<ERead>,
+//     initial_clusters: &[Cluster],
+//     contigs: &last_tiling::Contigs,
+//     repeats: &[RepeatPairs],
+//     resume: Vec<Vec<HashSet<String>>>,
+// ) -> Vec<(String, Option<u8>)> {
+//     let coverages = get_coverages(contigs, &encoded_reads);
+//     let (dataset, _, forbidden) = initial_clustering(encoded_reads, initial_clusters, repeats);
 
-    let windowlen = (0..contigs.get_num_of_contigs())
-        .map(|e| contigs.get_last_unit(e as u16).unwrap() as usize + 1)
-        .zip(coverages)
-        .enumerate()
-        .flat_map(|(idx, (len, coverage))| create_windows(idx, len, &coverage))
-        .count();
-    let predicts = resume_clustering(resume, windowlen, &forbidden, initial_clusters, &dataset);
-    dataset
-        .into_iter()
-        .zip(predicts.iter())
-        .map(|(read, cl)| (read.id().to_string(), *cl))
-        .collect()
-}
+//     let windowlen = (0..contigs.get_num_of_contigs())
+//         .map(|e| contigs.get_last_unit(e as u16).unwrap() as usize + 1)
+//         .zip(coverages)
+//         .enumerate()
+//         .flat_map(|(idx, (len, coverage))| create_windows(idx, len, &coverage))
+//         .count();
+//     let predicts = resume_clustering(resume, windowlen, &forbidden, initial_clusters, &dataset);
+//     dataset
+//         .into_iter()
+//         .zip(predicts.iter())
+//         .map(|(read, cl)| (read.id().to_string(), *cl))
+//         .collect()
+// }
 
 fn initial_clustering(
     encoded_reads: Vec<ERead>,
     initial_clusters: &[Cluster],
-    _repeats: &[RepeatPairs],
 ) -> (Vec<ERead>, Vec<u8>, HashMap<String, Vec<u8>>) {
     let datasize = encoded_reads.len();
     let mut forbidden: HashMap<String, _> = HashMap::new();
@@ -465,129 +503,49 @@ fn is_mergiable(
     }
 }
 
-fn map_labels(label: &[u8]) -> HashMap<u8, u8> {
-    let mut clusters: Vec<_> = label.iter().copied().collect();
-    clusters.sort();
-    clusters.dedup();
-    clusters
-        .into_iter()
-        .enumerate()
-        .map(|(to, from)| (from, to as u8))
-        .collect()
-}
-
-/// Clustering after chunking the reference into several chunks.
-pub fn clustering_chunking(
-    data: &[ERead],
-    label: &[u8],
-    forbidden: &HashMap<String, Vec<u8>>,
-    initial_clusters: &[Cluster],
-    cluster_num: usize,
-    contigs: &[usize],
-    c: &Config,
-    limit: u64,
-    windows: &[(u16, u16, u16)],
-) -> Vec<Option<u8>> {
-    debug!("The contig lengths:{:?}", contigs);
-    debug!("There are {} windows in total.", windows.len());
-    for (idx, w) in windows.iter().enumerate() {
-        debug!("{}:{:?}", idx, w);
-    }
-    let clusterings: Vec<Vec<HashSet<String>>> = windows
-        .iter()
-        .enumerate()
-        .map(|(idx, &region)| {
-            let (contig, start, end) = region;
-            debug!("{}/{}:{}-{}", idx, contig, start, end);
-            let (data, label, forbidden) =
-                select_within(region, data, label, forbidden, initial_clusters);
-            debug!("Number of Reads:{}", data.len());
-            assert_eq!(data.len(), forbidden.len());
-            let cluster_map: HashMap<u8, u8> = map_labels(&label);
-            let cluster_num = cluster_map.len().max(cluster_num - 1) + 1;
-            debug!("Number of clusters:{}", cluster_num);
-            debug!("Mapping:{:?}", cluster_map);
-            let label: Vec<_> = label.iter().map(|c| cluster_map[c]).collect();
-            let forbidden: Vec<Vec<_>> = forbidden
-                .iter()
-                .map(|f| {
-                    f.iter()
-                        .filter_map(|c| cluster_map.get(c))
-                        .copied()
-                        .collect()
-                })
-                .collect();
-            let forbs = forbidden.iter().filter(|e| !e.is_empty()).count();
-            let len = (end - start) as usize;
-            let coverage = data.iter().map(|r| r.seq.len()).sum::<usize>() / len;
-            debug!("{} labels and {} noempty forbidden", label.len(), forbs);
-            debug!("Coverage is {}", coverage);
-            let predictions =
-                clustering(&data, &label, &forbidden, cluster_num, limit, c, coverage);
-            dump_pred(&predictions, &data, idx);
-            (0..cluster_num)
-                .map(|cluster_idx| {
-                    let cluster_idx = cluster_idx as u8;
-                    predictions
-                        .iter()
-                        .zip(data.iter())
-                        .filter_map(|(p, x)| p.map(|p| (p, x)))
-                        .filter(|&(p, _)| p == cluster_idx)
-                        .map(|(_, read)| read.id().to_string())
-                        .collect()
-                })
-                .collect()
-        })
-        .collect();
-    resume_clustering(
-        clusterings,
-        windows.len(),
-        forbidden,
-        initial_clusters,
-        data,
-    )
-}
-
 #[derive(Clone, Debug)]
-struct Entry<'a> {
-    id: &'a str,
-    window: usize,
-    read_position: usize,
-    seq: Vec<(usize, Vec<u8>)>,
-    forbid: &'a [u8],
-    label: Option<u8>,
+pub struct Entry<'a> {
+    pub id: &'a str,
+    pub window: usize,
+    pub window_range: (u16, u16, u16),
+    pub read_position: usize,
+    pub seq: Vec<(usize, &'a [u8])>,
+    pub forbid: &'a [u8],
+    pub label: Option<u8>,
+    pub assignment: u8,
 }
 impl<'a> Entry<'a> {
     fn new(
         id: &'a str,
         window: usize,
+        window_range: (u16, u16, u16),
         read_position: usize,
-        seq: Vec<(usize, Vec<u8>)>,
+        seq: Vec<(usize, &'a [u8])>,
         forbid: &'a [u8],
         label: Option<u8>,
     ) -> Self {
         Self {
             id,
             window,
+            window_range,
             read_position,
             seq,
             forbid,
             label,
+            assignment: 0,
         }
     }
 }
 
-pub fn clustering_chunking_2(
-    data: &[ERead],
+pub fn clustering_chunking<'a>(
+    data: &'a [ERead],
     label: &[u8],
-    forbidden: &HashMap<String, Vec<u8>>,
-    _initial_clusters: &[Cluster],
+    forbidden: &'a HashMap<String, Vec<u8>>,
     cluster_num: usize,
-    _contigs: &[usize],
     c: &Config,
     limit: u64,
     windows: &[(u16, u16, u16)],
-) -> Vec<Option<u8>> {
+) -> HashMap<String, Vec<Entry<'a>>> {
     let mut pileups: Vec<Vec<_>> = vec![vec![]; windows.len()];
     for (pos, &(contig, start, end)) in windows.iter().enumerate() {
         for (idx, read) in data.iter().enumerate() {
@@ -601,53 +559,68 @@ pub fn clustering_chunking_2(
                     .iter()
                     .enumerate()
                     .filter(|(_, u)| u.contig == contig && start <= u.unit && u.unit < end);
-                let read_position: usize = filtered.clone().next().unwrap().0;
+                let read_pos: usize = filtered.clone().next().unwrap().0;
                 let seq: Vec<_> = filtered
                     .clone()
-                    .map(|(_, u)| ((u.unit - start) as usize, u.bases.clone()))
+                    .map(|(_, u)| ((u.unit - start) as usize, u.bases.as_slice()))
                     .collect();
                 let lab = label.get(idx).cloned();
                 let forb = forbidden.get(&read.id).unwrap();
-                let entry = Entry::new(&read.id, pos, read_position, seq, forb, lab);
+                let range = (contig, start, end);
+                let entry = Entry::new(&read.id, pos, range, read_pos, seq, forb, lab);
                 pileups[pos].push(entry);
             }
         }
     }
-    debug!("Distributed!");
-    let id2desc: HashMap<_, _> = data
-        .iter()
-        .filter_map(|read| read.desc.clone().map(|d| (read.id.to_string(), d)))
-        .collect();
-    let mut encoded_reads: HashMap<String, Vec<_>> = HashMap::new();
+    // Put segments with labels forward.
+    pileups.par_iter_mut().for_each(|pileup| {
+        use std::cmp::Ordering::*;
+        pileup.sort_by(|a, b| match (a.label.is_some(), b.label.is_some()) {
+            (true, true) | (false, false) => Equal,
+            (true, false) => Less,
+            (false, true) => Greater,
+        });
+    });
     // Parallelize here to get most efficient algorithm.
-    let result: Vec<Vec<(&str, (usize, usize, u8))>> = pileups
-        .into_par_iter()
+    pileups
+        .par_iter_mut()
         .zip(windows.into_par_iter())
-        .enumerate()
-        .map(|(idx, (pileup, range))| {
-            let labels: Vec<_> = pileup.iter().filter_map(|entry| entry.label).collect();
+        .for_each(|(pileup, range)| {
+            let label_map = pileup.iter().fold(HashMap::new(), |mut res, entry| {
+                let next = res.len() as u8;
+                if let Some(cluster) = entry.label {
+                    res.entry(cluster).or_insert(next);
+                }
+                res
+            });
+            // This does not break correspondance between entries and labels.
+            let labels: Vec<_> = pileup
+                .iter()
+                .filter_map(|entry| entry.label)
+                .map(|cl| label_map[&cl])
+                .collect();
             debug!("Start {:?}", range);
-            let forbs = pileup
-                .iter()
-                .filter(|entry| !entry.forbid.is_empty())
-                .count();
-            debug!("{} labels and {} noempty forbidden", label.len(), forbs);
             let coverage = pileup.len();
-            debug!("Coverage is {}", coverage);
-            let cluster_num = labels
+            debug!("{} labels. Coverage is {}", label.len(), coverage);
+            let forbs: Vec<Vec<u8>> = pileup
                 .iter()
-                .copied()
-                .collect::<HashSet<_>>()
-                .len()
-                .max(cluster_num);
-            let forbidden: Vec<_> = pileup.iter().map(|entry| entry.forbid.to_vec()).collect();
+                .map(|entry| {
+                    entry
+                        .forbid
+                        .iter()
+                        .filter_map(|x| label_map.get(x))
+                        .copied()
+                        .collect()
+                })
+                .collect();
+            let cluster_num = label_map.len().max(cluster_num);
             let chain_len = (range.2 - range.1) as usize;
-            let data: Vec<_> = pileup.iter().map(|entry| entry.seq.clone()).collect();
+            let data: Vec<_> = pileup.iter().map(|e| e.seq.clone()).collect();
             let predictions = poa_clustering::gibbs_sampling(
                 &data,
-                &label,
+                &labels,
                 None,
-                &forbidden,
+                &forbs,
                 chain_len,
                 cluster_num,
                 limit,
@@ -655,63 +628,39 @@ pub fn clustering_chunking_2(
                 &poa_clustering::DEFAULT_ALN,
                 coverage,
             );
-            for (pred, read) in predictions.iter().zip(pileup.iter()) {
-                if let Some(desc) = id2desc.get(read.id) {
-                    debug!("{}\t{}\t{}", idx, pred, desc);
-                }
+            pileup
+                .iter_mut()
+                .zip(predictions)
+                .for_each(|(mut e, p)| e.assignment = p);
+        });
+    if log_enabled!(log::Level::Debug) {
+        let id2desc: HashMap<_, _> = data
+            .iter()
+            .filter_map(|r| r.desc.as_ref().map(|desc| (r.id.to_string(), desc)))
+            .collect();
+        for (idx, pileup) in pileups.iter().enumerate() {
+            for entry in pileup.iter() {
+                let desc = match id2desc.get(entry.id) {
+                    Some(res) => res,
+                    None => continue,
+                };
+                debug!("{}\t{}\t{}", idx, entry.assignment, desc);
             }
-            predictions
-                .into_iter()
-                .zip(pileup)
-                .map(|(pred, r)| (r.id, (r.read_position, r.window, pred)))
-                .collect()
-        })
-        .collect();
-    for pileup in result {
-        for (id, elm) in pileup {
-            encoded_reads.entry(id.to_string()).or_default().push(elm);
+        }
+    }
+    let mut encoded_reads: HashMap<_, Vec<_>> = HashMap::new();
+    for pileup in pileups {
+        for entry in pileup {
+            encoded_reads
+                .entry(entry.id.to_string())
+                .or_default()
+                .push(entry);
         }
     }
     encoded_reads
         .iter_mut()
-        .for_each(|(_, ref mut seqs)| seqs.sort_by_key(|x| x.0));
-    {
-        let mut f = std::io::BufWriter::new(std::fs::File::create("reads.json").unwrap());
-        let result = serde_json::ser::to_string(&encoded_reads).unwrap();
-        use std::io::Write;
-        writeln!(&mut f, "{}", result).unwrap();
-    }
-    let predict = de_bruijn_clustering(&encoded_reads);
-    data.iter()
-        .map(|read| predict.get(&read.id).map(|&x| x))
-        .collect()
-}
-
-fn de_bruijn_clustering(reads: &HashMap<String, Vec<(usize, usize, u8)>>) -> HashMap<String, u8> {
-    let graph = {
-        let reads: Vec<_> = reads
-            .values()
-            .map(|seq| {
-                seq.iter()
-                    .map(|&(_, pos, cluster)| (pos as u64, cluster as u64))
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-        de_bruijn_graph::DeBruijnGraph::new(&reads, 3)
-    };
-    let mut graph = graph.clean_up_auto();
-    graph.coloring();
-    reads
-        .iter()
-        .map(|(id, read)| {
-            let read = read
-                .iter()
-                .map(|&(_, pos, cluster)| (pos as u64, cluster as u64))
-                .collect::<Vec<_>>();
-            let cluster = graph.assign_read(&read).unwrap_or(0usize) as u8;
-            (id.to_string(), cluster)
-        })
-        .collect()
+        .for_each(|(_, entries)| entries.sort_by_key(|e| e.read_position));
+    encoded_reads
 }
 
 fn merge_windows_by_bipartite(
@@ -813,17 +762,7 @@ fn merge_with_background(
     let mut result = vec![];
     let is_occupying = determine_occupy(&components, data);
     for (component, is_occupying) in components.into_iter().zip(is_occupying) {
-        // let cluster: Vec<_> = initial_clusters
-        //     .iter()
-        //     .filter(|cl| component.iter().filter(|id| cl.has(id)).count() > 10)
-        //     .collect();
-        // let ngs = data
-        //     .iter()
-        //     .filter(|read| background.contains(read.id()))
-        //     .filter(|read| cluster.iter().all(|cl| cl.is_spanned_by(read)))
-        //     .count();
         if is_occupying {
-            //&& ngs < NG_THR {
             background.extend(component);
         } else {
             result.push(component);
@@ -876,40 +815,40 @@ fn determine_occupy(components: &Vec<HashSet<String>>, data: &[ERead]) -> Vec<bo
         .collect()
 }
 
-fn resume_clustering(
-    clusterings: Vec<Vec<HashSet<String>>>,
-    windowlen: usize,
-    forbidden: &HashMap<String, Vec<u8>>,
-    initial_clusters: &[Cluster],
-    data: &[ERead],
-) -> Vec<Option<u8>> {
-    debug!(
-        "On windows:{}",
-        clusterings.iter().map(|cl| cl.len()).sum::<usize>()
-    );
-    let components =
-        merge_windows_by_bipartite(clusterings, windowlen, forbidden, initial_clusters, data);
-    debug!("Merged:{}", components.len());
-    let components = merge_by_initial_cluster(forbidden, initial_clusters, components);
-    debug!("Merge by Init:{}", components.len());
-    let components = if initial_clusters.is_empty() {
-        components
-    } else {
-        merge_with_background(data, initial_clusters, components, forbidden)
-    };
-    debug!("Resulting in {} clusters.", components.len());
-    let result: HashMap<String, u8> =
-        components
-            .into_iter()
-            .enumerate()
-            .fold(HashMap::new(), |mut acc, (idx, cluster)| {
-                for read_name in cluster {
-                    acc.insert(read_name, idx as u8);
-                }
-                acc
-            });
-    data.iter().map(|r| result.get(r.id()).cloned()).collect()
-}
+// fn resume_clustering(
+//     clusterings: Vec<Vec<HashSet<String>>>,
+//     windowlen: usize,
+//     forbidden: &HashMap<String, Vec<u8>>,
+//     initial_clusters: &[Cluster],
+//     data: &[ERead],
+// ) -> Vec<Option<u8>> {
+//     debug!(
+//         "On windows:{}",
+//         clusterings.iter().map(|cl| cl.len()).sum::<usize>()
+//     );
+//     let components =
+//         merge_windows_by_bipartite(clusterings, windowlen, forbidden, initial_clusters, data);
+//     debug!("Merged:{}", components.len());
+//     let components = merge_by_initial_cluster(forbidden, initial_clusters, components);
+//     debug!("Merge by Init:{}", components.len());
+//     let components = if initial_clusters.is_empty() {
+//         components
+//     } else {
+//         merge_with_background(data, initial_clusters, components, forbidden)
+//     };
+//     debug!("Resulting in {} clusters.", components.len());
+//     let result: HashMap<String, u8> =
+//         components
+//             .into_iter()
+//             .enumerate()
+//             .fold(HashMap::new(), |mut acc, (idx, cluster)| {
+//                 for read_name in cluster {
+//                     acc.insert(read_name, idx as u8);
+//                 }
+//                 acc
+//             });
+//     data.iter().map(|r| result.get(r.id()).cloned()).collect()
+// }
 
 fn is_overlap(
     component: &HashSet<String>,

@@ -7,3 +7,12 @@
 [submodule "edlib-sys"]
 	path = edlib-sys
 	url = git@github.com:ban-m/edlib-sys.git
+[submodule "gfa_rust"]
+	path = gfa_rust
+	url = git@github.com:ban-m/gfa_rust.git
+[submodule "histgram_viz"]
+	path = histgram_viz
+	url = git@github.com:ban-m/histgram_viz.git
+[submodule "de_bruijn_graph"]
+	path = de_bruijn_graph
+	url = git@github.com:ban-m/de_bruijn_graph.git

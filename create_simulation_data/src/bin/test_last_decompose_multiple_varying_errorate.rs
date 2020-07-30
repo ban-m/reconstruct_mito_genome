@@ -6,7 +6,7 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
-const LIMIT: u64 = 3600;
+const LIMIT: u64 = 36000;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("info")).init();
     rayon::ThreadPoolBuilder::new()
@@ -138,32 +138,10 @@ fn benchmark(
         generate_mul_data(&templates, coverage, test_num, &mut rng, probs, &profile);
     let c = &poa_hmm::DEFAULT_CONFIG;
     let data: Vec<Vec<_>> = dataset
-        .clone()
-        .into_iter()
-        .map(|read| read.into_iter().enumerate().collect())
+        .iter()
+        .map(|read| read.iter().map(|e| e.as_slice()).enumerate().collect())
         .collect();
-    // let data: Vec<_> = dataset
-    //     .into_iter()
-    //     .enumerate()
-    //     .map(|(idx, e)| {
-    //         let id = format!("{}", idx);
-    //         let read = ERead::new_with_lowseq(e, &id);
-    //         read
-    //     })
-    //     .collect();
     let forbidden = vec![vec![]; data.len()];
-    // use last_decompose::poa_clustering::{poa_clustering, DEFAULT_ALN};
-    // let coverage = data.iter().map(|r| r.seq.len()).sum::<usize>() / chain_len;
-    // let em_pred = gibbs_sampling(
-    //     &data,
-    //     (&label, &answer),
-    //     &forbidden,
-    //     clusters,
-    //     LIMIT,
-    //     c,
-    //     &DEFAULT_ALN,
-    //     coverage,
-    // );
     use last_decompose::poa_clustering::{gibbs_sampling, DEFAULT_ALN};
     let pred = gibbs_sampling(
         &data,

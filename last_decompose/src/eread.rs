@@ -42,9 +42,11 @@ impl fmt::Display for ERead {
 }
 
 impl ERead {
-    pub fn new_no_gapfill(er: EncodedRead) -> Self {
+    pub fn new_no_gapfill(er: &EncodedRead) -> Self {
         use last_tiling::unit::ChunkedUnit;
-        let EncodedRead { id, seq, desc } = er;
+        let seq = &er.seq;
+        let id = er.id.clone();
+        let desc = er.desc.clone();
         // Check whether it has head clip.
         let has_head_clip = match seq.first() {
             Some(ChunkedUnit::Gap(ref gap)) => gap.len() > CLIP_THR,

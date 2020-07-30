@@ -1,6 +1,6 @@
 #[macro_use]
 extern crate log;
-const LIMIT: u64 = 3600;
+const LIMIT: u64 = 36000;
 use last_decompose::poa_clustering::gibbs_sampling;
 use poa_hmm::gen_sample;
 use rand::SeedableRng;
@@ -87,9 +87,8 @@ fn benchmark(
         generate_mul_data(&templates, coverage, test_num, &mut rng, probs, profile);
     let c = &poa_hmm::DEFAULT_CONFIG;
     let data: Vec<Vec<_>> = dataset
-        .clone()
-        .into_iter()
-        .map(|read| read.into_iter().enumerate().collect())
+        .iter()
+        .map(|read| read.iter().map(|e| e.as_slice()).enumerate().collect())
         .collect();
     let forbidden = vec![vec![]; data.len()];
     use last_decompose::poa_clustering::DEFAULT_ALN;

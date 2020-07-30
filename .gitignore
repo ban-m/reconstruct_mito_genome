@@ -15,3 +15,4 @@
 .*
 !.gitignore
 /script/paf_to_CARNAC.py
+test

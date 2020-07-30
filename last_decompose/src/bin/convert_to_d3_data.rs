@@ -14,13 +14,8 @@ fn main() -> std::io::Result<()> {
         serde_json::de::from_reader(std::fs::File::open(&args[2]).map(BufReader::new)?).unwrap();
     let repeats: Vec<last_tiling::repeat::RepeatPairs> = last_tiling::repeat::open(&args[3])?;
     let alns = last_tiling::parse_tab_file(&args[4])?;
-    let clusters = {
-        let reads: Vec<_> = reads
-            .iter()
-            .map(|read| last_decompose::ERead::new(read.clone()))
-            .collect();
-        last_decompose::initial_clusters(&reads, &contigs, &repeats, &alns)
-    };
+    let clusters = last_decompose::initial_clusters(&reads, &contigs, &repeats, &alns);
+
     let summary = last_decompose::d3_data::convert_to_d3_data(&contigs, &reads, &clusters);
     let stdout = std::io::stdout();
     let mut stdout = BufWriter::new(stdout.lock());

@@ -19,3 +19,6 @@ rayon = "*"
 rand_xoshiro = "*"
 nalgebra  = "*"
 md5 = "0.7.0"
+gfa = {path = "../gfa_rust"}
+histgram_viz = {path = "../histgram_viz"}
+de_bruijn_graph = {path = "../de_bruijn_graph"}

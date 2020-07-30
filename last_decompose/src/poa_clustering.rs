@@ -55,17 +55,6 @@ pub fn to_pos(reads: &[ERead]) -> (Vec<Vec<usize>>, usize) {
     (res, len)
 }
 
-fn serialize(data: &[ERead], pos: &[Vec<usize>]) -> Vec<Read> {
-    fn serialize_read(read: &ERead, pos: &[Vec<usize>]) -> Read {
-        read.seq
-            .iter()
-            .filter(|u| u.contig() < pos.len() && u.unit() < pos[u.contig()].len())
-            .map(|u| (pos[u.contig()][u.unit()], u.bases().to_vec()))
-            .collect()
-    }
-    data.iter().map(|read| serialize_read(read, pos)).collect()
-}
-
 pub struct AlnParam<F>
 where
     F: Fn(u8, u8) -> i32,
@@ -134,9 +123,9 @@ where
         let chosen = *choises
             .choose_weighted(rng, |&k| if k == asn { 1. + pick } else { pick })
             .unwrap();
-        for &(pos, ref unit) in read.iter() {
+        for &(pos, unit) in read.iter() {
             if use_position[pos] {
-                chunks[chosen as usize][pos].push(unit.as_slice());
+                chunks[chosen as usize][pos].push(unit);
             }
         }
     }

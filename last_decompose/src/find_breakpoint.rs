@@ -1,6 +1,6 @@
 use super::ERead;
 use last_tiling::repeat::RepeatPairs;
-use last_tiling::{Contigs, LastTAB};
+use last_tiling::{Contigs, EncodedRead, LastTAB};
 use serde::{Deserialize, Serialize};
 use std::cmp::{Ord, Ordering, PartialOrd};
 use std::collections::HashSet;
@@ -134,16 +134,17 @@ fn merge(
 }
 
 pub fn initial_clusters(
-    reads: &[ERead],
+    reads: &[EncodedRead],
     contigs: &Contigs,
     repeats: &[RepeatPairs],
     alignments: &[LastTAB],
 ) -> Vec<Cluster> {
-    let crs: Vec<_> = critical_regions(reads, contigs, repeats, alignments);
+    let reads: Vec<_> = reads.into_iter().map(ERead::new_no_gapfill).collect();
+    let crs: Vec<_> = critical_regions(&reads, contigs, repeats, alignments);
     let mut crs: Vec<_> = crs.into_iter().map(|e| vec![e]).collect();
     'merge: loop {
         let len = crs.len();
-        let forbiddens = get_forbids_cluster(reads, &crs);
+        let forbiddens = get_forbids_cluster(&reads, &crs);
         debug!("Current Cluster:{}", len);
         for i in 0..len {
             for j in (i + 1)..len {

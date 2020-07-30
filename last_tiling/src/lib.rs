@@ -204,6 +204,7 @@ fn has_flanking(rep: &Repeat, bucket: &[&LastTAB]) -> bool {
 
 fn into_encoding(bucket: Vec<&LastTAB>, seq: &fasta::Record, defs: &Contigs) -> EncodedRead {
     let bucket = filter_contained_alignment(bucket, defs);
+    // Alignments are soted in `seq` coordinate.
     let (mut start_pos, mut read) = (0, vec![]);
     let bases = seq.seq();
     // Id of bucket[buclet.len()-2]. If bucket.len()==1, it should be None.
@@ -222,7 +223,6 @@ fn into_encoding(bucket: Vec<&LastTAB>, seq: &fasta::Record, defs: &Contigs) -> 
     let last = target;
     let (encodes, start, end) = aln_to_encode(last, last.seq2_end_from_forward(), defs, bases);
     let c = defs.get_id(&last.seq1_name()).unwrap();
-    // debug!("Start from {} in read", start);
     let (start, encodes) = pop_encodes_until(start, start_pos, encodes);
     if start_pos < start {
         let cs = (c.min(prev_contig_id), c.max(prev_contig_id));
@@ -230,7 +230,6 @@ fn into_encoding(bucket: Vec<&LastTAB>, seq: &fasta::Record, defs: &Contigs) -> 
         read.push(gapunit);
     }
     read.extend(encodes);
-    // debug!("SP:{}->{}", start_pos, end.max(start_pos));
     start_pos = end.max(start_pos);
     if start_pos < bases.len() {
         let gapunit = ChunkedUnit::Gap(GapUnit::new(&bases[start_pos..], Some((c, c))));
@@ -250,6 +249,7 @@ fn encoding_single_alignment(
     prev: u16,
 ) -> (usize, ChunkedUnits) {
     assert!(!check_contained(target, next));
+    // Check overlapping. We are encoding the `target` alignment.
     let former_stop = target.seq2_end_from_forward();
     let later_start = next.seq2_start_from_forward();
     let (encodes, start, end) = if former_stop < later_start {
@@ -341,7 +341,8 @@ fn aln_to_encode(aln: &LastTAB, stop: usize, def: &Contigs, seq: &[u8]) -> AlnTo
         let (read_len, operations) = seek_len(ref_len, &mut ops);
         if read_pos + read_len < stop {
             encode.set_bases(&seq[read_pos..read_pos + read_len]);
-            encode.set_ops(&operations); // This is the vectrized version of operations. Not stack-version.
+            encode.set_ops(&operations);
+            // This is the vectrized version of operations. Not stack-version.
             refr_pos += UNIT_SIZE;
             read_pos += read_len;
             chunks.push(ChunkedUnit::En(encode));
