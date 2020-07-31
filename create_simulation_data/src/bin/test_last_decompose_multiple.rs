@@ -1,6 +1,6 @@
 #[macro_use]
 extern crate log;
-const LIMIT: u64 = 36000;
+const LIMIT: u64 = 600;
 use last_decompose::poa_clustering::gibbs_sampling;
 use poa_hmm::gen_sample;
 use rand::SeedableRng;
@@ -27,34 +27,36 @@ fn main() {
         (200, 0, vec![2f64.recip(); 2], 2, 11920981, 0.2)
     };
     let len = 100;
-    let chain_len = 20;
-    let p = &gen_sample::Profile {
-        sub: errors / 6.,
-        ins: errors / 6.,
-        del: errors / 6.,
-    };
-    use std::time::Instant;
-    let s = Instant::now();
-    let (hmm, dists) = benchmark(
-        seed, p, coverage, test_num, chain_len, len, &probs, clusters,
-    );
-    println!("TestNum:{}\tLabeled:{}", test_num, coverage);
-    debug!("Elapsed\t{}\t{}", (Instant::now() - s).as_secs(), test_num);
-    for (idx, preds) in hmm.into_iter().enumerate() {
-        let tp = preds[idx];
-        let tot = preds.iter().sum::<u32>();
-        print!("Predicted as {}:", idx);
-        for ans in preds {
-            print!("{}\t", ans);
+    for &chain_len in &[20, 50, 90] {
+        //let chain_len = 20;
+        let p = &gen_sample::Profile {
+            sub: errors / 6.,
+            ins: errors / 6.,
+            del: errors / 6.,
+        };
+        use std::time::Instant;
+        let s = Instant::now();
+        let (hmm, dists) = benchmark(
+            seed, p, coverage, test_num, chain_len, len, &probs, clusters,
+        );
+        println!("TestNum:{}\tLabeled:{}", test_num, coverage);
+        debug!("Elapsed\t{}\t{}", (Instant::now() - s).as_secs(), test_num);
+        for (idx, preds) in hmm.into_iter().enumerate() {
+            let tp = preds[idx];
+            let tot = preds.iter().sum::<u32>();
+            print!("Predicted as {}:", idx);
+            for ans in preds {
+                print!("{}\t", ans);
+            }
+            println!("Total:{:.4}", tp as f64 / tot as f64);
         }
-        println!("Total:{:.4}", tp as f64 / tot as f64);
-    }
-    for (idx, ds) in dists.into_iter().enumerate() {
-        print!("Distance from {}:", idx);
-        for d in ds {
-            print!("{}\t", d);
+        for (idx, ds) in dists.into_iter().enumerate() {
+            print!("Distance from {}:", idx);
+            for d in ds {
+                print!("{}\t", d);
+            }
+            println!();
         }
-        println!();
     }
 }
 
@@ -141,10 +143,6 @@ fn benchmark(
         debug!("Cluster {}:{}", i, tot);
     }
     for (pred, ans) in pred.into_iter().zip(label.into_iter().chain(answer)) {
-        // let pred = match pred {
-        //     Some(res) => res as usize,
-        //     None => 0,
-        // };
         result[pred as usize][ans as usize] += 1;
     }
     (result, dists)
