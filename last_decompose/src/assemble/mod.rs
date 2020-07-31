@@ -1,10 +1,12 @@
 mod chunked_read;
+mod correct_reads;
 mod ditch_graph;
 use super::Entry;
 pub use chunked_read::ChunkedRead;
 
 #[derive(Debug, Clone)]
 pub struct DecomposedResult {
+    pub reads: Vec<ChunkedRead>,
     pub assignments: Vec<(String, Option<u8>)>,
     pub gfa: gfa::GFA,
     pub contigs: Vec<bio_utils::fasta::Record>,
@@ -31,9 +33,21 @@ impl de_bruijn_graph::IntoDeBruijnNodes for chunked_read::ChunkedRead {
     }
 }
 
-pub fn assemble_reads(reads: &mut [ChunkedRead]) -> DecomposedResult {
-    let mut dbg = de_bruijn_graph::DeBruijnGraph::from(reads, 3);
-    dbg.resolve_bubbles(reads);
+pub fn assemble_reads(mut reads: Vec<ChunkedRead>) -> DecomposedResult {
+    correct_reads::correct_reads(&mut reads);
+    let dbg = de_bruijn_graph::DeBruijnGraph::from(&reads, 3);
+    let mut dbg = dbg.clean_up_auto();
+    let counts: Vec<_> = dbg
+        .nodes
+        .iter()
+        .flat_map(|n| n.edges.iter().map(|e| e.weight as usize))
+        .collect();
+    let hist = histgram_viz::Histgram::new(&counts);
+    if log_enabled!(log::Level::Debug) {
+        eprintln!("Edge weight of deBruijn Graph:\n{}", hist.format(20, 20));
+    }
+    dbg.resolve_bubbles(&reads);
+    dbg.resolve_crossings(&reads);
     let max_cluster = dbg.coloring();
     let header = gfa::Content::Header(gfa::Header::default());
     let assignments: Vec<_> = reads
@@ -56,6 +70,7 @@ pub fn assemble_reads(reads: &mut [ChunkedRead]) -> DecomposedResult {
                 .collect()
         })
         .collect();
+    debug!("Assembling reads...");
     let records: Vec<_> = clusters
         .iter()
         .enumerate()
@@ -69,6 +84,7 @@ pub fn assemble_reads(reads: &mut [ChunkedRead]) -> DecomposedResult {
     header.extend(records.into_iter().flat_map(|e| e.1));
     let gfa = gfa::GFA::from_records(header);
     DecomposedResult {
+        reads,
         assignments,
         contigs,
         gfa,

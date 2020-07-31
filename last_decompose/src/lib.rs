@@ -78,7 +78,7 @@ pub fn decompose(
         .zip(labels)
         .map(|(r, l)| (r.id.to_string(), l))
         .collect();
-    let mut chunked_reads: Vec<_> = encoded_reads
+    let chunked_reads: Vec<_> = encoded_reads
         .iter()
         .map(|r| {
             let label = labels.get(&r.id);
@@ -88,23 +88,7 @@ pub fn decompose(
             assemble::ChunkedRead::from(r, label, forbs, entries)
         })
         .collect();
-    if log_enabled!(log::Level::Debug) {
-        let mut rng = rand::thread_rng();
-        let filename: u64 = rng.gen::<u64>() % 1000u64;
-        let filename = format!("{}.json", filename);
-        match std::fs::File::create(&filename).map(std::io::BufWriter::new) {
-            Ok(mut wtr) => {
-                if let Err(why) = serde_json::ser::to_writer_pretty(&mut wtr, &chunked_reads) {
-                    debug!("Could not write log file:{:?}", why);
-                }
-                debug!("Wrote log file to {}", filename);
-            }
-            Err(why) => {
-                debug!("Could not write log files. Error:{:?}", why);
-            }
-        }
-    }
-    assemble::assemble_reads(&mut chunked_reads)
+    assemble::assemble_reads(chunked_reads)
 }
 
 fn initial_clustering(

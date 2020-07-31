@@ -315,22 +315,33 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
     debug!("Profiled Error Rates:{}", config);
     let results: HashMap<String, u8> = if !no_merge {
         let result = if matches.is_present("resume") {
-            let mut chunked_reads: Vec<last_decompose::assemble::ChunkedRead> = matches
+            let chunked_reads: Vec<last_decompose::assemble::ChunkedRead> = matches
                 .value_of("resume")
                 .and_then(|e| std::fs::File::open(e).map(BufReader::new).ok())
                 .and_then(|e| serde_json::de::from_reader(e).ok())
                 .unwrap();
-            last_decompose::assemble::assemble_reads(&mut chunked_reads)
+            last_decompose::assemble::assemble_reads(chunked_reads)
         } else {
-            last_decompose::decompose(
+            let result = last_decompose::decompose(
                 encoded_reads,
                 &initial_clusters,
                 &contigs,
                 &config,
                 cl,
                 limit,
-            )
+            );
+            let filename = format!("{}/encoded_reads.json", output_dir);
+            if let Ok(mut wtr) = std::fs::File::create(&filename).map(std::io::BufWriter::new) {
+                if let Err(w) = serde_json::ser::to_writer_pretty(&mut wtr, &result.reads) {
+                    debug!("{:?}", w);
+                }
+            }
+            result
         };
+        // Output gfa
+        let filename = format!("{}/scaffolds.gfa", output_dir);
+        let mut wtr = std::fs::File::create(&filename).map(std::io::BufWriter::new)?;
+        writeln!(&mut wtr, "{}", result.gfa)?;
         result
             .assignments
             .into_iter()
