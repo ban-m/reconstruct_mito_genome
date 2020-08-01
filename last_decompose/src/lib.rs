@@ -78,7 +78,7 @@ pub fn decompose(
         .zip(labels)
         .map(|(r, l)| (r.id.to_string(), l))
         .collect();
-    let chunked_reads: Vec<_> = encoded_reads
+    let mut chunked_reads: Vec<_> = encoded_reads
         .iter()
         .map(|r| {
             let label = labels.get(&r.id);
@@ -88,6 +88,7 @@ pub fn decompose(
             assemble::ChunkedRead::from(r, label, forbs, entries)
         })
         .collect();
+    assemble::correct_reads::correct_reads(&mut chunked_reads);
     assemble::assemble_reads(chunked_reads)
 }
 

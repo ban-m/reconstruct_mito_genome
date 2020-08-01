@@ -282,8 +282,10 @@ impl<'a> DitchGraph<'a, 'a> {
                 }
             }
         }
+        assert_eq!(*index.values().max().unwrap() + 1, nodes.len());
         Self { index, nodes }
     }
+    /// Enumerate candidate where the contigs start.
     fn enumerate_candidates(&self) -> Vec<(usize, Position)> {
         let mut selected = vec![false; self.nodes.len()];
         let mut primary_candidates: Vec<_> = (0..self.nodes.len())
@@ -376,31 +378,55 @@ impl<'a> DitchGraph<'a, 'a> {
         let group = gfa::Group::Set(gfa::UnorderedGroup { uid, ids });
         (g_segs, g_edges, group)
     }
+    pub fn remove_tips(&mut self) {
+        let sum = self.nodes.iter().map(|e| e.nodes.len()).sum::<usize>();
+        let mean = sum / self.nodes.len();
+        let thr = mean / 8;
+        debug!("Removing nodes less than {} occ.", thr);
+        let to_remove: Vec<_> = self.nodes.iter().map(|e| e.nodes.len() < thr).collect();
+        assert_eq!(*self.index.values().max().unwrap() + 1, self.nodes.len());
+        self.remove_nodes(&to_remove);
+        assert_eq!(*self.index.values().max().unwrap() + 1, self.nodes.len());
+    }
     // Removing nodes and re-map all of the indices.
     fn remove_nodes(&mut self, to_remove: &[bool]) {
+        assert_eq!(self.nodes.len(), to_remove.len());
+        assert_eq!(*self.index.values().max().unwrap() + 1, self.nodes.len());
         let mapping = {
             let mut mapping = vec![];
             let mut index = 0;
-            for &b in to_remove {
+            for &b in to_remove.iter() {
                 mapping.push(index);
                 index += !b as usize;
             }
             mapping
         };
-        self.index.iter_mut().for_each(|(_, v)| *v = mapping[*v]);
-        {
-            let mut idx = 0;
-            self.nodes.retain(|_| {
-                idx += 1;
-                !to_remove[idx - 1]
-            });
-        }
+        self.index.retain(|_, v| {
+            if to_remove[*v] {
+                false
+            } else {
+                *v = mapping[*v];
+                true
+            }
+        });
+        let mut idx = 0;
+        self.nodes.retain(|_| {
+            idx += 1;
+            !to_remove[idx - 1]
+        });
+        assert_eq!(self.index.len(), self.nodes.len());
         self.nodes.iter_mut().for_each(|node| {
+            node.edges.retain(|e| !to_remove[e.to]);
             node.edges.iter_mut().for_each(|e| {
                 e.from = mapping[e.from];
                 e.to = mapping[e.to];
-            })
+            });
         });
+        for node in self.nodes.iter() {
+            for edge in node.edges.iter() {
+                assert!(self.nodes[edge.to].edges.iter().any(|f| f.to == edge.from));
+            }
+        }
     }
     pub fn collapse_buddle(&mut self) {
         let mut to_remove = vec![false; self.nodes.len()];
@@ -422,12 +448,7 @@ impl<'a> DitchGraph<'a, 'a> {
                         // The head side of the i-th node has two or mode cluster,
                         // which has the same distination.
                         // Check the collaption criteria, and collapse if possible.
-                        eprintln!(
-                            "Removing a bubble starting from {}-{}-{:?}",
-                            self.nodes[i].window_position, self.nodes[i].cluster, position
-                        );
                         for i in self.collapse_bubble_from(i, position) {
-                            // eprintln!("Removing {}", i);
                             to_remove[i] = true;
                         }
                     }
@@ -451,7 +472,6 @@ impl<'a> DitchGraph<'a, 'a> {
             let first_unit = self.nodes[first.to].window_position;
             (first.to, first.to_position, first_unit)
         };
-        let merged_nodes_ids: Vec<_> = edges.iter().map(|e| e.to).collect();
         assert!(edges
             .iter()
             .all(|e| e.to_position == first_pos && first_unit == self.nodes[e.to].window_position));
@@ -477,68 +497,69 @@ impl<'a> DitchGraph<'a, 'a> {
         if !is_collapsable_bubble {
             vec![]
         } else {
+            // Create new node
+            let window_pos = self.nodes[first_id].window_position;
+            let cluster = self.nodes[first_id].cluster;
+            let mut new_node = DitchNode::new(window_pos, cluster);
+            let mut i_edge = DitchEdge::new(first_pos, first_id, position, i);
+            let mut c_edge = DitchEdge::new(pos, first_id, child_pos, child_id);
             // Add to the `first_id` from other edges.
-            let remove_nodes: Vec<_> = edges.into_iter().skip(1).map(|e| e.to).collect();
-            let mut node_result = vec![];
-            let mut edge_result: Vec<(&str, bool)> = vec![];
-            for &remove_node in remove_nodes.iter() {
-                node_result.append(&mut self.nodes[remove_node].nodes);
-                self.nodes[remove_node]
-                    .edges
-                    .iter_mut()
-                    .for_each(|ditch_edge| {
-                        edge_result.append(&mut ditch_edge.edges);
-                    });
+            let remove_nodes: Vec<_> = edges.into_iter().map(|e| e.to).collect();
+            for &idx in remove_nodes.iter() {
+                new_node.nodes.append(&mut self.nodes[idx].nodes);
+                for edge in self.nodes[idx].edges.iter_mut() {
+                    if edge.to == i && edge.to_position == position {
+                        i_edge.edges.append(&mut edge.edges);
+                    } else {
+                        assert_eq!((edge.to, edge.to_position), (child_id, child_pos));
+                        c_edge.edges.append(&mut edge.edges);
+                    }
+                }
+                self.nodes[idx].edges.clear();
             }
-            self.nodes[first_id].nodes.extend(node_result);
-            self.nodes[first_id]
-                .edges
-                .iter_mut()
-                .find(|ditch_edge| ditch_edge.to == i && ditch_edge.to_position == position)
-                .unwrap()
-                .edges
-                .extend(edge_result);
+            new_node.edges.push(i_edge);
+            new_node.edges.push(c_edge);
+            self.nodes[first_id] = new_node;
             // Change edges from nodes[i]
             let edge_result = self.nodes[i]
                 .edges
                 .iter_mut()
                 .filter(|e| e.from_position == position)
-                .skip(1)
+                .filter(|e| e.to != first_id)
                 .fold(vec![], |mut x, ditch_edge| {
                     x.append(&mut ditch_edge.edges);
                     x
                 });
             self.nodes[i]
                 .edges
+                .retain(|ditch_edge| !ditch_edge.edges.is_empty());
+            self.nodes[i]
+                .edges
                 .iter_mut()
-                .find(|e| e.from_position == position)
+                .find(|e| e.from_position == position && e.to == first_id)
                 .unwrap()
                 .edges
                 .extend(edge_result);
-            self.nodes[i]
-                .edges
-                .retain(|ditch_edge| !ditch_edge.edges.is_empty());
             let edge_result = self.nodes[child_id]
                 .edges
                 .iter_mut()
-                .filter(|e| merged_nodes_ids.contains(&e.to))
-                .skip(1)
+                .filter(|e| remove_nodes.contains(&e.to))
+                .filter(|e| e.to != first_id)
                 .fold(vec![], |mut x, d_edge| {
                     x.append(&mut d_edge.edges);
                     x
                 });
-            // Never panic.
-            self.nodes[child_id]
-                .edges
-                .iter_mut()
-                .find(|e| merged_nodes_ids.contains(&e.to))
-                .unwrap()
-                .edges
-                .extend(edge_result);
             self.nodes[child_id]
                 .edges
                 .retain(|ditch_edge| !ditch_edge.edges.is_empty());
-            remove_nodes
+            self.nodes[child_id]
+                .edges
+                .iter_mut()
+                .find(|e| e.to_position == pos && e.to == first_id)
+                .unwrap()
+                .edges
+                .extend(edge_result);
+            remove_nodes.into_iter().skip(1).collect()
         }
     }
     // Traverse from the given `start` node.

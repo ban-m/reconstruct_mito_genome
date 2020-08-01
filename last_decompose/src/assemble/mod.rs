@@ -1,5 +1,5 @@
 mod chunked_read;
-mod correct_reads;
+pub mod correct_reads;
 mod ditch_graph;
 use super::Entry;
 pub use chunked_read::ChunkedRead;
@@ -33,8 +33,7 @@ impl de_bruijn_graph::IntoDeBruijnNodes for chunked_read::ChunkedRead {
     }
 }
 
-pub fn assemble_reads(mut reads: Vec<ChunkedRead>) -> DecomposedResult {
-    correct_reads::correct_reads(&mut reads);
+pub fn assemble_reads(reads: Vec<ChunkedRead>) -> DecomposedResult {
     let dbg = de_bruijn_graph::DeBruijnGraph::from(&reads, 3);
     let mut dbg = dbg.clean_up_auto();
     let counts: Vec<_> = dbg
@@ -46,13 +45,20 @@ pub fn assemble_reads(mut reads: Vec<ChunkedRead>) -> DecomposedResult {
     if log_enabled!(log::Level::Debug) {
         eprintln!("Edge weight of deBruijn Graph:\n{}", hist.format(20, 20));
     }
-    dbg.resolve_bubbles(&reads);
+    // dbg.resolve_bubbles(&reads);
     dbg.resolve_crossings(&reads);
     let max_cluster = dbg.coloring();
     let header = gfa::Content::Header(gfa::Header::default());
     let assignments: Vec<_> = reads
         .iter()
-        .map(|r| (r.id.clone(), dbg.assign_read(r).map(|x| x as u8)))
+        .map(|r| {
+            let id = r.id.clone();
+            let cluster = dbg
+                .assign_read(r)
+                .or_else(|| dbg.assign_read_by_unit(r))
+                .map(|x| x as u8);
+            (id, cluster)
+        })
         .collect();
     assert_eq!(assignments.len(), reads.len());
     let mut header = vec![gfa::Record::from_contents(header, vec![])];
@@ -112,6 +118,7 @@ fn reads_to_contig(cl: usize, reads: &[&ChunkedRead]) -> Option<bio_utils::fasta
         None
     };
     let id = format!("tig_{:04}", cl);
+    debug!("{}-{}len is_circular={}", id, seq.len(), is_circular);
     Some(bio_utils::fasta::Record::with_data(&id, &desc, &seq))
 }
 
@@ -127,8 +134,9 @@ fn reads_to_gfa(reads: &[&ChunkedRead], cl: usize) -> (usize, Vec<gfa::Record>) 
         return (cl, vec![]);
     }
     let mut graph = ditch_graph::DitchGraph::new(&reads);
+    graph.remove_tips();
     graph.collapse_buddle();
-    debug!("{}", graph);
+    // debug!("{}", graph);
     let mut records = vec![];
     let (nodes, edges, group) = graph.spell(cl);
     let nodes = nodes

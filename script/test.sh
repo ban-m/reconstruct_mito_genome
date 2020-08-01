@@ -1,3 +1,5 @@
+#!/bin/bash
+set -ue
 OUTPUT=${PWD}/test
 mkdir -p ${OUTPUT}
 # LEN=100000
@@ -22,17 +24,52 @@ mkdir -p ${OUTPUT}
 #      ${READ} \
 #      ${PWD}/test/test 2 1800 24
 
-OUTPUT=${PWD}/test/test
-READ=${PWD}/test/testseq_reads.fa
-REFERENCE=${PWD}/test/testseq_reference.fa
-MIN_CLUSTER=2
+# OUTPUT=${PWD}/test/test
+# READ=${PWD}/test/testseq_reads.fa
+# REFERENCE=${PWD}/test/testseq_reference.fa
+# MIN_CLUSTER=2
+# CORES=12
+# LIMIT=1800
+# ${PWD}/target/release/mmmm \
+#       decompose --alignments ${OUTPUT}/last_db/alignments.tab --output ${OUTPUT} \
+#       --reads ${READ} --contigs ${REFERENCE} \
+#       --self_alignments ${OUTPUT}/last_db/self.tab \
+#       --cluster_num ${MIN_CLUSTER} --threads ${CORES} \
+#       --limit ${LIMIT}\
+#       --resume ${PWD}/test/198.json \
+#       -vv
+
+OUTPUT=${PWD}/result/synthetic_data/150_001
+READ=${PWD}/data/synthetic_data/150_001/150_001_reads.fa
+REFERENCE=${PWD}/data/synthetic_data/150_001/150_001_reference.fa
+MIN_CLUSTER=3
 CORES=12
-LIMIT=1800
-RUST_BACKTRACE=full ${PWD}/target/release/mmmm \
+LIMIT=1213
+cargo build --release 
+${PWD}/target/release/mmmm \
       decompose --alignments ${OUTPUT}/last_db/alignments.tab --output ${OUTPUT} \
       --reads ${READ} --contigs ${REFERENCE} \
       --self_alignments ${OUTPUT}/last_db/self.tab \
       --cluster_num ${MIN_CLUSTER} --threads ${CORES} \
       --limit ${LIMIT}\
-      --resume ${PWD}/test/198.json \
-      -vv
+      --resume ${OUTPUT}/encoded_reads.json\
+      -vv 2> 150_001.log
+
+OUTPUT=${PWD}/result/synthetic_data/100_01
+READ=${PWD}/data/synthetic_data/100_01/100_01_reads.fa
+REFERENCE=${PWD}/data/synthetic_data/100_01/100_01_reference.fa
+MIN_CLUSTER=3
+CORES=12
+LIMIT=1213
+cargo build --release 
+${PWD}/target/release/mmmm \
+      decompose --alignments ${OUTPUT}/last_db/alignments.tab --output ${OUTPUT} \
+      --reads ${READ} --contigs ${REFERENCE} \
+      --self_alignments ${OUTPUT}/last_db/self.tab \
+      --cluster_num ${MIN_CLUSTER} --threads ${CORES} \
+      --limit ${LIMIT}\
+      --resume ${OUTPUT}/encoded_reads.json\
+      -vv 2> 100_01.log
+
+
+
