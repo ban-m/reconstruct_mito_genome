@@ -43,6 +43,7 @@ fn main() {
         .into_par_iter()
         .map(|(div, error, test_num)| {
             let seed = seed + (test_num + div) as u64;
+            let seed = seed * (error * 1000f64).floor() as u64;
             use std::time::Instant;
             let s = Instant::now();
             let (hmm, dists) = benchmark(

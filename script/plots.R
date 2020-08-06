@@ -69,8 +69,12 @@ g <- accs %>%
 generalplot(g,paste0(outname,"_boxplot"))
 
 g <- accs %>% filter(X9 %in% c(80, 110, 140)) %>%
+    filter(acc > 0.7) %>% 
     ggplot() + geom_boxplot(mapping = aes(x = factor(X9), y = acc, color = factor(X11))) +
     labs(x = "Total Coverage", y = "Accuracy", color = "Number of Variants\nout of 9K bp") +
     coord_flip() + facet_grid(.~factor(X10))
+print("Removed points.")
+accs %>% filter(X9 %in% c(80, 110, 140)) %>%
+    filter(acc <= 0.7) %>% print(n=100000)
 
 generalplot(g,paste0(outname,"_boxplot_flip"))

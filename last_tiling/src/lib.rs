@@ -106,10 +106,6 @@ pub fn remove_repeats(alns: Vec<LastTAB>, defs: &Contigs, rep: &[RepeatPairs]) -
 }
 
 pub fn encoding(fasta: &[fasta::Record], defs: &Contigs, alns: &[LastTAB]) -> Vec<EncodedRead> {
-    // Distribute alignments to each reads.
-    // bucket[i] is the alignment for fasta[i].
-    // debug!("There are {} buckets.", buckets.len());
-    //     let buckets: Vec<_> = buckets.into_iter().zip(fasta.iter()).collect();
     distribute(fasta, alns)
         .into_iter()
         .zip(fasta.iter())
@@ -252,15 +248,12 @@ fn encoding_single_alignment(
     let (encodes, start, end) = if former_stop < later_start
         || defs.get_id(target.seq1_name()).unwrap() < defs.get_id(next.seq1_name()).unwrap()
     {
-        // No overlap. or
-        // Overlap.Take the younger contig.
         aln_to_encode(target, target.seq2_end_from_forward(), defs, bases)
     } else {
         aln_to_encode(target, next.seq2_start_from_forward(), defs, bases)
     };
     // If there are overlapping, there would be some "doubly encoded" regions.
     let (start, mut encodes) = pop_encodes_until(start, start_pos, encodes);
-    // debug!("Start from {} in read", start);
     let mut units = vec![];
     if start_pos < start {
         let cs = defs
@@ -270,7 +263,6 @@ fn encoding_single_alignment(
         units.push(gapunit);
     }
     units.append(&mut encodes);
-    // debug!("SP:{}->{}", start_pos, end.max(start_pos));
     (end.max(start_pos), units)
 }
 

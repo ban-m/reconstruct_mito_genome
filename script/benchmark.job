@@ -20,4 +20,4 @@ seed=$(( $seed * $SGE_TASK_ID ))
 RUST_LOG=debug ${PWD}/target/release/test_last_decompose_multiple_varying_errorate \
         ${seed} ${PROBS} > ${OUTPUT} \
         2> ${OUTLOG_PREFIX}.log
-cat ${OUTPUT} | grep RESULT >> ${PWD}/result/benchmark/benchmark_t.tsv
+cat ${OUTPUT} | grep RESULT >> ${PWD}/result/benchmark/benchmark.tsv

@@ -2,19 +2,6 @@
 ROOT=${PWD}
 DATA=${PWD}/data/synthetic_data/
 OUTPUT=${PWD}/result/synthetic_data/
-
-qsub -o ./logfiles/complex01.log -j y -S /bin/bash -cwd -pe smp 24 -V \
-     ./script/disassembly.sh \
-     ${DATA}/mut01/reference.fa \
-     ${DATA}/mut01/read_01.fa \
-     ${OUTPUT}/mut01/ 3 4000 24
-
-qsub -o ./logfiles/complex02.log -j y -S /bin/bash -cwd -pe smp 24 -V \
-     ./script/disassembly.sh \
-     ${DATA}/mut02/reference.fa \
-     ${DATA}/mut02/read_02.fa \
-     ${OUTPUT}/mut02/ 3 4000 24
-
 for coverage in 150 100 50
 do
     qsub -o ./logfiles/${coverage}_01.log -j y -S /bin/bash -cwd -pe smp 24 -V \
@@ -33,3 +20,16 @@ do
          ${DATA}/${coverage}_001/${coverage}_001_reads.fa \
          ${OUTPUT}/${coverage}_001/ 3 4000 24
 done
+
+qsub -o ./logfiles/complex01.log -j y -S /bin/bash -cwd -pe smp 24 -V \
+     ./script/disassembly.sh \
+     ${DATA}/mut01/reference.fa \
+     ${DATA}/mut01/read_01.fa \
+     ${OUTPUT}/mut01/ 3 5000 24
+
+qsub -o ./logfiles/complex02.log -j y -S /bin/bash -cwd -pe smp 24 -V \
+     ./script/disassembly.sh \
+     ${DATA}/mut02/reference.fa \
+     ${DATA}/mut02/read_02.fa \
+     ${OUTPUT}/mut02/ 3 5000 24
+

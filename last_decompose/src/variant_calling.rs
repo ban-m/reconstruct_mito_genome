@@ -5,18 +5,18 @@ use na::DMatrix;
 use poa_hmm::POA;
 // use rayon::prelude::*;
 
-/// return the weight of each position.
-pub fn variant_call_poa(
-    models: &[Vec<POA>],
-    data: &[super::Read],
-    c: &poa_hmm::Config,
-    ws: &[f64],
-    centrize: bool,
-) -> (Vec<f64>, f64) {
-    let (matrices, lk) = calc_matrix_poa(models, data, c, centrize, ws);
-    let (row, column) = (models.len(), models[0].len());
-    (maximize_margin_of(&matrices, row, column).unwrap(), lk)
-}
+// /// return the weight of each position.
+// pub fn variant_call_poa(
+//     models: &[Vec<POA>],
+//     data: &[super::Read],
+//     c: &poa_hmm::Config,
+//     ws: &[f64],
+//     centrize: bool,
+// ) -> (Vec<f64>, f64) {
+//     let (matrices, lk) = calc_matrix_poa(models, data, c, centrize, ws);
+//     let (row, column) = (models.len(), models[0].len());
+//     (maximize_margin_of(&matrices, row, column).unwrap(), lk)
+// }
 
 fn calc_matrix_poa(
     models: &[Vec<POA>],
@@ -99,7 +99,7 @@ fn centrize(mut matrices: Vec<Vec<f64>>, row: usize, column: usize) -> Vec<Vec<f
     matrices
 }
 
-fn maximize_margin_of(matrices: &[Vec<f64>], row: usize, column: usize) -> Option<Vec<f64>> {
+fn maximize_margin_of(matrices: &[Vec<f64>], row: usize, column: usize) -> Option<(f64, Vec<f64>)> {
     let matrix = matrices
         .iter()
         .map(|matrix| DMatrix::from_row_slice(row, column, &matrix))
@@ -121,7 +121,8 @@ fn maximize_margin_of(matrices: &[Vec<f64>], row: usize, column: usize) -> Optio
     if max.1.is_nan() || max.1.is_infinite() {
         None
     } else {
-        Some(eigens.eigenvectors.column(max.0).iter().copied().collect())
+        let argmax = eigens.eigenvectors.column(max.0).iter().copied().collect();
+        Some((max.1, argmax))
     }
 }
 
@@ -223,7 +224,7 @@ fn call_variants(i: usize, j: usize, matrices: &[Vec<f64>], column: usize) -> Ve
         .collect();
     let matrices = centrize(matrices, 2, column);
     match maximize_margin_of(&matrices, 2, column) {
-        Some(res) => res,
+        Some(res) => res.1,
         None => vec![0.; column],
     }
 }

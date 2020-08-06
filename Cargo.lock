@@ -10,18 +10,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "annotate_mitochondrial_sequence"
-version = "0.1.0"
-dependencies = [
- "bio",
- "bio-types",
- "rayon",
- "serde",
- "serde_derive",
- "serde_json",
-]
-
-[[package]]
 name = "ansi_term"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -225,6 +213,7 @@ dependencies = [
  "log",
  "poa_hmm",
  "rand",
+ "rand_distr",
  "rand_xoshiro",
  "rayon",
 ]

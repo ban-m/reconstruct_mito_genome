@@ -260,6 +260,16 @@ pub enum Op {
     Seq2In(usize),
 }
 
+impl std::fmt::Display for Op {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Op::Match(x) => write!(f, "M{}", x),
+            Op::Seq1In(x) => write!(f, "I{}", x),
+            Op::Seq2In(x) => write!(f, "D{}", x),
+        }
+    }
+}
+
 impl Op {
     fn from_string(res: &mut Vec<Op>, input: &str) {
         if input.contains(':') {

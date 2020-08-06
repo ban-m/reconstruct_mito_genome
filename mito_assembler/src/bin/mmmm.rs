@@ -206,6 +206,7 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
     };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(level)).init();
     debug!("MMMM started. Debug mode.");
+    trace!("Tracing is on.");
     let reads = matches
         .value_of("reads")
         .map(|file| match bio_utils::fasta::parse_into_vec(file) {
@@ -375,7 +376,7 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
     let mut readlist = BufWriter::new(std::fs::File::create(readlist)?);
     let decomposed: HashMap<u8, Vec<_>> = decomposed
         .into_iter()
-        .filter(|(_, rs)| rs.len() > last_decompose::find_breakpoint::COVERAGE_THR)
+        //.filter(|(_, rs)| rs.len() > last_decompose::find_breakpoint::COVERAGE_THR)
         .collect();
     {
         for (&cluster_id, reads) in decomposed.iter() {
@@ -383,14 +384,14 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
             let wtr = match std::fs::File::create(&outpath) {
                 Ok(res) => res,
                 Err(why) => {
-                    error!("Error Occured while creating a file:{:?},{}", why, outpath);
+                    error!("{:?},{}", why, outpath);
                     continue;
                 }
             };
             let mut wtr = fasta::Writer::new(wtr);
             for read in reads {
                 let line = match read.desc() {
-                    Some(desc) => format!("{}\t{}\t{}", cluster_id, read.id(), desc),
+                    Some(d) => format!("{}\t{}\t{}", cluster_id, read.id(), d),
                     None => format!("{}\t{}\tNoDesc", cluster_id, read.id()),
                 };
                 writeln!(&mut readlist, "{}", line)?;

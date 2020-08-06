@@ -7,8 +7,9 @@ const BETA_INCREASE: f64 = 1.02;
 const BETA_DECREASE: f64 = 1.05;
 const BETA_MAX: f64 = 0.8;
 const SMALL_WEIGHT: f64 = 0.000_000_001;
-const REP_NUM: usize = 3;
-const GIBBS_PRIOR: f64 = 0.02;
+const REP_NUM: usize = 1;
+const GIBBS_PRIOR: f64 = 0.0;
+// const GIBBS_PRIOR: f64 = 0.01;
 const STABLE_LIMIT: u32 = 8;
 // const VARIANT_FRACTION: f64 = 0.9;
 const VARIANT_NUM: usize = 10;
@@ -131,18 +132,18 @@ where
     chunks
         .iter_mut()
         .for_each(|cluster| cluster.iter_mut().for_each(|cs| cs.shuffle(rng)));
+    let ws = vec![1.; 30];
     chunks
-        .iter()
+        .into_iter()
         .map(|cluster| {
             cluster
                 .iter()
                 .zip(use_position.iter())
                 .map(|(cs, &b)| {
-                    let len = cs.len().min(30);
-                    if b {
-                        POA::from_slice(&cs[..len], &vec![1.; len], param)
-                    } else {
-                        POA::default()
+                    let cs: Vec<_> = cs.iter().copied().take(30).collect();
+                    match b {
+                        true => POA::from_slice(&cs, &ws, param),
+                        false => POA::default(),
                     }
                 })
                 .collect()
@@ -241,22 +242,19 @@ fn update_assignments(
     config: &Config,
     forbidden: &[Vec<u8>],
     beta: f64,
-) -> u32 {
+) -> Vec<usize> {
     let fractions: Vec<Vec<f64>> =
         get_fraction_on_positions(assignments, cluster_num, models[0].len(), data);
-    assignments
-        .iter_mut()
-        .zip(data.iter())
-        .zip(forbidden.iter())
-        .zip(sampled.iter())
-        .filter(|&(_, &b)| b)
-        .map(|(((asn, read), f), _)| {
-            let new_asn = get_new_assignment(read, &fractions, f, &models, &betas, &config, beta);
-            let is_the_same = if *asn == new_asn { 0 } else { 1 };
-            *asn = new_asn;
-            is_the_same
-        })
-        .sum::<u32>()
+    let mut changed = vec![];
+    for (idx, _) in sampled.iter().enumerate().filter(|&(_, &b)| b) {
+        let f = &forbidden[idx];
+        let new_asn = get_new_assignment(&data[idx], &fractions, f, &models, &betas, &config, beta);
+        if new_asn != assignments[idx] {
+            assignments[idx] = new_asn;
+            changed.push(idx);
+        }
+    }
+    changed
 }
 
 fn add(mut betas: Vec<Vec<Vec<f64>>>, y: Vec<Vec<Vec<f64>>>, rep: usize) -> Vec<Vec<Vec<f64>>> {
@@ -331,8 +329,9 @@ where
         0.05
     };
     let sum = data.iter().map(|e| e.len()).sum::<usize>() as u64;
-    let params = (limit / 2, pick_prob, sum);
-    if let Ok(res) = gibbs_sampling_inner(
+    // let params = (limit / 2, pick_prob, sum);
+    let params = (limit, pick_prob, sum);
+    match gibbs_sampling_inner(
         data,
         labels,
         answer,
@@ -343,23 +342,8 @@ where
         config,
         aln,
     ) {
-        res
-    } else {
-        let params = (limit / 2, 3. * pick_prob, 3 * sum);
-        match gibbs_sampling_inner(
-            data,
-            labels,
-            answer,
-            f,
-            chain_len,
-            cluster_num,
-            params,
-            config,
-            aln,
-        ) {
-            Ok(res) => res,
-            Err(res) => res,
-        }
+        Ok(res) => res,
+        Err(res) => res,
     }
 }
 
@@ -461,7 +445,8 @@ where
             }
         })
         .collect();
-    let mut beta = 0.0005;
+    let mut coef = 1.;
+    let beta = ((data.len() / cluster_num) as f64 * 0.0005).max(0.1);
     let mut count = 0;
     let mut predictions = std::collections::VecDeque::new();
     let asn = &mut assignments;
@@ -476,37 +461,41 @@ where
     while count < STABLE_LIMIT {
         let (variants, next_lk) = get_variants(&data, asn, tuple, rng, config, param);
         let (variants, pos) = select_variants(variants, chain_len);
-        // {
-        //     let pos: Vec<_> = pos
-        //         .iter()
-        //         .enumerate()
-        //         .filter(|x| *x.1)
-        //         .map(|x| format!("{}", x.0))
-        //         .collect();
-        //     debug!("POS\t{}", pos.join("\t"));
-        // }
         let betas = normalize_weights(&variants, 2.);
-        beta *= match lk.partial_cmp(&next_lk) {
+        coef *= match lk.partial_cmp(&next_lk) {
             Some(std::cmp::Ordering::Less) => BETA_DECREASE,
             Some(std::cmp::Ordering::Greater) => BETA_INCREASE,
             _ => 1.,
         };
-        beta = beta.min(BETA_MAX);
         lk = next_lk;
-        let changed_num = (0..pick_prob.recip().ceil() as usize)
+        let mut pick_num = vec![0u32; data.len()];
+        let changed_num = (0..pick_prob.recip().ceil() as usize / 2)
             .map(|_| {
-                let s: Vec<bool> = (0..data.len())
-                    .map(|i| match i.cmp(&label.len()) {
+                let sum = {
+                    let pick_num: Vec<_> = pick_num.iter().map(|&c| -1. * c as f64).collect();
+                    super::utils::logsumexp(&pick_num)
+                };
+                let s: Vec<bool> = pick_num
+                    .iter()
+                    .map(|&c| (-sum - (c as f64)).exp())
+                    .enumerate()
+                    .map(|(i, c)| match i.cmp(&label.len()) {
                         std::cmp::Ordering::Less => false,
-                        _ => rng.gen_bool(pick_prob),
+                        _ => rng.gen_bool((pick_prob * data.len() as f64 * c).min(1.)),
                     })
                     .collect();
                 let ms = get_models(&data, asn, &s, tuple, rng, param, &pos, GIBBS_PRIOR);
                 let f = forbidden;
-                update_assignments(&ms, asn, &data, &s, cluster_num, &betas, config, f, beta)
+                let beta = (coef * beta).min(BETA_MAX);
+                let up =
+                    update_assignments(&ms, asn, &data, &s, cluster_num, &betas, config, f, beta);
+                for &i in up.iter() {
+                    pick_num[i] += 1;
+                }
+                up.len() as u32
             })
             .sum::<u32>();
-        let has_changed = changed_num <= (data.len() as f64 * 0.01).max(2.) as u32;
+        let has_changed = changed_num <= (data.len() as f64 * 0.05).max(5.) as u32;
         count += has_changed as u32;
         count *= has_changed as u32;
         predictions.push_back(asn.clone());
@@ -516,10 +505,11 @@ where
         report_gibbs(asn, changed_num, count, id, cluster_num, pick_prob);
         let elapsed = (std::time::Instant::now() - start).as_secs();
         if elapsed > limit {
-            debug!("Break {} elapsed", elapsed);
+            debug!("{}\tBreak", id);
             return Err(predictions.pop_back().unwrap());
         }
     }
+    debug!("{}\tClustered", id);
     if log_enabled!(log::Level::Trace) {
         if let Some(answer) = answer {
             print_lk_gibbs(tuple, asn, &data, (label, answer), id, "A", param, config);
@@ -535,7 +525,7 @@ fn report_gibbs(asn: &[u8], change_num: u32, lp: u32, id: u64, cl: usize, pp: f6
         .collect::<Vec<_>>()
         .join("\t");
     let cn = change_num;
-    info!("Summary\t{}\t{}\t{:.4}\t{}\t{}", id, lp, pp, cn, line,);
+    info!("Summary\t{}\t{}\t{:.4}\t{}\t{}", id, lp, pp, cn, line);
 }
 
 fn calc_probs(
@@ -588,17 +578,20 @@ fn select_variants(
     chain: usize,
 ) -> (Vec<Vec<Vec<f64>>>, Vec<bool>) {
     let mut position = vec![false; chain];
+    let thr = {
+        let mut var: Vec<_> = variants
+            .iter()
+            .flat_map(|bs| bs.iter().flat_map(|b| b.iter()))
+            .copied()
+            .collect();
+        var.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let pos = (var.len() * 95 / 100).max(2);
+        var[pos].max(0.01)
+    };
     for bss in variants.iter_mut() {
         for bs in bss.iter_mut() {
-            let thr = {
-                let mut var = bs.clone();
-                var.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                //let pos = (var.len() as f64 * VARIANT_FRACTION).floor() as usize;
-                let pos = VARIANT_NUM.min(var.len() - 1);
-                var[pos]
-            };
             for (idx, b) in bs.iter_mut().enumerate() {
-                if *b < thr {
+                if *b < thr || (1. - *b).abs() < 0.001 {
                     *b = 0.;
                 } else {
                     position[idx] = true;
@@ -606,6 +599,12 @@ fn select_variants(
             }
         }
     }
+    let pos: Vec<_> = position
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &b)| if b { Some(i) } else { None })
+        .collect();
+    debug!("{:?}", pos);
     (variants, position)
 }
 
@@ -614,6 +613,9 @@ fn normalize_weights(variants: &[Vec<Vec<f64>>], beta: f64) -> Vec<Vec<Vec<f64>>
         .iter()
         .flat_map(|bss| bss.iter().flat_map(|bs| bs.iter()))
         .fold(0., |x, &y| if x < y { y } else { x });
+    if max < SMALL_WEIGHT {
+        return variants.to_vec();
+    }
     let mut betas = variants.to_vec();
     betas.iter_mut().for_each(|bss| {
         bss.iter_mut().for_each(|betas| {

@@ -1,6 +1,5 @@
 [workspace]
 members = [
-"annotate_mitochondrial_sequence",
 "disassembly",
 "poa_hmm",
 "bio_utils",

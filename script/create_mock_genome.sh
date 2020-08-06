@@ -3,29 +3,29 @@ set -ue
 
 LEN=500000
 OUTPUT=${PWD}/data/synthetic_data/
-mkdir -p ${OUTPUT}/mut01
-cargo run --release --bin create_complex_structures -- ${LEN} ${OUTPUT}/mut01 0.001
-badread simulate \
-        --reference ${OUTPUT}/mut01/complex.fa \
-        --quantity 200x --error_model pacbio \
-        --seed 10\
-        --qscore_model pacbio --identity 90,95,3 \
-        --junk_reads 0 --random_reads 0 --chimeras 0 \
-        --length 15000,5000 > ${OUTPUT}/mut01/read_01.fq
-cat ${OUTPUT}/mut01/read_01.fq | paste - - - - | cut -f 1,2 |\
-    sed -e 's/@/>/g' | tr '\t' '\n' > ${OUTPUT}/mut01/read_01.fa
+# mkdir -p ${OUTPUT}/mut01
+# cargo run --release --bin create_complex_structures -- ${LEN} ${OUTPUT}/mut01 0.001
+# badread simulate \
+#         --reference ${OUTPUT}/mut01/complex.fa \
+#         --quantity 200x --error_model pacbio \
+#         --seed 10\
+#         --qscore_model pacbio --identity 90,95,3 \
+#         --junk_reads 0 --random_reads 0 --chimeras 0 \
+#         --length 15000,5000 > ${OUTPUT}/mut01/read_01.fq
+# cat ${OUTPUT}/mut01/read_01.fq | paste - - - - | cut -f 1,2 |\
+#     sed -e 's/@/>/g' | tr '\t' '\n' > ${OUTPUT}/mut01/read_01.fa
 
-mkdir -p ${OUTPUT}/mut02
-cargo run --release --bin create_complex_structures -- ${LEN} ${OUTPUT}/mut02 0.002
-badread simulate \
-        --reference ${OUTPUT}/mut02/complex.fa \
-        --quantity 200x --error_model pacbio \
-        --seed 10\
-        --qscore_model pacbio --identity 90,95,3 \
-        --junk_reads 0 --random_reads 0 --chimeras 0 \
-        --length 15000,5000 > ${OUTPUT}/mut02/read_02.fq
-cat ${OUTPUT}/mut02/read_02.fq | paste - - - - | cut -f 1,2 |\
-    sed -e 's/@/>/g' | tr '\t' '\n' > ${OUTPUT}/mut02/read_02.fa
+# mkdir -p ${OUTPUT}/mut02
+# cargo run --release --bin create_complex_structures -- ${LEN} ${OUTPUT}/mut02 0.002
+# badread simulate \
+#         --reference ${OUTPUT}/mut02/complex.fa \
+#         --quantity 200x --error_model pacbio \
+#         --seed 10\
+#         --qscore_model pacbio --identity 90,95,3 \
+#         --junk_reads 0 --random_reads 0 --chimeras 0 \
+#         --length 15000,5000 > ${OUTPUT}/mut02/read_02.fq
+# cat ${OUTPUT}/mut02/read_02.fq | paste - - - - | cut -f 1,2 |\
+#     sed -e 's/@/>/g' | tr '\t' '\n' > ${OUTPUT}/mut02/read_02.fa
 
 
 for coverage in 150 100 50

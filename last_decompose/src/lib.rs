@@ -80,12 +80,12 @@ pub fn decompose(
         .collect();
     let mut chunked_reads: Vec<_> = encoded_reads
         .iter()
-        .map(|r| {
+        .flat_map(|r| {
             let label = labels.get(&r.id);
             let forbs = forbidden.get(&r.id);
-            // Should not panic!!!!
-            let entries = predicts.get(&r.id).unwrap();
-            assemble::ChunkedRead::from(r, label, forbs, entries)
+            // There might be gappy reads.
+            let entries = predicts.get(&r.id)?;
+            Some(assemble::ChunkedRead::from(r, label, forbs, entries))
         })
         .collect();
     assemble::correct_reads::correct_reads(&mut chunked_reads);
@@ -496,7 +496,7 @@ pub fn clustering_chunking<'a>(
 ) -> HashMap<String, Vec<Entry<'a>>> {
     let mut pileups: Vec<Vec<_>> = vec![vec![]; windows.len()];
     for (pos, &(contig, start, end)) in windows.iter().enumerate() {
-        for (idx, read) in data.iter().enumerate() {
+        for (idx, read) in data.iter().take(4000).enumerate() {
             let contained_window = read
                 .seq
                 .iter()

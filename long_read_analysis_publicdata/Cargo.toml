@@ -1,9 +1,0 @@
-[package]
-name = "long_read_analysis_publicdata"
-version = "0.1.0"
-authors = ["ban-m <ban-m@g.ecc.u-tokyo.ac.jp>"]
-edition = "2018"
-
-[dependencies]
-rust-htslib = "*"
-bio_utils = {path = "../bio_utils"}

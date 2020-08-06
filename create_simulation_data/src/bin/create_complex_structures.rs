@@ -31,6 +31,7 @@ fn main() -> std::io::Result<()> {
         .chain(seq_b.iter())
         .chain(seq_c.iter())
         .chain(seq_d.iter())
+        .chain(seq_e.iter())
         .copied()
         .collect();
     let mc = Record::with_data(
@@ -38,7 +39,6 @@ fn main() -> std::io::Result<()> {
         &Some("depth=1.0 circular=true".to_string()),
         &master_circle,
     );
-
     {
         let mut wtr = Writer::new(File::create(&format!("{}/reference.fa", outpath))?);
         wtr.write_record(&mc)?;
@@ -47,7 +47,7 @@ fn main() -> std::io::Result<()> {
         .iter()
         .chain(seq_b.iter())
         .chain(seq_e.iter())
-        .chain(seq_e.iter())
+        .chain(seq_d.iter())
         .copied()
         .collect();
     let sv_1 = gen_sample::introduce_randomness(&sv_1, &mut rng, p);
@@ -60,10 +60,10 @@ fn main() -> std::io::Result<()> {
         xs.iter()
             .rev()
             .map(|e| match e {
-                b'A' => b'C',
+                b'A' => b'T',
                 b'C' => b'G',
                 b'G' => b'C',
-                b'T' => b'T',
+                b'T' => b'A',
                 _ => panic!(),
             })
             .collect::<Vec<_>>()

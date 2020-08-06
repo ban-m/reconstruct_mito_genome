@@ -16,3 +16,4 @@ log = "*"
 env_logger = "*"
 poa_hmm = {path = "../poa_hmm"}
 rand_xoshiro = "*"
+rand_distr = "*"
