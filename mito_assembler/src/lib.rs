@@ -28,6 +28,7 @@ fn summarize_clusters(clusters: &[Cluster], results: &HashMap<String, u8>) -> Ve
         })
         .collect();
     use last_decompose::find_breakpoint::ReadClassify;
+    // Put initial clusters into the most probable cluster.
     for cluster in clusters {
         // Collect the reads and clusters
         let reads: std::collections::HashMap<u8, usize> = results

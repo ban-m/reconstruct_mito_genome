@@ -35,6 +35,16 @@ const MIN_LEN: usize = 6_000;
 const CONNECTION_THR: f64 = 0.5;
 const MERGE_THR: usize = 50;
 const NG_THR: usize = 10;
+#[derive(Debug, Clone, Copy)]
+pub struct DecomposeConfig {
+    k: usize,
+    thr: usize,
+}
+impl DecomposeConfig {
+    pub fn new(k: usize, thr: usize) -> Self {
+        Self { k, thr }
+    }
+}
 type Read<'a> = Vec<(usize, &'a [u8])>;
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
@@ -45,6 +55,7 @@ pub fn decompose(
     config: &Config,
     cluster_num: usize,
     limit: u64,
+    settings: &DecomposeConfig,
 ) -> assemble::DecomposedResult {
     let ereads: Vec<_> = encoded_reads.iter().map(ERead::new_no_gapfill).collect();
     let coverages = get_coverages(contigs, &ereads);
@@ -89,7 +100,7 @@ pub fn decompose(
         })
         .collect();
     assemble::correct_reads::correct_reads(&mut chunked_reads);
-    assemble::assemble_reads(chunked_reads)
+    assemble::assemble_reads(chunked_reads, settings.k, settings.thr)
 }
 
 fn initial_clustering(
@@ -496,7 +507,7 @@ pub fn clustering_chunking<'a>(
 ) -> HashMap<String, Vec<Entry<'a>>> {
     let mut pileups: Vec<Vec<_>> = vec![vec![]; windows.len()];
     for (pos, &(contig, start, end)) in windows.iter().enumerate() {
-        for (idx, read) in data.iter().take(4000).enumerate() {
+        for (idx, read) in data.iter().enumerate() {
             let contained_window = read
                 .seq
                 .iter()
@@ -533,7 +544,8 @@ pub fn clustering_chunking<'a>(
     pileups
         .par_iter_mut()
         .zip(windows.into_par_iter())
-        .for_each(|(pileup, range)| {
+        .enumerate()
+        .for_each(|(idx, (pileup, range))| {
             let label_map = pileup.iter().fold(HashMap::new(), |mut res, entry| {
                 let next = res.len() as u8;
                 if let Some(cluster) = entry.label {
@@ -549,7 +561,7 @@ pub fn clustering_chunking<'a>(
                 .collect();
             debug!("Start {:?}", range);
             let coverage = pileup.len();
-            debug!("{} labels. Coverage is {}", label.len(), coverage);
+            debug!("{} labels. Coverage is {}", labels.len(), coverage);
             let forbs: Vec<Vec<u8>> = pileup
                 .iter()
                 .map(|entry| {
@@ -575,6 +587,7 @@ pub fn clustering_chunking<'a>(
                 c,
                 &poa_clustering::DEFAULT_ALN,
                 coverage,
+                idx as u64,
             );
             pileup
                 .iter_mut()

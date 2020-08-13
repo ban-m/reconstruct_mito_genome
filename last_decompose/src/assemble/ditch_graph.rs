@@ -7,20 +7,20 @@ pub struct DitchGraph<'a, 'b> {
 
 impl<'a, 'b> std::fmt::Display for DitchGraph<'a, 'b> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        use histgram_viz::Histgram;
+        // use histgram_viz::Histgram;
         let nodes = self.nodes.len();
         let edges = self.nodes.iter().map(|n| n.edges.len()).sum::<usize>();
         writeln!(f, "Node:{}, Edges:{}", nodes, edges)?;
-        let occs: Vec<_> = self.nodes.iter().map(|n| n.nodes.len()).collect();
-        let hist = Histgram::new(&occs);
-        writeln!(f, "Node Occs:{}", hist.format(20, 20))?;
-        let occs: Vec<_> = self
-            .nodes
-            .iter()
-            .flat_map(|n| n.edges.iter().map(|e| e.edges.len()))
-            .collect();
-        let hist = Histgram::new(&occs);
-        writeln!(f, "Edge Occs:{}", hist.format(20, 20))?;
+        // let occs: Vec<_> = self.nodes.iter().map(|n| n.nodes.len()).collect();
+        // let hist = Histgram::new(&occs);
+        // writeln!(f, "Node Occs:{}", hist.format(20, 20))?;
+        // let occs: Vec<_> = self
+        //     .nodes
+        //     .iter()
+        //     .flat_map(|n| n.edges.iter().map(|e| e.edges.len()))
+        //     .collect();
+        // let hist = Histgram::new(&occs);
+        // writeln!(f, "Edge Occs:{}", hist.format(20, 20))?;
         let degrees = {
             let mut degs: HashMap<usize, usize> = HashMap::new();
             for node in self.nodes.iter() {
@@ -241,9 +241,9 @@ impl<'a> DitchGraph<'a, 'a> {
         };
         // Append edges.
         for read in reads.iter() {
-            if read.nodes.len() != read.edges.len() + 1 {
-                debug!("{}\t{}\t{}", read.id, read.nodes.len(), read.edges.len());
-            }
+            // if read.nodes.len() != read.edges.len() + 1 {
+            //debug!("{}\t{}\t{}", read.id, read.nodes.len(), read.edges.len());
+            // }
             for (pairs, edge) in read.nodes.windows(2).zip(read.edges.iter()) {
                 let (from, to) = (&pairs[0], &pairs[1]);
                 let from_position = from.window_position as u64;
@@ -322,11 +322,11 @@ impl<'a> DitchGraph<'a, 'a> {
                                     .filter(|f| f.from_position == e.to_position)
                                     .count();
                                 if count == 0 {
-                                    debug!("{},{}", i, position);
-                                    debug!("Edge:{}", e);
-                                    for edge in &self.nodes[e.to].edges {
-                                        debug!("Child:{}", edge)
-                                    }
+                                    // debug!("{},{}", i, position);
+                                    // debug!("Edge:{}", e);
+                                    // for edge in &self.nodes[e.to].edges {
+                                    //     debug!("Child:{}", edge)
+                                    // }
                                     panic!()
                                 }
                                 count
@@ -352,7 +352,7 @@ impl<'a> DitchGraph<'a, 'a> {
             if arrived[i] {
                 continue;
             }
-            debug!("First loop:{}", i);
+            //debug!("First loop:{}", i);
             let name = format!("tig_{:03}_{:03}", cl, g_segs.len());
             let (contig, edges) = self.traverse_from(&mut arrived, &mut sids, i, p, name);
             g_segs.push(contig);
@@ -362,7 +362,7 @@ impl<'a> DitchGraph<'a, 'a> {
             if arrived[i] {
                 continue;
             }
-            debug!("Second loop:{}", i);
+            // debug!("Second loop:{}", i);
             let p = Position::Head;
             let name = format!("tig_{:03}_{:03}", cl, g_segs.len());
             let (contig, edges) = self.traverse_from(&mut arrived, &mut sids, i, p, name);
@@ -382,7 +382,7 @@ impl<'a> DitchGraph<'a, 'a> {
         let sum = self.nodes.iter().map(|e| e.nodes.len()).sum::<usize>();
         let mean = sum / self.nodes.len();
         let thr = mean / 8;
-        debug!("Removing nodes less than {} occ.", thr);
+        // debug!("Removing nodes less than {} occ.", thr);
         let to_remove: Vec<_> = self.nodes.iter().map(|e| e.nodes.len() < thr).collect();
         assert_eq!(*self.index.values().max().unwrap() + 1, self.nodes.len());
         self.remove_nodes(&to_remove);
@@ -656,11 +656,11 @@ impl<'a> DitchGraph<'a, 'a> {
             node = next;
             position = next_position;
         }
-        let unit_names: Vec<_> = unit_names
-            .iter()
-            .map(|(u, c)| format!("{}:{}", u, c))
-            .collect();
-        debug!("{}\t{}", seqname, unit_names.join("\t"));
+        // let unit_names: Vec<_> = unit_names
+        //     .iter()
+        //     .map(|(u, c)| format!("{}:{}", u, c))
+        //     .collect();
+        // debug!("{}\t{}", seqname, unit_names.join("\t"));
         // Register start and tail node.
         if start == node {
             sids[node] = ContigTag::Both(seqname.clone(), start_position, position, seq.len());
@@ -701,7 +701,7 @@ impl<'a> DitchGraph<'a, 'a> {
         (seg, edges)
     }
     pub fn simple_path(&self) -> (Vec<u8>, bool) {
-        let (start, position, max, is_circular) = self
+        let (start, position, _max, is_circular) = self
             .nodes
             .iter()
             .enumerate()
@@ -734,7 +734,7 @@ impl<'a> DitchGraph<'a, 'a> {
                     .unwrap();
                 (start, Position::Head, max.nodes.len(), true)
             });
-        debug!("{}-{}(Occ:{})", start, position, max);
+        // debug!("{}-{}(Occ:{})", start, position, max);
         let mut node = start;
         let mut position = position;
         let mut seq = String::new();

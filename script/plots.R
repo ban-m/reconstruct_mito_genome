@@ -5,10 +5,10 @@ library(Rtsne)
 generalplot <- function(g,name){
     cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
                     plot = g + cowplot::theme_cowplot(font_size=12),
-                    dpi=600,width = 178,height = 86,units="mm")
+                    dpi=1200,width = 200,height = 86,units="mm")
     cowplot::ggsave(filename = paste0("./png/",name,".png"),
                     plot = g + cowplot::theme_cowplot(font_size=12),
-                    dpi = 600,width = 178,height = 86,units="mm")
+                    dpi = 1200,width = 200,height = 86,units="mm")
 }
 
 

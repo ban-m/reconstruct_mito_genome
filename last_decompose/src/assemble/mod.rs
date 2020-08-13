@@ -3,7 +3,7 @@ pub mod correct_reads;
 mod ditch_graph;
 use super::Entry;
 pub use chunked_read::ChunkedRead;
-
+use std::collections::{HashMap, HashSet};
 #[derive(Debug, Clone)]
 pub struct DecomposedResult {
     pub reads: Vec<ChunkedRead>,
@@ -33,34 +33,132 @@ impl de_bruijn_graph::IntoDeBruijnNodes for chunked_read::ChunkedRead {
     }
 }
 
-pub fn assemble_reads(reads: Vec<ChunkedRead>) -> DecomposedResult {
-    let dbg = de_bruijn_graph::DeBruijnGraph::from(&reads, 3);
-    let mut dbg = dbg.clean_up_auto();
-    let counts: Vec<_> = dbg
-        .nodes
-        .iter()
-        .flat_map(|n| n.edges.iter().map(|e| e.weight as usize))
-        .collect();
-    let hist = histgram_viz::Histgram::new(&counts);
-    if log_enabled!(log::Level::Debug) {
-        eprintln!("Edge weight of deBruijn Graph:\n{}", hist.format(20, 20));
+fn major_component(reads: &[ChunkedRead]) -> HashSet<u8> {
+    let mut positions: HashMap<_, HashMap<_, u32>> = HashMap::new();
+    let mut totals: HashMap<_, u32> = HashMap::new();
+    // Register
+    for read in reads.iter() {
+        for node in read.nodes.iter() {
+            *totals.entry(node.window_position).or_default() += 1;
+        }
+        if let Some(cl) = read.label {
+            for node in read.nodes.iter() {
+                *positions
+                    .entry(node.window_position)
+                    .or_default()
+                    .entry(cl)
+                    .or_default() += 1;
+            }
+        }
     }
-    // dbg.resolve_bubbles(&reads);
-    dbg.resolve_crossings(&reads);
-    let max_cluster = dbg.coloring();
-    let header = gfa::Content::Header(gfa::Header::default());
+    let mut bg: HashMap<_, u32> = HashMap::new();
+    let mut positions: Vec<_> = positions.into_iter().collect();
+    positions.sort_by_key(|x| x.0);
+    for (pos, counts) in positions {
+        let total = *totals.get(&pos).unwrap();
+        if let Some((&argmax, max)) = counts.iter().max_by_key(|x| x.1) {
+            if total * 3 / 5 < *max && total > 70 {
+                debug!("{}\t{}\t{}\t{}", pos, total, max, argmax);
+                *bg.entry(argmax).or_default() += 1;
+            }
+        }
+    }
+    bg.iter()
+        .filter(|&(_, &count)| count >= 1)
+        .map(|(&cl, _)| cl)
+        .collect()
+}
+
+pub fn assemble_reads(mut reads: Vec<ChunkedRead>, k: usize, thr: usize) -> DecomposedResult {
+    let backgrounds = major_component(&reads);
+    debug!("backgrounds:{:?}", backgrounds);
+    let background_cluster = backgrounds.iter().min().cloned();
+    reads
+        .iter_mut()
+        .filter(|read| read.label.is_some())
+        .filter(|read| backgrounds.contains(&read.label.unwrap()))
+        .for_each(|read| {
+            read.label = background_cluster;
+        });
+    let dbg = de_bruijn_graph::DeBruijnGraph::from(&reads, k);
+    let mut dbg = dbg.clean_up_auto();
+    let labels: Vec<Option<u8>> = reads.iter().map(|r| r.label).collect();
+    let label_map = dbg.expand_color(&reads, thr, &labels, background_cluster);
+    let background_cluster = background_cluster.map(|l| label_map.get(&l).copied().unwrap_or(l));
     let assignments: Vec<_> = reads
         .iter()
         .map(|r| {
             let id = r.id.clone();
-            let cluster = dbg
-                .assign_read(r)
-                .or_else(|| dbg.assign_read_by_unit(r))
-                .map(|x| x as u8);
+            let cluster = match r.label {
+                Some(res) => Some(label_map.get(&res).cloned().unwrap_or(res)),
+                None => dbg
+                    .assign_read(r)
+                    .or_else(|| dbg.assign_read_by_unit(r))
+                    .map(|x| x as u8)
+                    .or(background_cluster),
+            };
             (id, cluster)
         })
         .collect();
+    {
+        let mut counts: HashMap<_, u32> = HashMap::new();
+        for (_, asn) in assignments.iter() {
+            if let Some(cl) = asn {
+                *counts.entry(*cl).or_default() += 1;
+            }
+        }
+        let mut counts: Vec<_> = counts.into_iter().collect();
+        counts.sort_by_key(|e| e.0);
+        for (cl, count) in counts {
+            debug!("{}\t{}", cl, count);
+        }
+    }
+    // Rename assignments.
+    let map: HashMap<_, _> = {
+        let clusters: HashSet<_> = assignments.iter().filter_map(|&(_, x)| x).collect();
+        let mut clusters: Vec<_> = clusters.into_iter().collect();
+        clusters.sort();
+        clusters
+            .into_iter()
+            .enumerate()
+            .map(|(x, y)| (y, x as u8))
+            .collect()
+    };
+    debug!("Map:{:?}", map);
+    let assignments: Vec<_> = assignments
+        .into_iter()
+        .map(|(id, asn)| (id, asn.map(|a| map[&a])))
+        .collect();
+    {
+        let labels: HashMap<_, HashSet<String>> = reads.iter().fold(HashMap::new(), |mut x, y| {
+            if let Some(label) = y.label {
+                x.entry(label).or_default().insert(y.id.clone());
+            }
+            x
+        });
+        let result: HashMap<_, HashSet<String>> =
+            assignments.iter().fold(HashMap::new(), |mut x, (id, asn)| {
+                if let Some(asn) = asn {
+                    x.entry(asn).or_default().insert(id.clone());
+                }
+                x
+            });
+        for (asn, ids) in result.iter() {
+            debug!("Cluster:{}\t{}", asn, ids.len());
+        }
+        for (init_cl, members) in labels {
+            debug!("Init cluster:{}", init_cl);
+            for (result_cl, ids) in result.iter() {
+                let count = members.intersection(ids).count();
+                if count > 2 {
+                    debug!("\tRes:{}({} reads)", result_cl, count);
+                }
+            }
+        }
+    }
+    let max_cluster = map.values().max().cloned().unwrap_or(0);
     assert_eq!(assignments.len(), reads.len());
+    let header = gfa::Content::Header(gfa::Header::default());
     let mut header = vec![gfa::Record::from_contents(header, vec![])];
     let clusters: Vec<Vec<_>> = (0..max_cluster)
         .map(|cl| {

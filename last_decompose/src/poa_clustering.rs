@@ -1,11 +1,12 @@
 use super::variant_calling;
 use super::{ERead, Read};
 use poa_hmm::*;
-use rand::{seq::SliceRandom, thread_rng, Rng, SeedableRng};
+use rand::{seq::SliceRandom, Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
 const BETA_INCREASE: f64 = 1.02;
 const BETA_DECREASE: f64 = 1.05;
 const BETA_MAX: f64 = 0.8;
+const CHANGE_FRAC: f64 = 0.01;
 const SMALL_WEIGHT: f64 = 0.000_000_001;
 const REP_NUM: usize = 1;
 const GIBBS_PRIOR: f64 = 0.0;
@@ -312,6 +313,7 @@ pub fn gibbs_sampling<F>(
     config: &poa_hmm::Config,
     aln: &AlnParam<F>,
     coverage: usize,
+    id: u64,
 ) -> Vec<u8>
 where
     F: Fn(u8, u8) -> i32 + std::marker::Sync,
@@ -329,9 +331,8 @@ where
         0.05
     };
     let sum = data.iter().map(|e| e.len()).sum::<usize>() as u64;
-    // let params = (limit / 2, pick_prob, sum);
-    let params = (limit, pick_prob, sum);
-    match gibbs_sampling_inner(
+    let params = (limit / 2, pick_prob, sum);
+    let res = gibbs_sampling_inner(
         data,
         labels,
         answer,
@@ -341,9 +342,28 @@ where
         params,
         config,
         aln,
-    ) {
-        Ok(res) => res,
-        Err(res) => res,
+        id,
+    );
+    if let Ok(res) = res {
+        res
+    } else {
+        let params = (limit / 2, pick_prob, sum * 7);
+        let res = gibbs_sampling_inner(
+            data,
+            labels,
+            answer,
+            f,
+            chain_len,
+            cluster_num,
+            params,
+            config,
+            aln,
+            id,
+        );
+        match res {
+            Ok(res) => res,
+            Err(res) => res,
+        }
     }
 }
 
@@ -422,12 +442,12 @@ fn gibbs_sampling_inner<F>(
     (limit, pick_prob, seed): (u64, f64, u64),
     config: &poa_hmm::Config,
     aln: &AlnParam<F>,
+    id: u64,
 ) -> Result<Vec<u8>, Vec<u8>>
 where
     F: Fn(u8, u8) -> i32 + std::marker::Sync,
 {
     let param = (aln.ins, aln.del, &aln.score);
-    let id: u64 = thread_rng().gen::<u64>() % 100_000;
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let rng = &mut rng;
     let occupied = {
@@ -468,20 +488,12 @@ where
             _ => 1.,
         };
         lk = next_lk;
-        let mut pick_num = vec![0u32; data.len()];
         let changed_num = (0..pick_prob.recip().ceil() as usize / 2)
             .map(|_| {
-                let sum = {
-                    let pick_num: Vec<_> = pick_num.iter().map(|&c| -1. * c as f64).collect();
-                    super::utils::logsumexp(&pick_num)
-                };
-                let s: Vec<bool> = pick_num
-                    .iter()
-                    .map(|&c| (-sum - (c as f64)).exp())
-                    .enumerate()
-                    .map(|(i, c)| match i.cmp(&label.len()) {
+                let s: Vec<_> = (0..data.len())
+                    .map(|i| match i.cmp(&label.len()) {
                         std::cmp::Ordering::Less => false,
-                        _ => rng.gen_bool((pick_prob * data.len() as f64 * c).min(1.)),
+                        _ => rng.gen_bool(pick_prob),
                     })
                     .collect();
                 let ms = get_models(&data, asn, &s, tuple, rng, param, &pos, GIBBS_PRIOR);
@@ -489,13 +501,11 @@ where
                 let beta = (coef * beta).min(BETA_MAX);
                 let up =
                     update_assignments(&ms, asn, &data, &s, cluster_num, &betas, config, f, beta);
-                for &i in up.iter() {
-                    pick_num[i] += 1;
-                }
                 up.len() as u32
             })
             .sum::<u32>();
-        let has_changed = changed_num <= (data.len() as f64 * 0.05).max(5.) as u32;
+        let thr = (data.len() as f64 * (CHANGE_FRAC * coef).min(0.1)).floor() as u32;
+        let has_changed = changed_num <= thr.max(5);
         count += has_changed as u32;
         count *= has_changed as u32;
         predictions.push_back(asn.clone());
@@ -585,7 +595,7 @@ fn select_variants(
             .copied()
             .collect();
         var.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let pos = (var.len() * 95 / 100).max(2);
+        let pos = (var.len() * 9 / 10).min(var.len() - 2);
         var[pos].max(0.01)
     };
     for bss in variants.iter_mut() {
@@ -599,12 +609,12 @@ fn select_variants(
             }
         }
     }
-    let pos: Vec<_> = position
-        .iter()
-        .enumerate()
-        .filter_map(|(i, &b)| if b { Some(i) } else { None })
-        .collect();
-    debug!("{:?}", pos);
+    // let pos: Vec<_> = position
+    //     .iter()
+    //     .enumerate()
+    //     .filter_map(|(i, &b)| if b { Some(i) } else { None })
+    //     .collect();
+    // debug!("{:?}", pos);
     (variants, position)
 }
 

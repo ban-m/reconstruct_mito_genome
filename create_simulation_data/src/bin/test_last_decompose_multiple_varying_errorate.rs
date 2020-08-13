@@ -6,7 +6,7 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
-const LIMIT: u64 = 36000;
+const LIMIT: u64 = 3600 * 4;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("info")).init();
     rayon::ThreadPoolBuilder::new()
@@ -144,6 +144,7 @@ fn benchmark(
         .collect();
     let forbidden = vec![vec![]; data.len()];
     use last_decompose::poa_clustering::{gibbs_sampling, DEFAULT_ALN};
+    let id = rng.gen::<u64>() % 100;
     let pred = gibbs_sampling(
         &data,
         &label,
@@ -155,6 +156,7 @@ fn benchmark(
         c,
         &DEFAULT_ALN,
         coverage,
+        id,
     );
     debug!("Index1\tIndex2\tDist");
     let dists: Vec<Vec<_>> = (0..clusters)

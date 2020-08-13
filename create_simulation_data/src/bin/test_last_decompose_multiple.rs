@@ -1,16 +1,12 @@
 #[macro_use]
 extern crate log;
-const LIMIT: u64 = 36000;
+const LIMIT: u64 = 3600 * 4;
 use last_decompose::poa_clustering::gibbs_sampling;
 use poa_hmm::gen_sample;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 fn main() {
     env_logger::init();
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(24)
-        .build_global()
-        .unwrap();
     let args: Vec<_> = std::env::args().collect();
     let (test_num, coverage, probs, clusters, seed, errors) = if args.len() > 4 {
         let tn = args[1].parse::<usize>().unwrap();
@@ -94,6 +90,8 @@ fn benchmark(
     let forbidden = vec![vec![]; data.len()];
     use last_decompose::poa_clustering::DEFAULT_ALN;
     let coverage = data.iter().map(|r| r.len()).sum::<usize>() / chain_len;
+    use rand::Rng;
+    let id = rng.gen::<u64>() % 100;
     let pred = gibbs_sampling(
         &data,
         &label,
@@ -105,6 +103,7 @@ fn benchmark(
         c,
         &DEFAULT_ALN,
         coverage,
+        id,
     );
     debug!("Index1\tIndex2\tDist");
     let dists: Vec<Vec<_>> = (0..clusters)

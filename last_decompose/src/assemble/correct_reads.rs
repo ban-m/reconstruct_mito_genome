@@ -173,7 +173,7 @@ fn correct_read(
     read: &[(u64, u64)],
     reads: &[(Vec<(u64, u64)>, Vec<(u64, u64)>)],
 ) -> Vec<(u64, u64)> {
-    let param = (1, -1, -2);
+    let param = (1, -1, -3);
     let pileup = reads
         .iter()
         .filter_map(|(forward, rev)| match alignment(forward, read, param) {

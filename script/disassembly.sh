@@ -27,7 +27,8 @@ cd ${ROOT}
 
 
 # ----- Prediction ------
-mmmm decompose --alignments ${OUTPUT}/last_db/alignments.tab --output ${OUTPUT} \
+mmmm decompose \
+     --alignments ${OUTPUT}/last_db/alignments.tab --output ${OUTPUT} \
      --reads ${READ} --contigs ${REFERENCE} \
      --self_alignments ${OUTPUT}/last_db/self.tab \
      --cluster_num ${MIN_CLUSTER} --threads ${CORES} \

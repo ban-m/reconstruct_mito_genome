@@ -315,13 +315,14 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
     let cl = cluster_num;
     debug!("Profiled Error Rates:{}", config);
     let results: HashMap<String, u8> = if !no_merge {
+        let settings = last_decompose::DecomposeConfig::new(5, 10);
         let result = if matches.is_present("resume") {
             let chunked_reads: Vec<last_decompose::assemble::ChunkedRead> = matches
                 .value_of("resume")
                 .and_then(|e| std::fs::File::open(e).map(BufReader::new).ok())
                 .and_then(|e| serde_json::de::from_reader(e).ok())
                 .unwrap();
-            last_decompose::assemble::assemble_reads(chunked_reads)
+            last_decompose::assemble::assemble_reads(chunked_reads, 5, 10)
         } else {
             let result = last_decompose::decompose(
                 encoded_reads,
@@ -330,6 +331,7 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
                 &config,
                 cl,
                 limit,
+                &settings,
             );
             let filename = format!("{}/encoded_reads.json", output_dir);
             if let Ok(mut wtr) = std::fs::File::create(&filename).map(std::io::BufWriter::new) {
@@ -374,10 +376,7 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
     }
     let readlist = format!("{}/readlist.tsv", output_dir);
     let mut readlist = BufWriter::new(std::fs::File::create(readlist)?);
-    let decomposed: HashMap<u8, Vec<_>> = decomposed
-        .into_iter()
-        //.filter(|(_, rs)| rs.len() > last_decompose::find_breakpoint::COVERAGE_THR)
-        .collect();
+    let decomposed: HashMap<u8, Vec<_>> = decomposed.into_iter().collect();
     {
         for (&cluster_id, reads) in decomposed.iter() {
             let outpath = format!("{}/{}.fasta", output_dir, cluster_id);
