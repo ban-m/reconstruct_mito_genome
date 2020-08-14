@@ -11,11 +11,15 @@ set -ue
 ROOT=${PWD}
 DATA=${PWD}/data/synthetic_data
 OUTPUT=${PWD}/result/synthetic_data/baseline
-for file in 100_001 100_01 150_005 50_001 50_01 100_005 150_001 150_01 50_005
+for file in 100_001 50_001 150_001
 do
+    LOGFILE=${PWD}/logfiles/${file}_time.log
     read=${DATA}/${file}/${file}_reads.fq
     reference=${DATA}/${file}/${file}_reference.fa
+    echo "isONclust" > ${LOGFILE}
+    date >> ${LOGFILE}
     isONclust --ont --fastq ${read} --outfolder ${OUTPUT}/${file}/isONclust
+    date >> ${LOGFILE}
     mkdir -p ${OUTPUT}/${file}/whatshap
     BAM=${OUTPUT}/${file}/whatshap/${file}.bam
     CAND=${OUTPUT}/${file}/whatshap/${file}_cand.vcf
@@ -23,6 +27,8 @@ do
     PHASED=${OUTPUT}/${file}/whatshap/${file}_phased.vcf.gz
     PHASED_BAM=${OUTPUT}/${file}/whatshap/${file}.phased.bam
     RESULT=${OUTPUT}/${file}/whatshap/${file}.tsv
+    echo "WHATSHAP" >> ${LOGFILE}
+    date >> ${LOGFILE}
     minimap2 -a -t 23 -x map-pb ${reference} ${read} |\
         samtools sort -O BAM -m2G -@3 > ${BAM}
     samtools index ${BAM}
@@ -36,6 +42,9 @@ do
     whatshap haplotag -o ${PHASED_BAM} --ignore-read-groups \
              --reference ${reference} ${PHASED} ${BAM} \
              --output-haplotag-list ${RESULT}
+    date >> ${LOGFILE}
+    echo "CARNAC_LR" >> ${LOGFILE}
+    date >> ${LOGFILE}
     mkdir -p ${OUTPUT}/${file}/carnac
     minimap2 ${read} ${read} -X -x ava-pb > ${OUTPUT}/${file}/carnac/ava.paf
     python ${ROOT}/script/paf_to_CARNAC.py \
@@ -44,6 +53,7 @@ do
     CARNAC-LR -f ${OUTPUT}/${file}/carnac/carnac_input.txt \
               -o ${OUTPUT}/${file}/carnac/carnac_output.txt \
               -t 8
+    date >> ${LOGFILE}
     flye --pacbio-raw ${read} --threads 8 --meta --genome-size 2M \
          --out-dir ${OUTPUT}/${file}/flye/
 done
