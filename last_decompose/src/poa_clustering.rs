@@ -8,12 +8,8 @@ const BETA_DECREASE: f64 = 1.05;
 const BETA_MAX: f64 = 0.8;
 const CHANGE_FRAC: f64 = 0.01;
 const SMALL_WEIGHT: f64 = 0.000_000_001;
-const REP_NUM: usize = 1;
 const GIBBS_PRIOR: f64 = 0.0;
-// const GIBBS_PRIOR: f64 = 0.01;
-const STABLE_LIMIT: u32 = 8;
-// const VARIANT_FRACTION: f64 = 0.9;
-const VARIANT_NUM: usize = 10;
+const STABLE_LIMIT: u32 = 6;
 
 // Serialize units in read. In other words,
 // We serialize the (contig, unit):(usize, usize) pair into position:usize.
@@ -222,6 +218,7 @@ fn get_new_assignment(
                 .recip()
         })
         .collect();
+    // debug!("LK\t{:.3}\t{:.3}", temp[0], temp[1]);
     let (mut max, mut argmax) = (-0.1, 0);
     for (cl, &p) in weights.iter().enumerate() {
         if !f.contains(&(cl as u8)) && max < p {
@@ -282,22 +279,17 @@ where
     F: Fn(u8, u8) -> i32 + std::marker::Sync,
 {
     let falses = vec![false; data.len()];
-    let init: Vec<Vec<_>> = (0..cluster_num)
-        .map(|i| (0..i).map(|_| vec![0.; chain_len]).collect())
-        .collect();
     let usepos = vec![true; chain_len];
     let ws = get_cluster_fraction(asn, &falses, cluster_num);
-    let (variants, prev_lks) = (0..REP_NUM)
-        .map(|_| {
-            let tuple = (cluster_num, chain_len);
-            let ms = get_models(&data, asn, &falses, tuple, rng, param, &usepos, 0.);
-            variant_calling::variant_calling_all_pairs(&ms, &data, config, &ws)
-        })
-        .fold((init, vec![]), |(xs, mut ps), (y, q)| {
-            ps.push(q);
-            (add(xs, y, REP_NUM), ps)
-        });
-    let prev_lk = crate::utils::logsumexp(&prev_lks) - (REP_NUM as f64).ln();
+    let (mut variants, prev_lk) = {
+        let tuple = (cluster_num, chain_len);
+        let ms = get_models(&data, asn, &falses, tuple, rng, param, &usepos, 0.);
+        variant_calling::variant_calling_all_pairs(&ms, &data, config, &ws)
+    };
+    variants.iter_mut().for_each(|bss| {
+        bss.iter_mut()
+            .for_each(|bs| bs.iter_mut().for_each(|x| *x = x.powi(2)));
+    });
     (variants, prev_lk)
 }
 
@@ -321,6 +313,9 @@ where
     if cluster_num <= 1 || data.len() <= 2 {
         return vec![0; data.len()];
     }
+    // for read in data.iter() {
+    //     debug!("{}", read.len());
+    // }
     assert_eq!(f.len(), data.len());
     let per_cluster_coverage = coverage / cluster_num;
     let pick_prob = if per_cluster_coverage < 40 {
@@ -330,8 +325,7 @@ where
     } else {
         0.05
     };
-    let sum = data.iter().map(|e| e.len()).sum::<usize>() as u64;
-    let params = (limit / 2, pick_prob, sum);
+    let params = (limit / 2, pick_prob, id);
     let res = gibbs_sampling_inner(
         data,
         labels,
@@ -347,7 +341,7 @@ where
     if let Ok(res) = res {
         res
     } else {
-        let params = (limit / 2, pick_prob, sum * 7);
+        let params = (limit / 2, pick_prob, id * 2);
         let res = gibbs_sampling_inner(
             data,
             labels,
@@ -481,7 +475,7 @@ where
     while count < STABLE_LIMIT {
         let (variants, next_lk) = get_variants(&data, asn, tuple, rng, config, param);
         let (variants, pos) = select_variants(variants, chain_len);
-        let betas = normalize_weights(&variants, 2.);
+        let betas = normalize_weights(&variants, 2f64);
         coef *= match lk.partial_cmp(&next_lk) {
             Some(std::cmp::Ordering::Less) => BETA_DECREASE,
             Some(std::cmp::Ordering::Greater) => BETA_INCREASE,
@@ -504,7 +498,7 @@ where
                 up.len() as u32
             })
             .sum::<u32>();
-        let thr = (data.len() as f64 * (CHANGE_FRAC * coef).min(0.1)).floor() as u32;
+        let thr = (data.len() as f64 * (CHANGE_FRAC * coef).min(0.05)).floor() as u32;
         let has_changed = changed_num <= thr.max(5);
         count += has_changed as u32;
         count *= has_changed as u32;
@@ -514,7 +508,7 @@ where
         }
         report_gibbs(asn, changed_num, count, id, cluster_num, pick_prob);
         let elapsed = (std::time::Instant::now() - start).as_secs();
-        if elapsed > limit {
+        if elapsed > limit && count < STABLE_LIMIT / 2 {
             debug!("{}\tBreak", id);
             return Err(predictions.pop_back().unwrap());
         }
@@ -601,7 +595,8 @@ fn select_variants(
     for bss in variants.iter_mut() {
         for bs in bss.iter_mut() {
             for (idx, b) in bs.iter_mut().enumerate() {
-                if *b < thr || (1. - *b).abs() < 0.001 {
+                if *b < thr {
+                    // || (1. - *b).abs() < 0.0001 {
                     *b = 0.;
                 } else {
                     position[idx] = true;
@@ -614,7 +609,12 @@ fn select_variants(
     //     .enumerate()
     //     .filter_map(|(i, &b)| if b { Some(i) } else { None })
     //     .collect();
-    // debug!("{:?}", pos);
+    // let ws: Vec<_> = variants
+    //     .iter()
+    //     .flat_map(|bss| bss.iter().flat_map(|bs| bs.iter().filter(|&&x| x >= thr)))
+    //     .map(|x| format!("{:.2}", x))
+    //     .collect();
+    // debug!("{:.3},{:?},{}", thr, pos, ws.join(","));
     (variants, position)
 }
 

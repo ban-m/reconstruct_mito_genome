@@ -80,8 +80,30 @@ pub fn assemble_reads(mut reads: Vec<ChunkedRead>, k: usize, thr: usize) -> Deco
         .for_each(|read| {
             read.label = background_cluster;
         });
-    let dbg = de_bruijn_graph::DeBruijnGraph::from(&reads, k);
-    let mut dbg = dbg.clean_up_auto();
+    {
+        let count: Vec<_> = reads.iter().map(|n| n.nodes.len()).collect();
+        let hist = histgram_viz::Histgram::new(&count);
+        debug!("Read length:\n{}", hist.format(40, 20));
+
+        let count: Vec<_> = reads.iter().map(|n| n.nodes.len()).collect();
+        let hist = histgram_viz::Histgram::new(&count);
+        debug!("Corrected Read length:\n{}", hist.format(40, 20));
+    }
+    let mut dbg = de_bruijn_graph::DeBruijnGraph::from(&reads, k);
+    {
+        let mut counts: HashMap<Vec<u64>, usize> = HashMap::new();
+        for node in dbg.nodes.iter() {
+            let kmer: Vec<_> = node.kmer.iter().map(|n| n.0).collect();
+            *counts.entry(kmer).or_default() += node.occ;
+        }
+        let counts: Vec<_> = counts.values().copied().collect();
+        let hist = histgram_viz::Histgram::new(&counts);
+        debug!("Node occ:\n{}", hist.format(40, 20));
+    }
+    dbg.clean_up_auto();
+    let count: Vec<_> = dbg.nodes.iter().map(|n| n.occ as usize).collect();
+    let hist = histgram_viz::Histgram::new(&count);
+    debug!("Hist of node occ:\n{}", hist.format(40, 20));
     let labels: Vec<Option<u8>> = reads.iter().map(|r| r.label).collect();
     let label_map = dbg.expand_color(&reads, thr, &labels, background_cluster);
     let background_cluster = background_cluster.map(|l| label_map.get(&l).copied().unwrap_or(l));
@@ -100,19 +122,19 @@ pub fn assemble_reads(mut reads: Vec<ChunkedRead>, k: usize, thr: usize) -> Deco
             (id, cluster)
         })
         .collect();
-    {
-        let mut counts: HashMap<_, u32> = HashMap::new();
-        for (_, asn) in assignments.iter() {
-            if let Some(cl) = asn {
-                *counts.entry(*cl).or_default() += 1;
-            }
-        }
-        let mut counts: Vec<_> = counts.into_iter().collect();
-        counts.sort_by_key(|e| e.0);
-        for (cl, count) in counts {
-            debug!("{}\t{}", cl, count);
-        }
-    }
+    // {
+    //     let mut counts: HashMap<_, u32> = HashMap::new();
+    //     for (_, asn) in assignments.iter() {
+    //         if let Some(cl) = asn {
+    //             *counts.entry(*cl).or_default() += 1;
+    //         }
+    //     }
+    //     let mut counts: Vec<_> = counts.into_iter().collect();
+    //     counts.sort_by_key(|e| e.0);
+    //     for (cl, count) in counts {
+    //         debug!("{}\t{}", cl, count);
+    //     }
+    // }
     // Rename assignments.
     let map: HashMap<_, _> = {
         let clusters: HashSet<_> = assignments.iter().filter_map(|&(_, x)| x).collect();

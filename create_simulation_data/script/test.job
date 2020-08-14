@@ -1,28 +1,15 @@
 #!/bin/bash
 #$ -S /bin/bash
-#$ -N CanuFlye
 #$ -cwd
-#$ -pe smp 24
+#$ -pe smp 8
 #$ -V
-
-READ=$1
-OUTPUT=$2
-# ---- Assembly(by Flye) ----
-mkdir -p ${OUTPUT}/flye/
-CORES=24
-genomesize=400K
-flye \
-    --pacbio-raw \
-    ${READ} \
-	--genome-size ${genomesize} \
-    --threads ${CORES} \
-    --iterations 10 \
-    --meta \
-    --out-dir ${OUTPUT}/flye
-
-
-# --- Canu ---
-canu \
-	genomeSize=400K \
-    useGrid=false\
-    -p assemble -d $OUTPUT/canu -pacbio-raw $READ
+mkdir -p ${PWD}/result/benchmark
+COVERAGE=0
+PROBS="0.5 0.5"
+for seed in 0 1 2 3 4 5
+do
+    RUST_LOG=debug ./../target/release/test_last_decompose_multiple \
+            100 0 ${seed} 0.0005 0.5 0.4 >> ./result/test.tsv \
+            2>> ./logfiles/test.log &
+done
+wait 

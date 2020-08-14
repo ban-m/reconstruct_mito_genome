@@ -15,31 +15,18 @@ then
     rm -r ${OUTPUT}
 fi
 
-# ---- Alignment -----
-mkdir -p ${OUTPUT}/last_db
-cd ${OUTPUT}/last_db
-lastdb -R00 -Q0 reference ${REFERENCE}
-last-train -P${CORES} -Q0 reference ${READ} > score.matrix
-lastal -f maf -P${CORES} -R00 -Q0 -p score.matrix reference ${READ} |\
-    last-split | maf-convert tab --join 1000 > alignments.tab
-lastal -f tab -P${CORES} -R00 -Q0 reference ${REFERENCE} > self.tab
-cd ${ROOT}
-
-
 # ----- Prediction ------
 mmmm decompose \
-     --alignments ${OUTPUT}/last_db/alignments.tab --output ${OUTPUT} \
+     --output ${OUTPUT} \
      --reads ${READ} --contigs ${REFERENCE} \
-     --self_alignments ${OUTPUT}/last_db/self.tab \
      --cluster_num ${MIN_CLUSTER} --threads ${CORES} \
      --limit ${LIMIT}\
      -vv
-
+exit 0 ;
 mkdir -p ${OUTPUT}/no_merge
-mmmm decompose --alignments ${OUTPUT}/last_db/alignments.tab \
+mmmm decompose \
      --output ${OUTPUT}/no_merge \
      --reads ${READ} --contigs ${REFERENCE} \
-     --self_alignments ${OUTPUT}/last_db/self.tab \
      --threads ${CORES} \
      --no_merge
 
@@ -52,7 +39,7 @@ do
     ASM_PATH=${reads%%.fasta}
     INDEX=${ASM_PATH##*/}
     mkdir -p ${OUTPUT}/assemblies/${INDEX}
-    genomesize=$(estimate_genome_size ${reads} ${REFERENCE} ${OUTPUT}/last_db/alignments.tab ${OUTPUT}/assemblies/${INDEX}/temp.fa)
+    genomesize=$(estimate_genome_size ${reads} ${REFERENCE} ${OUTPUT}/assemblies/${INDEX}/temp.fa)
     flye \
         --pacbio-raw \
         ${OUTPUT}/assemblies/${INDEX}/temp.fa \

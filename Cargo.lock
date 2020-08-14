@@ -692,6 +692,7 @@ dependencies = [
  "last_tiling",
  "log",
  "md5",
+ "rand",
  "rayon",
  "serde",
  "serde_json",

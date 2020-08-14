@@ -1,6 +1,6 @@
 #[macro_use]
 extern crate log;
-const LIMIT: u64 = 3600 * 4;
+const LIMIT: u64 = 3600 * 5;
 use last_decompose::poa_clustering::gibbs_sampling;
 use poa_hmm::gen_sample;
 use rand::SeedableRng;
@@ -23,8 +23,8 @@ fn main() {
         (200, 0, vec![2f64.recip(); 2], 2, 11920981, 0.2)
     };
     let len = 100;
-    let chain_len = 90;
-    //let chain_len = 20;
+    // let chain_len = 90;
+    let chain_len = 20;
     let p = &gen_sample::Profile {
         sub: errors / 6.,
         ins: errors / 6.,

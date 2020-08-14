@@ -67,7 +67,7 @@ pub fn decompose(
         forbidden.values().filter(|e| !e.is_empty()).count()
     );
     let contigs: Vec<_> = (0..contigs.get_num_of_contigs())
-        .map(|e| contigs.get_last_unit(e as u16).unwrap() as usize + 1)
+        .map(|e| contigs.get_last_unit(e as u16).unwrap() as usize)
         .collect();
     let windows: Vec<_> = contigs
         .iter()
@@ -247,7 +247,6 @@ pub fn create_windows(idx: usize, len: usize, covs: &[u32]) -> Vec<(u16, u16, u1
     let mean = covs.iter().sum::<u32>() / covs.len() as u32;
     let mean_sq = covs.iter().fold(0, |x, y| x + y * y) / covs.len() as u32;
     let sd = ((mean_sq - mean * mean) as f64).sqrt().floor() as u32;
-    //let thr = mean.max(3 * sd) - 3 * sd;
     let thr = mean / 4;
     debug!("Mean,SD,Thr={},{},{}", mean, sd, thr);
     let sub_windows: Vec<_> = {
@@ -258,7 +257,6 @@ pub fn create_windows(idx: usize, len: usize, covs: &[u32]) -> Vec<(u16, u16, u1
             sub_windows.push((start, end));
             start = end + 1;
         }
-
         sub_windows
             .into_iter()
             .filter(|(s, e)| e - s > WINDOW_SIZE / 3)
@@ -297,7 +295,7 @@ pub fn create_windows(idx: usize, len: usize, covs: &[u32]) -> Vec<(u16, u16, u1
                     .collect::<Vec<_>>()
             }
         })
-        .map(|(s, e)| (idx as u16, s as u16, e as u16))
+        .map(|(s, e)| (idx as u16, s.max(1) as u16, e as u16))
         .collect()
 }
 
@@ -511,8 +509,9 @@ pub fn clustering_chunking<'a>(
             let contained_window = read
                 .seq
                 .iter()
-                .any(|u| u.contig == contig && start <= u.unit && u.unit < end);
-            if contained_window {
+                .filter(|u| u.contig == contig && start <= u.unit && u.unit < end)
+                .count();
+            if contained_window > 0 {
                 let filtered = read
                     .seq
                     .iter()
@@ -541,10 +540,13 @@ pub fn clustering_chunking<'a>(
         });
     });
     // Parallelize here to get most efficient algorithm.
+    // !!!!!!!!!!!!!!!
     pileups
         .par_iter_mut()
         .zip(windows.into_par_iter())
         .enumerate()
+        // .skip(10)
+        // .take(4)
         .for_each(|(idx, (pileup, range))| {
             let label_map = pileup.iter().fold(HashMap::new(), |mut res, entry| {
                 let next = res.len() as u8;
@@ -559,9 +561,8 @@ pub fn clustering_chunking<'a>(
                 .filter_map(|entry| entry.label)
                 .map(|cl| label_map[&cl])
                 .collect();
-            debug!("Start {:?}", range);
             let coverage = pileup.len();
-            debug!("{} labels. Coverage is {}", labels.len(), coverage);
+            debug!("{}-{:?}(L:{},C:{})", idx, range, labels.len(), coverage);
             let forbs: Vec<Vec<u8>> = pileup
                 .iter()
                 .map(|entry| {
@@ -599,8 +600,12 @@ pub fn clustering_chunking<'a>(
             .iter()
             .filter_map(|r| r.desc.as_ref().map(|desc| (r.id.to_string(), desc)))
             .collect();
+        // !!!!!!!!!!!!!!!
         for (idx, pileup) in pileups.iter().enumerate() {
-            for entry in pileup.iter() {
+            //.skip(10).take(4) {
+            let mut entries: Vec<_> = pileup.iter().collect();
+            entries.sort_by_key(|e| e.assignment);
+            for entry in entries {
                 let desc = match id2desc.get(entry.id) {
                     Some(res) => res,
                     None => continue,

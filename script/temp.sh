@@ -1,9 +1,4 @@
 #!/bin/bash
 set -ue
-
-OUTPUT=${PWD}/data/synthetic_data/
-coverage=150
-cat ${OUTPUT}/${coverage}_001/reads_${coverage}_001.fq |\
-    paste - - - - | cut -f 1,2 |\
-    sed -e 's/@/>/g' | tr '\t' '\n' \
-                          > ${OUTPUT}/${coverage}_001/reads_${coverage}_001.fa
+RUST_LOG=debug cargo run --release --bin test_last_decompose_multiple -- \
+        150 0 123 0.001 0.4 0.5 2> ./logfiles/test.log

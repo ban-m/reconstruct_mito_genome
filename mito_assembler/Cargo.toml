@@ -18,3 +18,4 @@ serde = "*"
 serde_json = "*"
 md5 = "0.7.0"
 definitions = {path = "../definitions"}
+rand = "*"

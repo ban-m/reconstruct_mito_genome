@@ -5,7 +5,7 @@ fn main() -> std::io::Result<()> {
     let args: Vec<_> = std::env::args().collect();
     let reads = bio_utils::fasta::parse_into_vec(&args[1])?;
     let reference = last_tiling::Contigs::from_file(&args[2])?;
-    let alignment = last_tiling::parse_tab_file(&args[3])?;
+    let alignment = mito_assembler::last_alignment_train(&args[1], &args[2], 12).unwrap();
     let encoded_reads = last_tiling::encoding(&reads, &reference, &alignment);
     let unique_units = {
         let mut units: HashMap<_, usize> = HashMap::new();
@@ -17,7 +17,7 @@ fn main() -> std::io::Result<()> {
         units
     };
     let count = unique_units.iter().filter(|x| x.1 > &10).count();
-    let mut wtr = bio_utils::fasta::Writer::new(std::fs::File::create(&args[4])?);
+    let mut wtr = bio_utils::fasta::Writer::new(std::fs::File::create(&args[3])?);
     assert_eq!(reads.len(), encoded_reads.len());
     let mut ok_read = 0;
     for (er, read) in encoded_reads.iter().zip(reads) {

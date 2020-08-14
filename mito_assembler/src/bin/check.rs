@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 fn main() {
     env_logger::init();
     let args: Vec<_> = std::env::args().collect();
+    // let alns = mito_assembler::last_alignment_train(&args[1], &args[2], 23).unwrap();
+    // eprintln!("{}", alns.len());
     let chunked_reads: Vec<last_decompose::assemble::ChunkedRead> = std::fs::File::open(&args[1])
         .map(std::io::BufReader::new)
         .ok()

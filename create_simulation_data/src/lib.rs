@@ -219,11 +219,6 @@ pub fn generate_mul_data<T: Rng>(
     let mut gen = |t: &[Vec<u8>]| {
         t.iter()
             .map(|e| {
-                // let profile = profile.norm();
-                // use rand_distr::{Distribution, Normal};
-                // let normal = Normal::new(0.15, 0.05).unwrap();
-                // let m: f64 = normal.sample(rng);
-                //gen_sample::introduce_randomness(e, rng, &profile.mul(m.max(0.)))
                 gen_sample::introduce_randomness(e, rng, profile)
             })
             .collect::<Vec<_>>()
