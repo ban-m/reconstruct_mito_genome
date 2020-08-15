@@ -23,8 +23,8 @@ fn main() {
     let (k, thr) = (5, 10);
     let mut labels: Vec<_> = labels.into_iter().collect();
     labels.sort_by_key(|x| x.0);
-    let result = last_decompose::assemble::assemble_reads(chunked_reads, k, thr);
-    for (id, asn) in result.assignments.iter() {
+    let result = last_decompose::assemble::assemble_reads(&chunked_reads, k, thr);
+    for (id, asn) in result.0.iter() {
         match (id2desc[id].as_ref(), asn) {
             (Some(desc), Some(asn)) => println!("{}\t{}", asn, desc),
             (Some(desc), None) => println!("-\t{}", desc),
@@ -33,15 +33,12 @@ fn main() {
         }
     }
     let result: HashMap<_, HashSet<String>> =
-        result
-            .assignments
-            .iter()
-            .fold(HashMap::new(), |mut x, (id, asn)| {
-                if let Some(asn) = asn {
-                    x.entry(asn).or_default().insert(id.clone());
-                }
-                x
-            });
+        result.0.iter().fold(HashMap::new(), |mut x, (id, asn)| {
+            if let Some(asn) = asn {
+                x.entry(asn).or_default().insert(id.clone());
+            }
+            x
+        });
     let mut result: Vec<_> = result.into_iter().collect();
     result.sort_by_key(|x| x.0);
     for (init_cl, members) in labels.iter() {

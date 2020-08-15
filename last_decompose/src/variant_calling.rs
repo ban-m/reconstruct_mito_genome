@@ -3,20 +3,7 @@
 //! each datapoint.
 use na::DMatrix;
 use poa_hmm::POA;
-// use rayon::prelude::*;
-
-// /// return the weight of each position.
-// pub fn variant_call_poa(
-//     models: &[Vec<POA>],
-//     data: &[super::Read],
-//     c: &poa_hmm::Config,
-//     ws: &[f64],
-//     centrize: bool,
-// ) -> (Vec<f64>, f64) {
-//     let (matrices, lk) = calc_matrix_poa(models, data, c, centrize, ws);
-//     let (row, column) = (models.len(), models[0].len());
-//     (maximize_margin_of(&matrices, row, column).unwrap(), lk)
-// }
+use rayon::prelude::*;
 
 fn calc_matrix_poa(
     models: &[Vec<POA>],
@@ -51,8 +38,9 @@ fn calc_matrices_poa(
     // Note that the matrix is flattened.
     // To access the likelihood of the j-th position of the k-th cluster,
     // lk_matrix[i][chain_len * k + j] would work.
+    // !!!!!!!!!!!
     let lk_matrices: Vec<Vec<f64>> = data
-        .iter()
+        .par_iter()
         .map(|read| lks_poa(models, read, c, chain_len))
         .collect();
     let lk = lk_matrices

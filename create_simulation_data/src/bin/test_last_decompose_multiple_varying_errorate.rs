@@ -9,20 +9,21 @@ use rayon::prelude::*;
 const LIMIT: u64 = 3600 * 4;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(19)
-        .build_global()
-        .unwrap();
     let args: Vec<_> = std::env::args().collect();
-    let (probs, clusters, seed) = {
+    let (probs, clusters, seed, threads) = {
         let seed = args[1].parse::<u64>().unwrap();
-        let prob: Vec<_> = args[2..]
+        let threads = args[2].parse::<usize>().unwrap();
+        let prob: Vec<_> = args[3..]
             .iter()
             .filter_map(|e| e.parse::<f64>().ok())
             .collect();
         let clusters = prob.len();
-        (prob, clusters, seed)
+        (prob, clusters, seed, threads)
     };
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build_global()
+        .unwrap();
     debug!("Seed:{}", seed);
     let coverage = 0;
     let chain_len = 90;

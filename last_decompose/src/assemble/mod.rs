@@ -4,13 +4,6 @@ mod ditch_graph;
 use super::Entry;
 pub use chunked_read::ChunkedRead;
 use std::collections::{HashMap, HashSet};
-#[derive(Debug, Clone)]
-pub struct DecomposedResult {
-    pub reads: Vec<ChunkedRead>,
-    pub assignments: Vec<(String, Option<u8>)>,
-    pub gfa: gfa::GFA,
-    pub contigs: Vec<bio_utils::fasta::Record>,
-}
 
 impl de_bruijn_graph::AsDeBruijnNode for chunked_read::Node {
     fn as_node(w: &[chunked_read::Node]) -> de_bruijn_graph::Node {
@@ -69,7 +62,14 @@ fn major_component(reads: &[ChunkedRead]) -> HashSet<u8> {
         .collect()
 }
 
-pub fn assemble_reads(mut reads: Vec<ChunkedRead>, k: usize, thr: usize) -> DecomposedResult {
+type AssembleResult = (
+    Vec<(String, Option<u8>)>,
+    gfa::GFA,
+    Vec<bio_utils::fasta::Record>,
+);
+pub fn assemble_reads(reads: &[ChunkedRead], k: usize, thr: usize) -> AssembleResult {
+    let mut reads = reads.to_vec();
+    correct_reads::correct_reads(&mut reads);
     let backgrounds = major_component(&reads);
     debug!("backgrounds:{:?}", backgrounds);
     let background_cluster = backgrounds.iter().min().cloned();
@@ -122,19 +122,6 @@ pub fn assemble_reads(mut reads: Vec<ChunkedRead>, k: usize, thr: usize) -> Deco
             (id, cluster)
         })
         .collect();
-    // {
-    //     let mut counts: HashMap<_, u32> = HashMap::new();
-    //     for (_, asn) in assignments.iter() {
-    //         if let Some(cl) = asn {
-    //             *counts.entry(*cl).or_default() += 1;
-    //         }
-    //     }
-    //     let mut counts: Vec<_> = counts.into_iter().collect();
-    //     counts.sort_by_key(|e| e.0);
-    //     for (cl, count) in counts {
-    //         debug!("{}\t{}", cl, count);
-    //     }
-    // }
     // Rename assignments.
     let map: HashMap<_, _> = {
         let clusters: HashSet<_> = assignments.iter().filter_map(|&(_, x)| x).collect();
@@ -209,12 +196,7 @@ pub fn assemble_reads(mut reads: Vec<ChunkedRead>, k: usize, thr: usize) -> Deco
         .collect();
     header.extend(records.into_iter().flat_map(|e| e.1));
     let gfa = gfa::GFA::from_records(header);
-    DecomposedResult {
-        reads,
-        assignments,
-        contigs,
-        gfa,
-    }
+    (assignments, gfa, contigs)
 }
 
 fn reads_to_contig(cl: usize, reads: &[&ChunkedRead]) -> Option<bio_utils::fasta::Record> {

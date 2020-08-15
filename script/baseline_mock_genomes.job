@@ -2,7 +2,7 @@
 #$ -S /bin/bash
 #$ -N Baseline
 #$ -cwd
-#$ -pe smp 23
+#$ -pe smp 24
 #$ -e ./logfiles/baseline.log
 #$ -o ./logfiles/baseline.out
 #$ -V
@@ -29,7 +29,7 @@ do
     RESULT=${OUTPUT}/${file}/whatshap/${file}.tsv
     echo "WHATSHAP" >> ${LOGFILE}
     date >> ${LOGFILE}
-    minimap2 -a -t 23 -x map-pb ${reference} ${read} |\
+    minimap2 -a -t 24 -x map-pb ${reference} ${read} |\
         samtools sort -O BAM -m2G -@3 > ${BAM}
     samtools index ${BAM}
     whatshap find_snv_candidates --multi-allelics -o ${CAND} --pacbio \
@@ -46,14 +46,14 @@ do
     echo "CARNAC_LR" >> ${LOGFILE}
     date >> ${LOGFILE}
     mkdir -p ${OUTPUT}/${file}/carnac
-    minimap2 ${read} ${read} -X -x ava-pb > ${OUTPUT}/${file}/carnac/ava.paf
+    minimap2 -t 24 ${read} ${read} -X -x ava-pb > ${OUTPUT}/${file}/carnac/ava.paf
     python ${ROOT}/script/paf_to_CARNAC.py \
            ${OUTPUT}/${file}/carnac/ava.paf \
            ${read} ${OUTPUT}/${file}/carnac/carnac_input.txt
     CARNAC-LR -f ${OUTPUT}/${file}/carnac/carnac_input.txt \
               -o ${OUTPUT}/${file}/carnac/carnac_output.txt \
-              -t 8
+              -t 24
     date >> ${LOGFILE}
-    flye --pacbio-raw ${read} --threads 8 --meta --genome-size 2M \
+    flye --pacbio-raw ${read} --threads 24 --meta --genome-size 2M \
          --out-dir ${OUTPUT}/${file}/flye/
 done

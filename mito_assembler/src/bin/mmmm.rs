@@ -331,7 +331,14 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
                 .and_then(|e| std::fs::File::open(e).map(BufReader::new).ok())
                 .and_then(|e| serde_json::de::from_reader(e).ok())
                 .unwrap();
-            last_decompose::assemble::assemble_reads(chunked_reads, 5, 10)
+            use last_decompose::*;
+            let (assignments, gfa, contigs) = assemble::assemble_reads(&chunked_reads, 5, 10);
+            DecomposedResult {
+                assignments,
+                gfa,
+                contigs,
+                reads: chunked_reads,
+            }
         } else {
             let result = last_decompose::decompose(
                 encoded_reads,

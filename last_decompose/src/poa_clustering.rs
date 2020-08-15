@@ -3,6 +3,7 @@ use super::{ERead, Read};
 use poa_hmm::*;
 use rand::{seq::SliceRandom, Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256StarStar;
+use rayon::prelude::*;
 const BETA_INCREASE: f64 = 1.02;
 const BETA_DECREASE: f64 = 1.05;
 const BETA_MAX: f64 = 0.8;
@@ -130,8 +131,9 @@ where
         .iter_mut()
         .for_each(|cluster| cluster.iter_mut().for_each(|cs| cs.shuffle(rng)));
     let ws = vec![1.; 30];
+    // !!!!!!!!!!!!
     chunks
-        .into_iter()
+        .into_par_iter()
         .map(|cluster| {
             cluster
                 .iter()
@@ -182,8 +184,9 @@ fn get_new_assignment(
     config: &poa_hmm::Config,
     beta: f64,
 ) -> u8 {
+    // !!!!!!!
     let likelihoods: Vec<(usize, Vec<_>)> = read
-        .iter()
+        .par_iter()
         .map(|&(pos, ref u)| {
             let lks = models
                 .iter()
@@ -218,7 +221,6 @@ fn get_new_assignment(
                 .recip()
         })
         .collect();
-    // debug!("LK\t{:.3}\t{:.3}", temp[0], temp[1]);
     let (mut max, mut argmax) = (-0.1, 0);
     for (cl, &p) in weights.iter().enumerate() {
         if !f.contains(&(cl as u8)) && max < p {
@@ -287,8 +289,9 @@ where
         variant_calling::variant_calling_all_pairs(&ms, &data, config, &ws)
     };
     variants.iter_mut().for_each(|bss| {
-        bss.iter_mut()
-            .for_each(|bs| bs.iter_mut().for_each(|x| *x = x.powi(2)));
+        bss.iter_mut().for_each(|bs| {
+            bs.iter_mut().for_each(|x| *x = x.abs());
+        });
     });
     (variants, prev_lk)
 }
@@ -341,7 +344,7 @@ where
     if let Ok(res) = res {
         res
     } else {
-        let params = (limit / 2, pick_prob, id * 2);
+        let params = (limit / 2, 2. * pick_prob, id * 2);
         let res = gibbs_sampling_inner(
             data,
             labels,
@@ -460,7 +463,8 @@ where
         })
         .collect();
     let mut coef = 1.;
-    let beta = ((data.len() / cluster_num) as f64 * 0.0005).max(0.1);
+    //let beta = ((data.len() / cluster_num) as f64 * 0.0005).max(0.1);
+    let beta = ((data.len() / cluster_num) as f64 * 0.001).max(0.1);
     let mut count = 0;
     let mut predictions = std::collections::VecDeque::new();
     let asn = &mut assignments;
@@ -475,7 +479,7 @@ where
     while count < STABLE_LIMIT {
         let (variants, next_lk) = get_variants(&data, asn, tuple, rng, config, param);
         let (variants, pos) = select_variants(variants, chain_len);
-        let betas = normalize_weights(&variants, 2f64);
+        let betas = normalize_weights(&variants, 2.);
         coef *= match lk.partial_cmp(&next_lk) {
             Some(std::cmp::Ordering::Less) => BETA_DECREASE,
             Some(std::cmp::Ordering::Greater) => BETA_INCREASE,
@@ -581,22 +585,20 @@ fn select_variants(
     mut variants: Vec<Vec<Vec<f64>>>,
     chain: usize,
 ) -> (Vec<Vec<Vec<f64>>>, Vec<bool>) {
+    let mut var: Vec<_> = variants
+        .iter()
+        .flat_map(|bss| bss.iter().flat_map(|bs| bs.iter()))
+        .copied()
+        .collect();
+    var.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let num = variants.len() * (variants.len() - 1);
+    let pos = (var.len() * 95 / 100).min(var.len() - num);
+    let thr = var[pos].max(0.01);
     let mut position = vec![false; chain];
-    let thr = {
-        let mut var: Vec<_> = variants
-            .iter()
-            .flat_map(|bs| bs.iter().flat_map(|b| b.iter()))
-            .copied()
-            .collect();
-        var.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let pos = (var.len() * 9 / 10).min(var.len() - 2);
-        var[pos].max(0.01)
-    };
     for bss in variants.iter_mut() {
         for bs in bss.iter_mut() {
             for (idx, b) in bs.iter_mut().enumerate() {
                 if *b < thr {
-                    // || (1. - *b).abs() < 0.0001 {
                     *b = 0.;
                 } else {
                     position[idx] = true;
@@ -604,17 +606,6 @@ fn select_variants(
             }
         }
     }
-    // let pos: Vec<_> = position
-    //     .iter()
-    //     .enumerate()
-    //     .filter_map(|(i, &b)| if b { Some(i) } else { None })
-    //     .collect();
-    // let ws: Vec<_> = variants
-    //     .iter()
-    //     .flat_map(|bss| bss.iter().flat_map(|bs| bs.iter().filter(|&&x| x >= thr)))
-    //     .map(|x| format!("{:.2}", x))
-    //     .collect();
-    // debug!("{:.3},{:?},{}", thr, pos, ws.join(","));
     (variants, position)
 }
 

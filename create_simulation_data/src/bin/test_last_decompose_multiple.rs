@@ -24,7 +24,7 @@ fn main() {
     };
     let len = 100;
     let chain_len = 90;
-    // let chain_len = 20;
+    //let chain_len = 20;
     let p = &gen_sample::Profile {
         sub: errors / 6.,
         ins: errors / 6.,

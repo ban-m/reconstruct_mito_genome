@@ -2,7 +2,7 @@
 #$ -S /bin/bash
 #$ -N Post
 #$ -cwd
-#$ -pe smp 1
+#$ -pe smp 24
 #$ -j y
 #$ -o ./logfiles/posterior.log
 #$ -V
@@ -11,10 +11,9 @@ set -ue
 OUTPUT=${PWD}/result/posterior_probability/
 PATH="${PWD}/target/release:${PATH}"
 mkdir -p ${OUTPUT}
-
 TESTNUM=360
 COVERAGE=0
-SEED=21320
+SEED=213019
 DIV_RATE=0.0005
 PROBS="0.16 0.16 0.16 0.16 0.16 0.16"
 RUST_LOG=trace test_last_decompose_multiple ${TESTNUM} ${COVERAGE} \

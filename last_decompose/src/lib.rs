@@ -46,6 +46,15 @@ impl DecomposeConfig {
     }
 }
 type Read<'a> = Vec<(usize, &'a [u8])>;
+
+#[derive(Debug, Clone)]
+pub struct DecomposedResult {
+    pub reads: Vec<assemble::ChunkedRead>,
+    pub assignments: Vec<(String, Option<u8>)>,
+    pub gfa: gfa::GFA,
+    pub contigs: Vec<bio_utils::fasta::Record>,
+}
+
 /// Main method. Decomposing the reads.
 /// You should call "merge" method separatly(?) -- should be integrated with this function.
 pub fn decompose(
@@ -56,7 +65,7 @@ pub fn decompose(
     cluster_num: usize,
     limit: u64,
     settings: &DecomposeConfig,
-) -> assemble::DecomposedResult {
+) -> DecomposedResult {
     let ereads: Vec<_> = encoded_reads.iter().map(ERead::new_no_gapfill).collect();
     let coverages = get_coverages(contigs, &ereads);
     let (dataset, labels, forbidden) = initial_clustering(ereads, initial_clusters);
@@ -89,7 +98,7 @@ pub fn decompose(
         .zip(labels)
         .map(|(r, l)| (r.id.to_string(), l))
         .collect();
-    let mut chunked_reads: Vec<_> = encoded_reads
+    let chunked_reads: Vec<_> = encoded_reads
         .iter()
         .flat_map(|r| {
             let label = labels.get(&r.id);
@@ -99,8 +108,14 @@ pub fn decompose(
             Some(assemble::ChunkedRead::from(r, label, forbs, entries))
         })
         .collect();
-    assemble::correct_reads::correct_reads(&mut chunked_reads);
-    assemble::assemble_reads(chunked_reads, settings.k, settings.thr)
+    let (assignments, gfa, contigs) =
+        assemble::assemble_reads(&chunked_reads, settings.k, settings.thr);
+    DecomposedResult {
+        assignments,
+        gfa,
+        contigs,
+        reads: chunked_reads,
+    }
 }
 
 fn initial_clustering(
