@@ -342,6 +342,7 @@ where
         id,
     );
     if let Ok(res) = res {
+        debug!("{}\tClustered", id);
         res
     } else {
         let params = (limit / 2, 2. * pick_prob, id * 2);
@@ -357,6 +358,7 @@ where
             aln,
             id,
         );
+        debug!("{}\tClustered", id);
         match res {
             Ok(res) => res,
             Err(res) => res,
@@ -517,7 +519,6 @@ where
             return Err(predictions.pop_back().unwrap());
         }
     }
-    debug!("{}\tClustered", id);
     if log_enabled!(log::Level::Trace) {
         if let Some(answer) = answer {
             print_lk_gibbs(tuple, asn, &data, (label, answer), id, "A", param, config);

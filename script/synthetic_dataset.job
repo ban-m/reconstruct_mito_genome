@@ -2,7 +2,7 @@
 ROOT=${PWD}
 DATA=${PWD}/data/synthetic_data/
 OUTPUT=${PWD}/result/synthetic_data/
-for coverage in 150 100 50
+for coverage in 50 100 150
 do
     qsub -o ./logfiles/${coverage}_001.log -j y -S /bin/bash -cwd -pe smp 24 -V \
          ./script/disassembly.sh \

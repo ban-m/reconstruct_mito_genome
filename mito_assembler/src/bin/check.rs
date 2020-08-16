@@ -20,7 +20,7 @@ fn main() {
         .iter()
         .map(|read| (read.id.clone(), read.desc.clone()))
         .collect();
-    let (k, thr) = (5, 10);
+    let (k, thr) = (5, 15);
     let mut labels: Vec<_> = labels.into_iter().collect();
     labels.sort_by_key(|x| x.0);
     let result = last_decompose::assemble::assemble_reads(&chunked_reads, k, thr);
