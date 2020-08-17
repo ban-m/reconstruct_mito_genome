@@ -52,6 +52,7 @@ done
 
 set -ue
 # ---- Align back all reads ----
+mkdir -p ${OUTPUT}/last_db
 collect_contigs ${OUTPUT}/assemblies/ ${OUTPUT}
 for contigs in  $( find ${OUTPUT} -maxdepth 1 -name "*contigs.fasta" )
 do

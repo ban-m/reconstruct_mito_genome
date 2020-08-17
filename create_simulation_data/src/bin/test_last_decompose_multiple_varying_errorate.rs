@@ -145,20 +145,15 @@ fn benchmark(
         .collect();
     let forbidden = vec![vec![]; data.len()];
     use last_decompose::poa_clustering::{gibbs_sampling, DEFAULT_ALN};
+
     let id = rng.gen::<u64>() % 100;
-    let pred = gibbs_sampling(
-        &data,
-        &label,
-        Some(&answer),
-        &forbidden,
-        chain_len,
-        clusters,
-        LIMIT,
-        c,
-        &DEFAULT_ALN,
-        coverage,
-        id,
+    let config = last_decompose::poa_clustering::ClusteringConfig::new(
+        chain_len, clusters, LIMIT, coverage, id, true, c,
     );
+    let pred = {
+        let answer = Some(answer.as_slice());
+        gibbs_sampling(&data, &label, answer, &forbidden, &DEFAULT_ALN, config)
+    };
     debug!("Index1\tIndex2\tDist");
     let dists: Vec<Vec<_>> = (0..clusters)
         .map(|i| {

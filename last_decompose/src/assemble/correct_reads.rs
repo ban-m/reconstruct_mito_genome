@@ -20,6 +20,7 @@ fn alignment(
     qry: &[(u64, u64)],
     rfr: &[(u64, u64)],
     (mat, mism, gap): (i32, i32, i32),
+    thr: i32,
 ) -> Option<(i32, Vec<Cigar>)> {
     let mut dp = vec![vec![0; rfr.len() + 1]; qry.len() + 1];
     for (i, &q) in qry.iter().enumerate() {
@@ -38,7 +39,7 @@ fn alignment(
         .enumerate()
         .max_by_key(|x| x.1)?;
     let score = *column_max.max(row_max);
-    if score <= 2 * mat {
+    if score <= thr {
         return None;
     }
     let (mut q_pos, mut r_pos) = if row_max < column_max {
@@ -139,7 +140,7 @@ impl Column {
     }
 }
 
-pub fn correct_reads(reads: &mut [super::ChunkedRead]) {
+pub fn correct_reads(reads: &mut [super::ChunkedRead], thr: i32) {
     let reads_summary: Vec<Vec<(u64, u64)>> = reads
         .iter()
         .map(|read| {
@@ -157,7 +158,7 @@ pub fn correct_reads(reads: &mut [super::ChunkedRead]) {
     };
     let corrected_reads: Vec<_> = reads_summary
         .par_iter()
-        .map(|read| correct_read(read, &rev_for_reads))
+        .map(|read| correct_read(read, &rev_for_reads, thr))
         .collect();
     assert_eq!(reads.len(), corrected_reads.len());
     for (read, corrected) in reads.iter_mut().zip(corrected_reads) {
@@ -172,14 +173,17 @@ pub fn correct_reads(reads: &mut [super::ChunkedRead]) {
 fn correct_read(
     read: &[(u64, u64)],
     reads: &[(Vec<(u64, u64)>, Vec<(u64, u64)>)],
+    thr: i32,
 ) -> Vec<(u64, u64)> {
     let param = (1, -1, -1);
     let pileup = reads
         .iter()
-        .filter_map(|(forward, rev)| match alignment(forward, read, param) {
-            Some(res) => Some(res),
-            None => alignment(rev, read, param),
-        })
+        .filter_map(
+            |(forward, rev)| match alignment(forward, read, param, thr) {
+                Some(res) => Some(res),
+                None => alignment(rev, read, param, thr),
+            },
+        )
         .fold(Pileup::new(read), |x, (_, y)| x.add(y));
     pileup
         .column

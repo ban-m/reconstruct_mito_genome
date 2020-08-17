@@ -9,8 +9,43 @@ const BETA_DECREASE: f64 = 1.05;
 const BETA_MAX: f64 = 0.8;
 const CHANGE_FRAC: f64 = 0.01;
 const SMALL_WEIGHT: f64 = 0.000_000_001;
-const GIBBS_PRIOR: f64 = 0.0;
 const STABLE_LIMIT: u32 = 6;
+#[derive(Debug, Clone)]
+pub struct ClusteringConfig {
+    pub chain_len: usize,
+    pub cluster_num: usize,
+    pub limit: u64,
+    pub coverage: usize,
+    pub id: u64,
+    pub is_par: bool,
+    pub poa_config: poa_hmm::Config,
+    pub seed: u64,
+    pub pick_prob: f64,
+}
+
+impl ClusteringConfig {
+    pub fn new(
+        chain_len: usize,
+        cluster_num: usize,
+        limit: u64,
+        coverage: usize,
+        id: u64,
+        is_par: bool,
+        poa_config: &poa_hmm::Config,
+    ) -> Self {
+        Self {
+            chain_len,
+            cluster_num,
+            limit,
+            coverage,
+            id,
+            is_par,
+            poa_config: poa_config.clone(),
+            seed: 0,
+            pick_prob: 0.01,
+        }
+    }
+}
 
 // Serialize units in read. In other words,
 // We serialize the (contig, unit):(usize, usize) pair into position:usize.
@@ -102,24 +137,23 @@ fn get_models<F, R>(
     data: &[Read],
     assignments: &[u8],
     sampled: &[bool],
-    (cluster_num, chain_len): (usize, usize),
     rng: &mut R,
     param: (i32, i32, &F),
     use_position: &[bool],
-    pick: f64,
+    config: &ClusteringConfig,
 ) -> Vec<Vec<POA>>
 where
     R: Rng,
     F: Fn(u8, u8) -> i32 + std::marker::Sync,
 {
-    let mut chunks: Vec<_> = vec![vec![vec![]; chain_len]; cluster_num];
-    let choises: Vec<u8> = (0..cluster_num).map(|e| e as u8).collect();
+    let mut chunks: Vec<_> = vec![vec![vec![]; config.chain_len]; config.cluster_num];
+    let choises: Vec<u8> = (0..config.cluster_num).map(|e| e as u8).collect();
     for ((read, &asn), &b) in data.iter().zip(assignments.iter()).zip(sampled) {
         if b {
             continue;
         }
         let chosen = *choises
-            .choose_weighted(rng, |&k| if k == asn { 1. + pick } else { pick })
+            .choose_weighted(rng, |&k| if k == asn { 1. } else { 0. })
             .unwrap();
         for &(pos, unit) in read.iter() {
             if use_position[pos] {
@@ -131,23 +165,24 @@ where
         .iter_mut()
         .for_each(|cluster| cluster.iter_mut().for_each(|cs| cs.shuffle(rng)));
     let ws = vec![1.; 30];
-    // !!!!!!!!!!!!
-    chunks
-        .into_par_iter()
-        .map(|cluster| {
-            cluster
-                .iter()
-                .zip(use_position.iter())
-                .map(|(cs, &b)| {
-                    let cs: Vec<_> = cs.iter().copied().take(30).collect();
-                    match b {
-                        true => POA::from_slice(&cs, &ws, param),
-                        false => POA::default(),
-                    }
-                })
-                .collect()
-        })
-        .collect()
+    let cluster_to_poas = |cluster: Vec<Vec<&[u8]>>| {
+        cluster
+            .iter()
+            .zip(use_position.iter())
+            .map(|(cs, &b)| {
+                let cs: Vec<_> = cs.iter().copied().take(30).collect();
+                match b {
+                    true => POA::from_slice(&cs, &ws, param),
+                    false => POA::default(),
+                }
+            })
+            .collect::<Vec<_>>()
+    };
+    if config.is_par {
+        chunks.into_par_iter().map(cluster_to_poas).collect()
+    } else {
+        chunks.into_iter().map(cluster_to_poas).collect()
+    }
 }
 
 fn get_fraction_on_positions(
@@ -184,9 +219,8 @@ fn get_new_assignment(
     config: &poa_hmm::Config,
     beta: f64,
 ) -> u8 {
-    // !!!!!!!
     let likelihoods: Vec<(usize, Vec<_>)> = read
-        .par_iter()
+        .iter()
         .map(|&(pos, ref u)| {
             let lks = models
                 .iter()
@@ -237,18 +271,19 @@ fn update_assignments(
     assignments: &mut [u8],
     data: &[Read],
     sampled: &[bool],
-    cluster_num: usize,
     betas: &[Vec<Vec<f64>>],
-    config: &Config,
     forbidden: &[Vec<u8>],
     beta: f64,
+    config: &ClusteringConfig,
 ) -> Vec<usize> {
     let fractions: Vec<Vec<f64>> =
-        get_fraction_on_positions(assignments, cluster_num, models[0].len(), data);
+        get_fraction_on_positions(assignments, config.cluster_num, config.chain_len, data);
     let mut changed = vec![];
     for (idx, _) in sampled.iter().enumerate().filter(|&(_, &b)| b) {
         let f = &forbidden[idx];
-        let new_asn = get_new_assignment(&data[idx], &fractions, f, &models, &betas, &config, beta);
+        let poa_config = &config.poa_config;
+        let new_asn =
+            get_new_assignment(&data[idx], &fractions, f, &models, &betas, poa_config, beta);
         if new_asn != assignments[idx] {
             assignments[idx] = new_asn;
             changed.push(idx);
@@ -272,21 +307,19 @@ fn add(mut betas: Vec<Vec<Vec<f64>>>, y: Vec<Vec<Vec<f64>>>, rep: usize) -> Vec<
 fn get_variants<F, R: Rng>(
     data: &[Read],
     asn: &[u8],
-    (cluster_num, chain_len): (usize, usize),
     rng: &mut R,
-    config: &Config,
+    config: &ClusteringConfig,
     param: (i32, i32, &F),
 ) -> (Vec<Vec<Vec<f64>>>, f64)
 where
     F: Fn(u8, u8) -> i32 + std::marker::Sync,
 {
     let falses = vec![false; data.len()];
-    let usepos = vec![true; chain_len];
-    let ws = get_cluster_fraction(asn, &falses, cluster_num);
+    let usepos = vec![true; config.chain_len];
+    let ws = get_cluster_fraction(asn, &falses, config.cluster_num);
     let (mut variants, prev_lk) = {
-        let tuple = (cluster_num, chain_len);
-        let ms = get_models(&data, asn, &falses, tuple, rng, param, &usepos, 0.);
-        variant_calling::variant_calling_all_pairs(&ms, &data, config, &ws)
+        let ms = get_models(&data, asn, &falses, rng, param, &usepos, config);
+        variant_calling::variant_calling_all_pairs(&ms, &data, &ws, &config)
     };
     variants.iter_mut().for_each(|bss| {
         bss.iter_mut().for_each(|bs| {
@@ -296,66 +329,40 @@ where
     (variants, prev_lk)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn gibbs_sampling<F>(
     data: &[Read],
     labels: &[u8],
     answer: Option<&[u8]>,
     f: &[Vec<u8>],
-    chain_len: usize,
-    cluster_num: usize,
-    limit: u64,
-    config: &poa_hmm::Config,
     aln: &AlnParam<F>,
-    coverage: usize,
-    id: u64,
+    mut config: ClusteringConfig,
 ) -> Vec<u8>
 where
     F: Fn(u8, u8) -> i32 + std::marker::Sync,
 {
-    if cluster_num <= 1 || data.len() <= 2 {
+    if config.cluster_num <= 1 || data.len() <= 2 {
         return vec![0; data.len()];
     }
     assert_eq!(f.len(), data.len());
-    let per_cluster_coverage = coverage / cluster_num;
-    let pick_prob = if per_cluster_coverage < 40 {
+    let per_cluster_coverage = config.coverage / config.cluster_num;
+    config.seed = config.id;
+    config.pick_prob = if per_cluster_coverage < 40 {
         0.002
     } else if per_cluster_coverage < 100 {
         0.048 / 60. * (per_cluster_coverage - 40) as f64 + 0.002
     } else {
         0.05
     };
-    let params = (limit / 2, pick_prob, id);
-    let res = gibbs_sampling_inner(
-        data,
-        labels,
-        answer,
-        f,
-        chain_len,
-        cluster_num,
-        params,
-        config,
-        aln,
-        id,
-    );
+    let res = gibbs_sampling_inner(data, labels, answer, f, aln, &config);
     if let Ok(res) = res {
-        debug!("{}\tClustered", id);
+        debug!("{}\tClustered", config.id);
         res
     } else {
-        let params = (limit / 2, 2. * pick_prob, id * 2);
-        let res = gibbs_sampling_inner(
-            data,
-            labels,
-            answer,
-            f,
-            chain_len,
-            cluster_num,
-            params,
-            config,
-            aln,
-            id,
-        );
-        debug!("{}\tClustered", id);
+        config.pick_prob = 2. * config.pick_prob;
+        config.limit /= 2;
+        config.seed *= 2;
+        let res = gibbs_sampling_inner(data, labels, answer, f, aln, &config);
+        debug!("{}\tClustered", config.id);
         match res {
             Ok(res) => res,
             Err(res) => res,
@@ -363,31 +370,27 @@ where
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn print_lk_gibbs<F>(
-    (cluster_num, chain_len): (usize, usize),
     asns: &[u8],
     data: &[Read],
     (label, answer): (&[u8], &[u8]),
-    id: u64,
     name: &str,
     param: (i32, i32, &F),
-    config: &Config,
+    config: &ClusteringConfig,
 ) where
     F: Fn(u8, u8) -> i32 + std::marker::Sync,
 {
     let falses = vec![false; data.len()];
-    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(id);
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(config.id);
     let rng = &mut rng;
-    let tuple = (cluster_num, chain_len);
-    let (variants, _) = get_variants(&data, asns, tuple, rng, config, param);
-    let (variants, pos) = select_variants(variants, chain_len);
+    let (variants, _) = get_variants(&data, asns, rng, config, param);
+    let (variants, pos) = select_variants(variants, config.chain_len);
     let betas = normalize_weights(&variants, 2.);
-    let models = get_models(data, asns, &falses, tuple, rng, param, &pos, 0.);
+    let models = get_models(data, asns, &falses, rng, param, &pos, config);
     let fraction_on_positions: Vec<Vec<f64>> = {
         let cl = models[0].len();
         let mut total_count = vec![0; cl];
-        let mut counts = vec![vec![0; cl]; cluster_num];
+        let mut counts = vec![vec![0; cl]; config.cluster_num];
         for (&asn, read) in asns.iter().zip(data) {
             for &(pos, _) in read.iter() {
                 total_count[pos] += 1;
@@ -405,11 +408,17 @@ fn print_lk_gibbs<F>(
             .collect()
     };
     for (idx, (read, ans)) in data.iter().skip(label.len()).zip(answer).enumerate() {
-        let lks = calc_probs(&models, read, config, &betas, &fraction_on_positions);
+        let lks = calc_probs(
+            &models,
+            read,
+            &config.poa_config,
+            &betas,
+            &fraction_on_positions,
+        );
         trace!(
             "FEATURE\t{}\t{}\t{}\t{}\t{}",
             name,
-            id,
+            config.id,
             idx,
             ans,
             lks.join("\t")
@@ -426,51 +435,44 @@ fn gen_assignment<R: Rng>(not_allowed: &[u8], rng: &mut R, c: usize) -> u8 {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn gibbs_sampling_inner<F>(
     data: &[Read],
     label: &[u8],
     answer: Option<&[u8]>,
     forbidden: &[Vec<u8>],
-    chain_len: usize,
-    cluster_num: usize,
-    (limit, pick_prob, seed): (u64, f64, u64),
-    config: &poa_hmm::Config,
     aln: &AlnParam<F>,
-    id: u64,
+    config: &ClusteringConfig,
 ) -> Result<Vec<u8>, Vec<u8>>
 where
     F: Fn(u8, u8) -> i32 + std::marker::Sync,
 {
     let param = (aln.ins, aln.del, &aln.score);
-    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
+    let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(config.seed);
     let rng = &mut rng;
     let mut assignments: Vec<_> = (0..data.len())
         .map(|idx| {
             if idx < label.len() {
                 label[idx]
             } else {
-                gen_assignment(&forbidden[idx], rng, cluster_num)
+                gen_assignment(&forbidden[idx], rng, config.cluster_num)
             }
         })
         .collect();
     let mut coef = 1.;
-    //let beta = ((data.len() / cluster_num) as f64 * 0.0005).max(0.1);
-    let beta = ((data.len() / cluster_num) as f64 * 0.001).max(0.1);
+    let beta = ((data.len() / config.cluster_num) as f64 * 0.001).max(0.1);
     let mut count = 0;
     let mut predictions = std::collections::VecDeque::new();
     let asn = &mut assignments;
     let start = std::time::Instant::now();
     let mut lk = std::f64::NEG_INFINITY;
-    let tuple = (cluster_num, chain_len);
     if log_enabled!(log::Level::Trace) {
         if let Some(answer) = answer {
-            print_lk_gibbs(tuple, asn, &data, (label, answer), id, "B", param, config);
+            print_lk_gibbs(asn, &data, (label, answer), "B", param, config);
         }
     }
     while count < STABLE_LIMIT {
-        let (variants, next_lk) = get_variants(&data, asn, tuple, rng, config, param);
-        let (variants, pos) = select_variants(variants, chain_len);
+        let (variants, next_lk) = get_variants(&data, asn, rng, config, param);
+        let (variants, pos) = select_variants(variants, config.chain_len);
         let betas = normalize_weights(&variants, 2.);
         coef *= match lk.partial_cmp(&next_lk) {
             Some(std::cmp::Ordering::Less) => BETA_DECREASE,
@@ -478,19 +480,18 @@ where
             _ => 1.,
         };
         lk = next_lk;
-        let changed_num = (0..pick_prob.recip().ceil() as usize / 2)
+        let changed_num = (0..config.pick_prob.recip().ceil() as usize / 2)
             .map(|_| {
                 let s: Vec<_> = (0..data.len())
                     .map(|i| match i.cmp(&label.len()) {
                         std::cmp::Ordering::Less => false,
-                        _ => rng.gen_bool(pick_prob),
+                        _ => rng.gen_bool(config.pick_prob),
                     })
                     .collect();
-                let ms = get_models(&data, asn, &s, tuple, rng, param, &pos, GIBBS_PRIOR);
+                let ms = get_models(&data, asn, &s, rng, param, &pos, config);
                 let f = forbidden;
                 let beta = (coef * beta).min(BETA_MAX);
-                let up =
-                    update_assignments(&ms, asn, &data, &s, cluster_num, &betas, config, f, beta);
+                let up = update_assignments(&ms, asn, &data, &s, &betas, f, beta, config);
                 up.len() as u32
             })
             .sum::<u32>();
@@ -502,29 +503,32 @@ where
         if predictions.len() as u32 > STABLE_LIMIT {
             predictions.pop_front();
         }
-        report_gibbs(asn, changed_num, count, id, cluster_num, pick_prob);
+        report_gibbs(asn, changed_num, count, config);
         let elapsed = (std::time::Instant::now() - start).as_secs();
-        if elapsed > limit && count < STABLE_LIMIT / 2 {
-            debug!("{}\tBreak", id);
+        if elapsed > config.limit && count < STABLE_LIMIT / 2 {
+            debug!("{}\tBreak", config.id);
             return Err(predictions.pop_back().unwrap());
         }
     }
     if log_enabled!(log::Level::Trace) {
         if let Some(answer) = answer {
-            print_lk_gibbs(tuple, asn, &data, (label, answer), id, "A", param, config);
+            print_lk_gibbs(asn, &data, (label, answer), "A", param, config);
         }
     }
     Ok(predictions.pop_back().unwrap())
 }
 
-fn report_gibbs(asn: &[u8], change_num: u32, lp: u32, id: u64, cl: usize, pp: f64) {
-    let line = (0..cl)
+fn report_gibbs(asn: &[u8], change_num: u32, count: u32, c: &ClusteringConfig) {
+    let line = (0..c.cluster_num)
         .map(|c| bytecount::count(&asn, c as u8))
         .map(|e| format!("{}", e))
         .collect::<Vec<_>>()
         .join("\t");
     let cn = change_num;
-    info!("Summary\t{}\t{}\t{:.4}\t{}\t{}", id, lp, pp, cn, line);
+    info!(
+        "Summary\t{}\t{}\t{:.4}\t{}\t{}",
+        c.id, count, c.pick_prob, cn, line
+    );
 }
 
 fn calc_probs(

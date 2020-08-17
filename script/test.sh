@@ -1,15 +1,10 @@
 #!/bin/bash
-set -ue
-ROOT=${PWD}
-DATA=${PWD}/data/synthetic_data/
-OUTPUT=${PWD}/result/synthetic_data/
-coverage=50
-for err in 001 
-do
-    mmmm decompose \
-         --output ${OUTPUT}/test/ \
-         --reads ${READ} --contigs ${REFERENCE} \
-         --cluster_num 1 --threads 12 \
-         --limit ${LIMIT}\
-         -vv
-done
+COVERAGE=0
+PROBS="0.5 0.5"
+seed=1213
+threads=24
+seed=$(( $seed * 2 ))
+RUST_LOG=debug ${PWD}/target/release/test_last_decompose_multiple_varying_errorate \
+        ${seed} ${threads} ${PROBS} > temp.tsv \
+        2> test.log
+cat test | grep RESULT >> out.tsv

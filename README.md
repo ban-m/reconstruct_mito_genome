@@ -23,7 +23,6 @@ I'm trying to reconstruct these multipartite structures in the plant mitogenomes
 - Contact: ban-m@g.ecc.u-tokyo.ac.jp
 
 
-
 ## Data Availability
 
 The following list is the list of accessions/URLs to the data used in this research:
@@ -54,11 +53,6 @@ Also, the supplementary plots are available at the following locations. "Circos,
 
 Note: We used BK010421.1 as the reference genome except pacbio_ler and ler_ler where we used JF729100 as the reference genome.
 
-For those interestead in the raw data, I attach a link to the tar.gzed file containing all of the result;
-
-- The result of the synthetic data is [Here](https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/simulated_data_result.tar.gz)(1.9G).
-- The result of the real data is [Here](https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/disassembly.tar.gz)(16G).
-
 ## Reproducibility
 
 ### Synthetic dataset
@@ -66,7 +60,7 @@ For those interestead in the raw data, I attach a link to the tar.gzed file cont
 First, install the required packeges:
 
 - [BadRead](https://github.com/rrwick/Badread): `git clone https://github.com/rrwick/Badread.git && pip3 install ./Badread` would install `BadRead` to your local envirnment.
-- [inONclust](https://github.com/ksahlin/isONclust): `pip install isONclust`.
+- [isONclust](https://github.com/ksahlin/isONclust): `pip install isONclust`.
 - [CARNAC-LR](https://github.com/kamimrcht/CARNAC-LR): Exec `git clone https://github.com/kamimrcht/CARNAC.git && cd CARNAC && make`. Then, you can sim-link `${PWD}/CARNAC-LR ${HOME}/local/bin/CARNAC-LR` or anywhere included in the $PATH variable. Also, copy `CARNAC/scripts/paf_to_CARNAC.py` into `./script/` of this repository.
 - [Flye](https://github.com/fenderglass/Flye)
 - [Minimap2](https://github.com/lh3/minimap2): `git clone https://github.com/lh3/minimap2 && cd minimap2 && make` and `ln -s ${PWD}/minimap2 ${HOME}/local/bin/minimap2` or anywhere included in the $PATH variable.
@@ -78,17 +72,59 @@ First, install the required packeges:
 
 Then, 
 ```bash
-bash ./script/create_mock_genome.sh # create datasets under ${PWD}/data/synthetic_data/
-bash ./script/baseline_mock_genomes.job # create result under ${PWD}/result/sythetic_data/
-bash ./script/benchmark.sh
+git clone --recursive https://github.com/ban-m/reconstruct_mito_genome.git
+cd reconstruct_mito_genome
+cargo check && cargo build && cargo build --release # Build binaries.
+bash ./script/create_mock_genome.sh # create datasets under ${PWD}/data/synthetic_data/ by using `BadRead`
+bash ./script/benchmark.sh # create results under ${PWD}/result/benchmark/
 bash ./script/posterior_probability.job
 bash ./script/synthetic_dataset.sh
+bash ./script/baseline_mock_genomes.job # Invoke `isONclust`, `CARNAC-LR`, `WhatsHap`, and `Flye`
 ```
 would create all the result used in the paper. Note that each script would take long time to be done (from a few hours to a few days).
+
 
 ### Real dataset
 
 First, download the dataset.
+```bash
+```
+
+Then, run the pipeline on each dataset.
+```bash
+bash ./script/real_dataset.sh ${threads}
+```
+It takes several days to complete on a 24 threads 2.0GHz computer.
+
+## Requirements and Instalation
+
+This program depends on following libraries and binaries:
+
+- [HTSlib](https://github.com/samtools/htslib/releases/tag/1.10.2)
+- [Last](http://last.cbrc.jp/)
+- [Rust](https://www.rust-lang.org/) (Nightly needed)
+
+After install these requirements, exec
+
+```bath
+git clone --recursive https://github.com/ban-m/reconstruct_mito_genome.git
+cd reconstruct_mito_genome
+cargo check && cargo build && cargo build --release
+```
+
+Then, `target/release/mmmm --help` would print help messages to `stderr`.
+
+Basic usage would be
+```mmmm decompose --output ${OUTPUT} \
+    --reads ${READ} --contigs ${REFERENCE} \
+    --cluster_num ${MIN_CLUSTER} --threads ${CORES}
+```
+${READ} and ${REFERENCE} should be fasta files. ${MIN_CLUSTER} is the size of the cluster at each window, not the number of resulting cluster.
+
+*Disclaimer1*: It requires a reference quality contigs for clutering. For those dataset without very good reference, I'm currently developing 
+[this repository](https://github.com/ban-m/hla_haplotyper).
+
+*Disclaimer2*: As the clustering algorithm (PO-HMM) is very costly, this program is for very small genome(<1Mbp). 
 
 
 ## Reference

@@ -8,5 +8,5 @@ do
          ./script/disassembly.sh \
          ${DATA}/${coverage}_001/${coverage}_001_reference.fa \
          ${DATA}/${coverage}_001/${coverage}_001_reads.fa \
-         ${OUTPUT}/${coverage}_001/ 2 3600 24
+         ${OUTPUT}/${coverage}_001/ 2 3000 24
 done

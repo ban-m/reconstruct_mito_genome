@@ -8,17 +8,15 @@ use rayon::prelude::*;
 fn calc_matrix_poa(
     models: &[Vec<POA>],
     data: &[super::Read],
-    c: &poa_hmm::Config,
     to_centrize: bool,
     ws: &[f64],
+    c: &super::poa_clustering::ClusteringConfig,
 ) -> (Vec<Vec<f64>>, f64) {
-    let num_cluster = models.len();
-    let chain_len = models[0].len();
     let (lk_matrices, lk) = if to_centrize {
-        let (matrices, lk) = calc_matrices_poa(models, data, c, ws);
-        (centrize(matrices, num_cluster, chain_len), lk)
+        let (matrices, lk) = calc_matrices_poa(models, data, ws, c);
+        (centrize(matrices, c.cluster_num, c.chain_len), lk)
     } else {
-        calc_matrices_poa(models, data, c, ws)
+        calc_matrices_poa(models, data, ws, c)
     };
     (lk_matrices, lk)
 }
@@ -28,27 +26,27 @@ fn calc_matrix_poa(
 fn calc_matrices_poa(
     models: &[Vec<POA>],
     data: &[super::Read],
-    c: &poa_hmm::Config,
     ws: &[f64],
+    c: &super::poa_clustering::ClusteringConfig,
 ) -> (Vec<Vec<f64>>, f64) {
-    let num_cluster = models.len();
-    let chain_len = models[0].len();
     // LK matrix of each read, i.e., lk_matrix[i] would
     // be lk matrix for the i-th read.
     // Note that the matrix is flattened.
     // To access the likelihood of the j-th position of the k-th cluster,
     // lk_matrix[i][chain_len * k + j] would work.
     // !!!!!!!!!!!
-    let lk_matrices: Vec<Vec<f64>> = data
-        .par_iter()
-        .map(|read| lks_poa(models, read, c, chain_len))
-        .collect();
+    let read_to_lks = |read| lks_poa(models, read, &c.poa_config, c.chain_len);
+    let lk_matrices: Vec<Vec<f64>> = if c.is_par {
+        data.par_iter().map(read_to_lks).collect()
+    } else {
+        data.iter().map(read_to_lks).collect()
+    };
     let lk = lk_matrices
         .iter()
         .map(|matrix| {
-            assert_eq!(matrix.len() / chain_len, num_cluster);
+            assert_eq!(matrix.len() / c.chain_len, c.cluster_num);
             let lks: Vec<_> = matrix
-                .chunks_exact(chain_len)
+                .chunks_exact(c.chain_len)
                 .zip(ws.iter())
                 .map(|(chunks, w)| w.ln() + chunks.iter().sum::<f64>())
                 .collect();
@@ -168,24 +166,27 @@ fn centrize_vector_of(matrices: &[Vec<f64>], row: usize, column: usize) -> Vec<V
 pub fn variant_calling_all_pairs(
     models: &[Vec<POA>],
     data: &[super::Read],
-    c: &poa_hmm::Config,
     ws: &[f64],
+    c: &super::poa_clustering::ClusteringConfig,
 ) -> (Vec<Vec<Vec<f64>>>, f64) {
-    let (matrices, lk) = calc_matrices_poa(models, data, c, ws);
-    let cluster_num = models.len();
-    let chain_len = models[0].len();
-    let betas: Vec<Vec<Vec<f64>>> = (0..cluster_num)
+    let (matrices, lk) = calc_matrices_poa(models, data, ws, c);
+    let betas: Vec<Vec<Vec<f64>>> = (0..c.cluster_num)
         .map(|i| {
             (0..i)
-                .map(|j| call_variants(i, j, &matrices, chain_len))
+                .map(|j| call_variants(i, j, &matrices, c.chain_len))
                 .collect()
         })
         .collect();
     (betas, lk)
 }
 
-pub fn get_lk(models: &[Vec<POA>], data: &[super::Read], c: &poa_hmm::Config, ws: &[f64]) -> f64 {
-    calc_matrices_poa(models, data, c, ws).1
+pub fn get_lk(
+    models: &[Vec<POA>],
+    data: &[super::Read],
+    c: &super::poa_clustering::ClusteringConfig,
+    ws: &[f64],
+) -> f64 {
+    calc_matrices_poa(models, data, ws, c).1
 }
 
 // Call varinants between cluster i and cluster j.

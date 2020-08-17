@@ -594,19 +594,14 @@ pub fn clustering_chunking<'a>(
             let cluster_num = label_map.len().max(cluster_num);
             let chain_len = (range.2 - range.1) as usize;
             let data: Vec<_> = pileup.iter().map(|e| e.seq.clone()).collect();
-            let predictions = poa_clustering::gibbs_sampling(
-                &data,
-                &labels,
-                None,
-                &forbs,
-                chain_len,
-                cluster_num,
-                limit,
-                c,
-                &poa_clustering::DEFAULT_ALN,
-                coverage,
-                idx as u64,
-            );
+            let id = idx as u64;
+            // Do not parallelize.
+            use poa_clustering::ClusteringConfig;
+            let config =
+                ClusteringConfig::new(chain_len, cluster_num, limit, coverage, id, false, c);
+            let alnparam = &poa_clustering::DEFAULT_ALN;
+            let predictions =
+                poa_clustering::gibbs_sampling(&data, &labels, None, &forbs, alnparam, config);
             pileup
                 .iter_mut()
                 .zip(predictions)
@@ -617,9 +612,7 @@ pub fn clustering_chunking<'a>(
             .iter()
             .filter_map(|r| r.desc.as_ref().map(|desc| (r.id.to_string(), desc)))
             .collect();
-        // !!!!!!!!!!!!!!!
         for (idx, pileup) in pileups.iter().enumerate() {
-            //.skip(10).take(4) {
             let mut entries: Vec<_> = pileup.iter().collect();
             entries.sort_by_key(|e| e.assignment);
             for entry in entries {

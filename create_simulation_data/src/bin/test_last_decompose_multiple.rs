@@ -92,19 +92,13 @@ fn benchmark(
     let coverage = data.iter().map(|r| r.len()).sum::<usize>() / chain_len;
     use rand::Rng;
     let id = rng.gen::<u64>() % 100;
-    let pred = gibbs_sampling(
-        &data,
-        &label,
-        Some(&answer),
-        &forbidden,
-        chain_len,
-        clusters,
-        LIMIT,
-        c,
-        &DEFAULT_ALN,
-        coverage,
-        id,
+    let config = last_decompose::poa_clustering::ClusteringConfig::new(
+        chain_len, clusters, LIMIT, coverage, id, true, c,
     );
+    let pred = {
+        let answer = Some(answer.as_slice());
+        gibbs_sampling(&data, &label, answer, &forbidden, &DEFAULT_ALN, config)
+    };
     debug!("Index1\tIndex2\tDist");
     let dists: Vec<Vec<_>> = (0..clusters)
         .map(|i| {

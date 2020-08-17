@@ -69,7 +69,8 @@ type AssembleResult = (
 );
 pub fn assemble_reads(reads: &[ChunkedRead], k: usize, thr: usize) -> AssembleResult {
     let mut reads = reads.to_vec();
-    correct_reads::correct_reads(&mut reads);
+    correct_reads::correct_reads(&mut reads, 2);
+    correct_reads::correct_reads(&mut reads, 2);
     // Determine SVs which are merged into the backgrounds.
     let backgrounds = major_component(&reads);
     debug!("backgrounds:{:?}", backgrounds);
