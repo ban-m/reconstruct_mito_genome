@@ -22,7 +22,7 @@ mmmm decompose \
      --cluster_num ${MIN_CLUSTER} --threads ${CORES} \
      --limit ${LIMIT}\
      -vv
-exit 0 ;
+
 mkdir -p ${OUTPUT}/no_merge
 mmmm decompose \
      --output ${OUTPUT}/no_merge \

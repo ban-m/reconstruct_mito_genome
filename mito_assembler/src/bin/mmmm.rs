@@ -324,7 +324,7 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
     let cl = cluster_num;
     debug!("Profiled Error Rates:{}", config);
     let results: HashMap<String, u8> = if !no_merge {
-        let settings = last_decompose::DecomposeConfig::new(5, 10);
+        let settings = last_decompose::DecomposeConfig::new(5, 15);
         let result = if matches.is_present("resume") {
             let chunked_reads: Vec<last_decompose::assemble::ChunkedRead> = matches
                 .value_of("resume")
@@ -332,7 +332,7 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
                 .and_then(|e| serde_json::de::from_reader(e).ok())
                 .unwrap();
             use last_decompose::*;
-            let (assignments, gfa, contigs) = assemble::assemble_reads(&chunked_reads, 5, 10);
+            let (assignments, gfa, contigs) = assemble::assemble_reads(&chunked_reads, 5, 15);
             DecomposedResult {
                 assignments,
                 gfa,

@@ -70,15 +70,27 @@ type AssembleResult = (
 pub fn assemble_reads(reads: &[ChunkedRead], k: usize, thr: usize) -> AssembleResult {
     let mut reads = reads.to_vec();
     correct_reads::correct_reads(&mut reads);
+    // Determine SVs which are merged into the backgrounds.
     let backgrounds = major_component(&reads);
     debug!("backgrounds:{:?}", backgrounds);
     let background_cluster = backgrounds.iter().min().cloned();
+    // Change labels and forbiddens.
+    // All the backgrouds SVs are merged into one cluster.
     reads
         .iter_mut()
         .filter(|read| read.label.is_some())
         .filter(|read| backgrounds.contains(&read.label.unwrap()))
         .for_each(|read| {
             read.label = background_cluster;
+        });
+    reads
+        .iter_mut()
+        .filter(|r| !r.forbidden.is_empty())
+        .for_each(|read| {
+            if read.forbidden.iter().any(|f| backgrounds.contains(f)) {
+                read.forbidden.retain(|f| !backgrounds.contains(f));
+                read.forbidden.push(background_cluster.unwrap());
+            }
         });
     {
         let count: Vec<_> = reads.iter().map(|n| n.nodes.len()).collect();
@@ -105,14 +117,61 @@ pub fn assemble_reads(reads: &[ChunkedRead], k: usize, thr: usize) -> AssembleRe
     let hist = histgram_viz::Histgram::new(&count);
     debug!("Hist of node occ:\n{}", hist.format(40, 20));
     let labels: Vec<Option<u8>> = reads.iter().map(|r| r.label).collect();
-    let label_map = dbg.expand_color(&reads, thr, &labels, background_cluster);
+    let forbs: Vec<&[u8]> = reads.iter().map(|r| r.forbidden.as_slice()).collect();
+    let label_map = dbg.expand_color(&reads, thr, &labels, &forbs, background_cluster);
+    debug!("Merged Cluster:{:?}", label_map);
     let background_cluster = background_cluster.map(|l| label_map.get(&l).copied().unwrap_or(l));
+    // Determine forbbidens labels on each components.
+    let forbiddens_on_each_cluster: HashMap<_, Vec<u8>> = {
+        let temp: HashMap<_, HashMap<_, u32>> = reads.iter().fold(HashMap::new(), |mut y, read| {
+            let cluster = match read.label {
+                Some(res) => Some(label_map.get(&res).cloned().unwrap_or(res)),
+                None => dbg
+                    .assign_read(read)
+                    .or_else(|| dbg.assign_read_by_unit(read))
+                    .map(|x| x as u8)
+                    .or(background_cluster),
+            };
+            if let Some(cluster) = cluster {
+                for &f in read.forbidden.iter() {
+                    *y.entry(cluster).or_default().entry(f).or_default() += 1;
+                }
+            }
+            y
+        });
+        temp.into_iter()
+            .map(|(cl, counts)| {
+                let forbidden: Vec<_> = counts.iter().filter(|x| x.1 > &50).map(|x| *x.0).collect();
+                (cl, forbidden)
+            })
+            .collect()
+    };
+    for (cl, forbs) in forbiddens_on_each_cluster.iter() {
+        debug!("Forbiddens on {}:{:?}", cl, forbs);
+    }
     let assignments: Vec<_> = reads
         .iter()
         .map(|r| {
+            let f = &forbiddens_on_each_cluster;
             let id = r.id.clone();
             let cluster = match r.label {
-                Some(res) => Some(label_map.get(&res).cloned().unwrap_or(res)),
+                //Some(res) => Some(*label_map.get(&res).unwrap_or(&res)),
+                Some(res) => match label_map.get(&res) {
+                    // Map labels into cluster on de Bruijn graph.
+                    Some(mapped) => {
+                        // If the `res` is not allowed to integrate
+                        // `mapped` cluster,
+                        // We return the original label.
+                        if f.contains_key(mapped) && f[mapped].contains(&res) {
+                            Some(res)
+                        } else {
+                            Some(*mapped)
+                        }
+                    }
+                    // If there's no corresponding component on the de Bruijn graph
+                    None => Some(res),
+                },
+                // We predict the label of the reads...
                 None => dbg
                     .assign_read(r)
                     .or_else(|| dbg.assign_read_by_unit(r))

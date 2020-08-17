@@ -316,9 +316,6 @@ where
     if cluster_num <= 1 || data.len() <= 2 {
         return vec![0; data.len()];
     }
-    // for read in data.iter() {
-    //     debug!("{}", read.len());
-    // }
     assert_eq!(f.len(), data.len());
     let per_cluster_coverage = coverage / cluster_num;
     let pick_prob = if per_cluster_coverage < 40 {
@@ -420,11 +417,10 @@ fn print_lk_gibbs<F>(
     }
 }
 
-fn gen_assignment<R: Rng>(not_allowed: &[u8], _occed: &[u8], rng: &mut R, c: usize) -> u8 {
+fn gen_assignment<R: Rng>(not_allowed: &[u8], rng: &mut R, c: usize) -> u8 {
     loop {
         let a = rng.gen_range(0, c) as u8;
         if !not_allowed.contains(&a) {
-            // && !occed.contains(&a) {
             break a;
         }
     }
@@ -449,18 +445,12 @@ where
     let param = (aln.ins, aln.del, &aln.score);
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(seed);
     let rng = &mut rng;
-    let occupied = {
-        let mut t = label.to_vec();
-        t.sort();
-        t.dedup();
-        t
-    };
     let mut assignments: Vec<_> = (0..data.len())
         .map(|idx| {
             if idx < label.len() {
                 label[idx]
             } else {
-                gen_assignment(&forbidden[idx], &occupied, rng, cluster_num)
+                gen_assignment(&forbidden[idx], rng, cluster_num)
             }
         })
         .collect();

@@ -6,9 +6,10 @@ OUTPUT=${PWD}/result/synthetic_data/
 coverage=50
 for err in 001 
 do
-    bash \
-        ./script/disassembly.sh \
-        ${DATA}/${coverage}_${err}/${coverage}_${err}_reference.fa \
-        ${DATA}/${coverage}_${err}/${coverage}_${err}_reads.fa \
-        ${OUTPUT}/test_${err}/ 2 2000 24 1> ./logfiles/50_001_2.log 2>&1 
+    mmmm decompose \
+         --output ${OUTPUT}/test/ \
+         --reads ${READ} --contigs ${REFERENCE} \
+         --cluster_num 1 --threads 12 \
+         --limit ${LIMIT}\
+         -vv
 done

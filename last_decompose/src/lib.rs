@@ -555,13 +555,10 @@ pub fn clustering_chunking<'a>(
         });
     });
     // Parallelize here to get most efficient algorithm.
-    // !!!!!!!!!!!!!!!
     pileups
         .par_iter_mut()
         .zip(windows.into_par_iter())
         .enumerate()
-        // .skip(10)
-        // .take(4)
         .for_each(|(idx, (pileup, range))| {
             let label_map = pileup.iter().fold(HashMap::new(), |mut res, entry| {
                 let next = res.len() as u8;
@@ -577,7 +574,6 @@ pub fn clustering_chunking<'a>(
                 .map(|cl| label_map[&cl])
                 .collect();
             let coverage = pileup.len();
-            debug!("{}-{:?}(L:{},C:{})", idx, range, labels.len(), coverage);
             let forbs: Vec<Vec<u8>> = pileup
                 .iter()
                 .map(|entry| {
@@ -589,6 +585,12 @@ pub fn clustering_chunking<'a>(
                         .collect()
                 })
                 .collect();
+            let label_len = labels.len();
+            let forb_len = forbs.iter().filter(|e| !e.is_empty()).count();
+            debug!(
+                "{}-{:?}(L:{},C:{},F:{})",
+                idx, range, label_len, coverage, forb_len
+            );
             let cluster_num = label_map.len().max(cluster_num);
             let chain_len = (range.2 - range.1) as usize;
             let data: Vec<_> = pileup.iter().map(|e| e.seq.clone()).collect();

@@ -34,14 +34,15 @@ dataset <- read_tsv("./result/posterior_probability/six_cluster_posterior.tsv",
     rename(LK1= X5, LK2=X6, LK3=X7, LK4=X8,LK5 = X9,LK6 = X10) %>%
     mutate(State = ifelse(State == "B", "BEFORE", "AFTER")) %>% 
     select(-ID, -ReadID)
-
+set.seed(1213)
 initial_state <- dataset %>% filter(State == "BEFORE") %>% select(-State, -Cluster)
 answer <- dataset %>% filter(State == "BEFORE") %>% pull(Cluster)
-result <- Rtsne(X=as.matrix(initial_state),pca=FALSE,theta=0,perplexity = 100,  normalize=TRUE,max_iter = 10000)
+result <- Rtsne(X=as.matrix(initial_state),pca=FALSE,theta=0,perplexity = 100, normalize=TRUE,max_iter = 10000)
 is_tsne <- tibble(tSNE1= result$Y[,1],tSNE2=result$Y[,2], answer = answer, State = "BEFORE")
+
 final_state <- dataset %>% filter(State == "AFTER") %>% select(-State, -Cluster)
 answer <- dataset %>% filter(State == "AFTER") %>% pull(Cluster)
-result <- Rtsne(X=as.matrix(final_state),pca=FALSE,theta=0, perplexity=100,normalize=TRUE, max_iter = 10000)
+result <- Rtsne(X=as.matrix(final_state),pca=FALSE,theta=0.2, perplexity=100,normalize=TRUE, max_iter = 10000)
 fs_tsne <- tibble(tSNE1= result$Y[,1],tSNE2=result$Y[,2], answer = answer, State= "AFTER")
 tsne_data <- bind_rows(is_tsne, fs_tsne) 
 
@@ -69,7 +70,6 @@ g <- accs %>%
 generalplot(g,paste0(outname,"_boxplot"))
 
 g <- accs %>% filter(X9 %in% c(80, 110, 140)) %>%
-    filter(acc > 0.7) %>% 
     ggplot() + geom_boxplot(mapping = aes(x = factor(X9), y = acc, color = factor(X11))) +
     labs(x = "Total Coverage", y = "Accuracy", color = "Number of Variants\nout of 9K bp") +
     coord_flip() + facet_grid(.~factor(X10))
