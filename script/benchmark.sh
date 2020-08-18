@@ -1,5 +1,6 @@
 #!/bin/bash
 set -ue
+threads=6
 for i in `seq 0 20 `
 do
     OUTPUT=${PWD}/benchmark/benchmark_${i}.txt
@@ -10,7 +11,7 @@ do
     seed=1213
     seed=$(( $seed * $i ))
     ${PWD}/target/release/test_last_decompose_multiple_varying_errorate \
-          ${seed} ${PROBS} > ${OUTPUT} \
+          ${seed} ${threads} ${PROBS} > ${OUTPUT} \
           2> ${OUTLOG_PREFIX}.log
 done
 
