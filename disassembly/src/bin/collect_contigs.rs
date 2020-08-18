@@ -12,7 +12,7 @@ fn main() -> std::io::Result<()> {
             let mut contig = std::path::PathBuf::new();
             contig.push(&args[1]);
             contig.push(&index);
-            contig.push("scaffolds.fasta");
+            contig.push("assembly.fasta");
             let index: usize = index.parse().ok()?;
             Some((index, contig))
         })
