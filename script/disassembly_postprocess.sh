@@ -9,49 +9,6 @@ CORES=$6
 ROOT=${PWD}
 PATH="${PWD}/target/release/:${PATH}"
 
-# ---- Clean up -----
-if [ -d ${OUTPUT} ]
-then
-    rm -r ${OUTPUT}
-fi
-
-# ----- Prediction ------
-mmmm decompose \
-     --output ${OUTPUT} \
-     --reads ${READ} --contigs ${REFERENCE} \
-     --cluster_num ${MIN_CLUSTER} --threads ${CORES} \
-     --limit ${LIMIT}\
-     -vv
-
-mkdir -p ${OUTPUT}/no_merge
-mmmm decompose \
-     --output ${OUTPUT}/no_merge \
-     --reads ${READ} --contigs ${REFERENCE} \
-     --threads ${CORES} \
-     --no_merge
-
-# ---- Assembly(by Flye) ----
-set +e
-mkdir -p ${OUTPUT}/assemblies/
-for reads in $( find ${OUTPUT} -maxdepth 1 -name "*.fasta" )
-do
-    echo "assembling ${reads}"
-    ASM_PATH=${reads%%.fasta}
-    INDEX=${ASM_PATH##*/}
-    mkdir -p ${OUTPUT}/assemblies/${INDEX}
-    genomesize=$(estimate_genome_size ${reads} ${REFERENCE} ${OUTPUT}/assemblies/${INDEX}/temp.fa)
-    flye \
-        --pacbio-raw \
-        ${OUTPUT}/assemblies/${INDEX}/temp.fa \
-	    --genome-size ${genomesize} \
-        --threads ${CORES} \
-        --iterations 10 \
-        --out-dir ${OUTPUT}/assemblies/${INDEX}
-    rm ${OUTPUT}/assemblies/${INDEX}/temp.fa
-done
-
-set -ue
-# ---- Align back all reads ----
 mkdir -p ${OUTPUT}/last_db
 collect_contigs ${OUTPUT}/assemblies/ ${OUTPUT}
 for contigs in  $( find ${OUTPUT} -maxdepth 1 -name "*contigs.fasta" )
