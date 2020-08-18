@@ -113,7 +113,7 @@ pub fn assemble_reads(reads: &[ChunkedRead], k: usize, thr: usize) -> AssembleRe
         let hist = histgram_viz::Histgram::new(&counts);
         debug!("Node occ:\n{}", hist.format(40, 20));
     }
-    dbg.clean_up_auto();
+    dbg.clean_up_auto(thr);
     let count: Vec<_> = dbg.nodes.iter().map(|n| n.occ as usize).collect();
     let hist = histgram_viz::Histgram::new(&count);
     debug!("Hist of node occ:\n{}", hist.format(40, 20));
