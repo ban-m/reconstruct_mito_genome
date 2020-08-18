@@ -454,6 +454,7 @@ where
             if idx < label.len() {
                 label[idx]
             } else {
+                debug!("{:?}", forbidden[idx]);
                 gen_assignment(&forbidden[idx], rng, config.cluster_num)
             }
         })

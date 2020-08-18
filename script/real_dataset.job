@@ -5,12 +5,12 @@ REFERENCE=${PWD}/data/NC_037304_1.fa
 READ_DIR=${PWD}/data/filtered_reads/
 ROOT=${PWD}
 mkdir -p logfiles
-for accession in pacbio an1 c24 cvi eri kyo ler sha col0_1106_exp2 
+for accession in eri pacbio an1 c24 cvi eri kyo ler sha col0_1106_exp2 
 do
-    qsub -o ./logfiles/${accession}.log -j y -S /bin/bash -cwd -pe smp 23 -V \
+    qsub -o ./logfiles/${accession}_2.log -j y -S /bin/bash -cwd -pe smp 23 -V \
          ./script/disassembly.sh\
          ${REFERENCE} \
          ${READ_DIR}/${accession}.fasta\
-         ${PWD}/result/${accession}\
+         ${PWD}/result/${accession}_2\
          3 3000 23
 done

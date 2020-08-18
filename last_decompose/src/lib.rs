@@ -591,7 +591,7 @@ pub fn clustering_chunking<'a>(
                 "{}-{:?}(L:{},C:{},F:{})",
                 idx, range, label_len, coverage, forb_len
             );
-            let cluster_num = label_map.len().max(cluster_num);
+            let cluster_num = label_map.len().max(cluster_num - 1) + 1;
             let chain_len = (range.2 - range.1) as usize;
             let data: Vec<_> = pileup.iter().map(|e| e.seq.clone()).collect();
             let id = idx as u64;
