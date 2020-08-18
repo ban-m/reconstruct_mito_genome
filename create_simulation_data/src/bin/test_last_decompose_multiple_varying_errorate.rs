@@ -6,7 +6,7 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
-const LIMIT: u64 = 3600 * 4;
+const LIMIT: u64 = 3600;
 fn main() {
     env_logger::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let args: Vec<_> = std::env::args().collect();

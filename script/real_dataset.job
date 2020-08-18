@@ -12,5 +12,5 @@ do
          ${REFERENCE} \
          ${READ_DIR}/${accession}.fasta\
          ${PWD}/result/${accession}\
-         3 5000 23
+         3 3000 23
 done

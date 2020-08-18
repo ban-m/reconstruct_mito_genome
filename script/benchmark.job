@@ -2,7 +2,7 @@
 #$ -S /bin/bash
 #$ -N DecError
 #$ -cwd
-#$ -pe smp 18
+#$ -pe smp 11
 #$ -e ./logfiles/last_decompose_poa.log
 #$ -o ./logfiles/last_decompose_poa.log
 #$ -V
@@ -16,7 +16,7 @@ mkdir -p ${PWD}/result/benchmark
 COVERAGE=0
 PROBS="0.5 0.5"
 seed=1213
-threads=18
+threads=11
 seed=$(( $seed * $SGE_TASK_ID ))
 RUST_LOG=debug ${PWD}/target/release/test_last_decompose_multiple_varying_errorate \
         ${seed} ${threads} ${PROBS} > ${OUTPUT} \
