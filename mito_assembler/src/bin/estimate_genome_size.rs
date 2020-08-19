@@ -5,7 +5,7 @@ fn main() -> std::io::Result<()> {
     let args: Vec<_> = std::env::args().collect();
     let reads = bio_utils::fasta::parse_into_vec(&args[1])?;
     let reference = last_tiling::Contigs::from_file(&args[2])?;
-    let alignment = mito_assembler::last_alignment_train(&args[1], &args[2], 12).unwrap();
+    let alignment = mito_assembler::last_alignment_train(&args[1], &args[2], 6).unwrap();
     let encoded_reads = last_tiling::encoding(&reads, &reference, &alignment);
     let unique_units = {
         let mut units: HashMap<_, usize> = HashMap::new();

@@ -60,18 +60,5 @@ fn main() -> std::io::Result<()> {
             .fold(acc, |acc, (x, _)| acc.intersection(x).cloned().collect())
     };
     println!("Intersection:{}", intersection.len());
-    // for read in reads {
-    //     if intersection.contains(read.name()) {
-    //         let units: Vec<_> = read
-    //             .units()
-    //             .iter()
-    //             .map(|u| match u {
-    //                 Unit::E(x, y) => format!("{}:{}-", x, y),
-    //                 Unit::G(x) => format!("{}-", x),
-    //             })
-    //             .collect();
-    //         println!("{}:{}\n", read.name(), units.join(""));
-    //     }
-    // }
     Ok(())
 }
