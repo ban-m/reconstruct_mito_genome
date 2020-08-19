@@ -1,6 +1,6 @@
 #!/bin/bash
 ROOT=https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly
-for accession in pacbio ler col0_1106_exp2 cvi an1 c24 kyoto sha eri
+for accession in pacbio ler col0_1106_exp2 cvi an1 c24 kyo sha eri
 do
     reads=${ROOT}/filtered_reads/${accession}.fasta
     result=${ROOT}/${accession}.tar.gz
