@@ -1,11 +1,10 @@
 #!/bin/bash
 set -ue
-
 REFERENCE=${PWD}/data/NC_037304_1.fa
 READ_DIR=${PWD}/data/filtered_reads/
 ROOT=${PWD}
 mkdir -p logfiles
-for accession in eri pacbio an1 c24 cvi eri kyo ler sha col0_1106_exp2 
+for accession in col0_1106_exp2  # eri pacbio an1 c24 cvi eri kyo ler sha 
 do
     qsub -o ./logfiles/${accession}.log -j y -S /bin/bash -cwd -pe smp 23 -V \
          ./script/disassembly.sh\
@@ -14,3 +13,4 @@ do
          ${PWD}/result/${accession}\
          3 2500 23
 done
+

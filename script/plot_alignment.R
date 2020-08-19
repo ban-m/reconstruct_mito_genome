@@ -2,10 +2,10 @@ loadNamespace("cowplot")
 library(tidyverse)
 ## ==== Setting for publishing figure ====== 
 generalplot <- function(g,name){
-    cowplot::ggsave(filename = paste0("./pics/",name,".pdf"),
+    cowplot::ggsave(filename = paste0("./pdf/",name,".pdf"),
                     plot = g + cowplot::theme_cowplot(font_size=12),
                     dpi=350,width = 178,height = 86,units="mm")
-    cowplot::ggsave(filename = paste0("./pics/",name,".png"),
+    cowplot::ggsave(filename = paste0("./png/",name,".png"),
                     plot = g + cowplot::theme_cowplot(font_size=12),
                     dpi = 350,width = 178,height = 86,units="mm")
 }

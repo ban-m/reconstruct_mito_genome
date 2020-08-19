@@ -1,6 +1,5 @@
 #!/bin/bash
 set -ue
-
 REFERENCE=${PWD}/data/NC_037304_1.fa
 READ_DIR=${PWD}/data/filtered_reads/
 ROOT=${PWD}
@@ -11,5 +10,5 @@ do
          ${REFERENCE} \
          ${READ_DIR}/${accession}.fasta\
          ${PWD}/result/${accession}\
-         3 5000 ${CORES}
+         3 2500 ${CORES} 2> ${PWD}/result/${accession}.log
 done

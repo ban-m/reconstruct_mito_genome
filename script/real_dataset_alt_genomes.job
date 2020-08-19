@@ -1,0 +1,24 @@
+#!/bin/bash
+# **Before exec this command, please download JF729202 and JF729200 from GenBank into ${PWD}/data/**
+set -ue
+REFERENCE=${PWD}/data/JF729202.fasta
+ROOT=${PWD}
+READ_DIR=${PWD}/data/filtered_reads/
+qsub -o ./logfiles/pacbio_ler.log -j y ./script/disassembly.job\
+     ${REFERENCE} \
+     ${READ_DIR}/pacbio.fasta\
+     ${PWD}/result/pacbio_ler\
+     3 2500 23
+
+qsub -o ./logfiles/ler_ler.log -j y ./script/disassembly.job \
+     ${REFERENCE}\
+     ${READ_DIR}/ler.fasta \
+     ${PWD}/result/ler_ler/ \
+     3 2500 23
+
+REFERENCE=${PWD}/data/JF729200.fasta
+qsub -o ./logfiles/c24_c24.log -j y ./script/disassembly.job \
+     ${REFERENCE}\
+     ${READ_DIR}/c24.fasta \
+     ${PWD}/result/c24_c24/ \
+     3 2500 23
