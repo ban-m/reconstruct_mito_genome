@@ -7,5 +7,5 @@ do
     circos=${ROOT}/viewer/${accession}/circos.html
     linear=${ROOT}/viewer/${accession}/linear.html
     no_merge=${ROOT}/viewer/${accession}/no_merge.html
-    echo -e "|${accession}|[Reads](${reads})|[Result](${result})|[Circos](${circos})|[Liner](${linear})|[NoMerge](${no_merge})|"
+    echo -e "|${accession}|<a href = ${reads} download>Reads</a>|<a href = ${result} download>Result</a>|[Circos](${circos})|[Liner](${linear})|[NoMerge](${no_merge})|"
 done
