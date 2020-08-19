@@ -126,7 +126,9 @@ cargo check && cargo build && cargo build --release
 Then, `target/release/mmmm --help` would print help messages to `stderr`.
 
 Basic usage would be
-```mmmm decompose --output ${OUTPUT} \
+
+```
+mmmm decompose --output ${OUTPUT} \
     --reads ${READ} --contigs ${REFERENCE} \
     --cluster_num ${MIN_CLUSTER} --threads ${CORES}
 ```
