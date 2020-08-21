@@ -98,7 +98,6 @@ bash ${PWD}/donwloads_files.sh
 
 Please type `ll -ht ${PWD}/data/filtered_reads` to confirm that all the dataset are properly donwloaded; `md5sum` values are as follows:
 
-- 35ce43718fc0832f55f691424f337d69  NC_037304_1.fa
 - e040ac3f8b047b7e84d38cb70faf8ecc  an1.fasta
 - 7b4b5f70ba29891a09a83786db5d8ad9  c24.fasta
 - 00157130264b868bf35dd10828749a3d  col0_1106_exp2.fasta
