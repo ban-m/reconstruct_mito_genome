@@ -93,12 +93,21 @@ would create all the result used in the paper. Note that each script would take 
 
 First, download the dataset and the reference genome.
 ```bash
-mkdir -p ${PWD}/data/filtered_reads/
-cd ${PWD}/data/filtered_reads/
-wget https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/filtered_reads/*
-wget wget http://togows.dbcls.jp/entry/nucleotide/NC_037304.1.fasta
-cd ../../
+bash ${PWD}/donwloads_files.sh
 ```
+
+Please type `ll -ht ${PWD}/data/filtered_reads` to confirm that all the dataset are properly donwloaded; `md5sum` values are as follows:
+
+- 35ce43718fc0832f55f691424f337d69  NC_037304_1.fa
+- e040ac3f8b047b7e84d38cb70faf8ecc  an1.fasta
+- 7b4b5f70ba29891a09a83786db5d8ad9  c24.fasta
+- 00157130264b868bf35dd10828749a3d  col0_1106_exp2.fasta
+- 893394f4ef02fe4737fb26b7896ea98f  cvi.fasta
+- 26646b904a44bd564c84ccf5bcc6c7e9  eri.fasta
+- 072427917074882e4ad9dbc4b03ad87d  kyo.fasta
+- 67b2f656d2eaa91126f36b6b111a665f  ler.fasta
+- 4a92ad3d6fe66732e2fcba4d76488b53  pacbio.fasta
+- 69a0007d689ba6a797c0e975a0eb8092  sha.fasta
 
 Then, run the pipeline on each dataset. Here, ${threads} is the number of threads to be used. We used ${threads}=24.
 
