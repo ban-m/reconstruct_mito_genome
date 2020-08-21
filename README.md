@@ -91,17 +91,17 @@ would create all the result used in the paper. Note that each script would take 
 
 ### Real dataset
 
-First, download the dataset.
+First, download the dataset and the reference genome.
 ```bash
 mkdir -p ${PWD}/data/filtered_reads/
 cd ${PWD}/data/filtered_reads/
 wget https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/filtered_reads/*
+wget wget http://togows.dbcls.jp/entry/nucleotide/NC_037304.1.fasta
 cd ../../
 ```
 
-*Also, download `NC_037304_1.fa` from GenBank to ${PWD}/data/NC_037304_1.fa.
+Then, run the pipeline on each dataset. Here, ${threads} is the number of threads to be used. We used ${threads}=24.
 
-Then, run the pipeline on each dataset.
 ```bash
 bash ./script/real_dataset.sh ${threads}
 ```
