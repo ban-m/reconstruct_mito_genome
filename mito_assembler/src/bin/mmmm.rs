@@ -118,24 +118,6 @@ fn subcommand_decompose() -> App<'static, 'static> {
                 .help("Reference<FASTA>")
                 .takes_value(true),
         )
-        // .arg(
-        //     Arg::with_name("alignments")
-        //         .required(true)
-        //         .short("a")
-        //         .long("alignments")
-        //         .value_name("ALIGNMENTS")
-        //         .help("Alignments between reads and the reference<LAST TAB>")
-        //         .takes_value(true),
-        // )
-        // .arg(
-        //     Arg::with_name("selfalignments")
-        //         .required(true)
-        //         .short("s")
-        //         .long("self_alignments")
-        //         .value_name("SELF-ALIGNMENTS")
-        //         .help("Self-vs-Self alignemnts of the reference<LAST TAB>")
-        //         .takes_value(true),
-        // )
         .arg(
             Arg::with_name("outdir")
                 .short("o")
@@ -230,24 +212,10 @@ fn decompose(matches: &clap::ArgMatches) -> std::io::Result<()> {
         let refr = matches.value_of("reference").unwrap();
         mito_assembler::last_alignment_train(&reads, &refr, threads).unwrap()
     };
-    // let alignments = matches
-    //     .value_of("alignments")
-    //     .map(|file| match last_tiling::parse_tab_file(file) {
-    //         Ok(res) => res,
-    //         Err(why) => panic!("{}:{}", why, file),
-    //     })
-    //     .unwrap();
     let self_aln = {
         let refr = matches.value_of("reference").unwrap();
         mito_assembler::last_alignment(&refr, &refr, threads).unwrap()
     };
-    // matches
-    // .value_of("selfalignments")
-    // .map(|file| match last_tiling::parse_tab_file(file) {
-    //     Ok(res) => res,
-    //     Err(why) => panic!("{}:{}", why, file),
-    // })
-    // .unwrap();
     let output_dir = matches
         .value_of("outdir")
         .expect("please specify output directry.");

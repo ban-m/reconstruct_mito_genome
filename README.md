@@ -4,15 +4,15 @@
 
 ## Short Description
 
-
-
 This repository is for my research on plant mitochondrial genomes, which I call "mitogenome" in this README.md. Shortly and roughly speaking, mitogenomes of plants are different from those of animals or fungus. For example, 
 
 - The sizes are much larger.
 - Genomes contain some repetitive regions, and
 -  (repeat-)mediated recombinations create divergent structures called "multipartite structure"s.
 
-I'm trying to reconstruct these multipartite structures in the plant mitogenomes. In contrast to usual assembly workflows, I'd call my approach as "dis-"assembly, as I leverage existing reference genomes and "find" other structures by clustering.
+I'm trying to reconstruct these multipartite structures in the plant mitogenomes. In contrast to usual assembly workflows, I'm currently developping another way to assemble each structure; clustering.
+
+Although it partly solves the problem of mitogenome reconstruction, it does depend on a 'good' reference genome. I'm working on [this repository](https://github.com/ban-m/hla_haplotyper) to adress this issue.
 
 
 
