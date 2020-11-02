@@ -10,5 +10,5 @@ do
          ${REFERENCE} \
          ${READ_DIR}/${accession}.fasta\
          ${PWD}/result/${accession}\
-         3 2500 ${CORES} 2> ${PWD}/result/${accession}.log
+         3 500 ${CORES} 2> ${PWD}/result/${accession}.log
 done

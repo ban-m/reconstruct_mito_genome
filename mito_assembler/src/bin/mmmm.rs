@@ -159,8 +159,8 @@ fn subcommand_decompose() -> App<'static, 'static> {
                 .long("limit")
                 .required(false)
                 .value_name("LIMIT")
-                .help("Maximum Execution time(sec)")
-                .default_value(&"72000")
+                .help("Maximum iteration at each section")
+                .default_value(&"1000")
                 .takes_value(true),
         )
         .arg(

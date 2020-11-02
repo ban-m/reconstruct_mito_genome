@@ -463,14 +463,16 @@ where
     let mut count = 0;
     let mut predictions = std::collections::VecDeque::new();
     let asn = &mut assignments;
-    let start = std::time::Instant::now();
+    //let start = std::time::Instant::now();
     let mut lk = std::f64::NEG_INFINITY;
     if log_enabled!(log::Level::Trace) {
         if let Some(answer) = answer {
             print_lk_gibbs(asn, &data, (label, answer), "B", param, config);
         }
     }
+    let mut iter_num = 0;
     while count < STABLE_LIMIT {
+        iter_num += 1;
         let (variants, next_lk) = get_variants(&data, asn, rng, config, param);
         let (variants, pos) = select_variants(variants, config.chain_len);
         let betas = normalize_weights(&variants, 2.);
@@ -504,9 +506,10 @@ where
             predictions.pop_front();
         }
         report_gibbs(asn, changed_num, count, config);
-        let elapsed = (std::time::Instant::now() - start).as_secs();
-        if elapsed > config.limit && count < STABLE_LIMIT / 2 {
-            debug!("{}\tBreak", config.id);
+        // let elapsed = (std::time::Instant::now() - start).as_secs();
+        // if elapsed > config.limit && count < STABLE_LIMIT / 2 {
+        if iter_num > config.limit {
+            debug!("BREAK\t{}\t{}\tLIMIT", config.id, iter_num);
             return Err(predictions.pop_back().unwrap());
         }
     }
@@ -515,6 +518,7 @@ where
             print_lk_gibbs(asn, &data, (label, answer), "A", param, config);
         }
     }
+    debug!("BREAK\t{}\t{}\tSUCCESS", config.id, iter_num);
     Ok(predictions.pop_back().unwrap())
 }
 

@@ -1,11 +1,31 @@
 #!/bin/bash
-ROOT=https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly
-for accession in pacbio ler col0_1106_exp2 cvi an1 c24 kyo sha eri
+set -ue
+LEN=500000
+OUTPUT=${PWD}/data/test/
+for coverage in 150
 do
-    reads=${ROOT}/filtered_reads/${accession}.fasta
-    result=${ROOT}/${accession}.tar.gz
-    circos=${ROOT}/viewer/${accession}/circos.html
-    linear=${ROOT}/viewer/${accession}/linear.html
-    no_merge=${ROOT}/viewer/${accession}/no_merge.html
-    echo -e "|${accession}|<a href = ${reads} download>Reads</a>|<a href = ${result} download>Result</a>|[Circos](${circos})|[Liner](${linear})|[NoMerge](${no_merge})|"
+    mkdir -p ${OUTPUT}/${coverage}_001
+    cargo run --release --bin create_mock_genomes -- ${LEN} 0.001 2 13223 \
+          ${OUTPUT}/${coverage}_001/${coverage}_001
+    badread simulate \
+            --reference ${OUTPUT}/${coverage}_001/${coverage}_001_contigs.fa \
+            --quantity ${coverage}x --error_model pacbio \
+            --seed 10\
+            --qscore_model pacbio --identity 90,95,3 \
+            --junk_reads 0 --random_reads 0 --chimeras 0 \
+            --length 15000,5000 > ${OUTPUT}/${coverage}_001/${coverage}_001_reads.fq
+    cat ${OUTPUT}/${coverage}_001/${coverage}_001_reads.fq |\
+        paste - - - - | cut -f 1,2 |\
+        sed -e 's/@/>/g' | tr '\t' '\n' \
+                              > ${OUTPUT}/${coverage}_001/${coverage}_001_reads.fa
 done
+
+DATA=${OUTPUT}
+OUTPUT=${PWD}/result/test/
+coverage=150
+qsub -o ./logfiles/test_${coverage}_001.log -j y -S /bin/bash -cwd -pe smp 23 -V \
+     ./script/disassembly.sh \
+     ${DATA}/${coverage}_001/${coverage}_001_reference.fa \
+     ${DATA}/${coverage}_001/${coverage}_001_reads.fa \
+     ${OUTPUT}/${coverage}_001/ 2 3000 23
+
