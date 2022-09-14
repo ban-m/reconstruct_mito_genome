@@ -67,7 +67,7 @@ fn main() -> std::io::Result<()> {
                 _ => panic!(),
             })
             .collect::<Vec<_>>()
-    };
+    }
     let sv_2 = seq_b.clone();
     let sv_2 = gen_sample::introduce_randomness(&sv_2, &mut rng, p);
     let sv_2 = Record::with_data(

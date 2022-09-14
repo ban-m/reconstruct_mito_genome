@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::io::{BufWriter, Write};
 use std::sync::{Arc, Mutex};
 fn main() -> std::io::Result<()> {
-    env_logger::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     let args: Vec<_> = std::env::args().collect();
     let mismatch_prob: f64 = args[2].parse().unwrap();
     let maf: Vec<_> = bio_utils::maf::Reader::from_file(&args[1])?
@@ -247,6 +247,7 @@ impl Aln {
 
 #[derive(Debug, Clone)]
 struct Ins {
+    #[allow(dead_code)]
     start: usize,
     seq: Vec<(usize, u8)>,
 }
@@ -286,6 +287,7 @@ impl Ins {
 
 #[derive(Debug, Clone)]
 struct Del {
+    #[allow(dead_code)]
     start: usize,
     seq: Vec<(usize, u8)>,
 }

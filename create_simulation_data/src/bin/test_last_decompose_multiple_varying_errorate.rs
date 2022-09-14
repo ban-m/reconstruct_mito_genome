@@ -8,7 +8,7 @@ use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
 const LIMIT: u64 = 3600;
 fn main() {
-    env_logger::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let args: Vec<_> = std::env::args().collect();
     let (probs, clusters, seed, threads) = {
         let seed = args[1].parse::<u64>().unwrap();
@@ -104,8 +104,8 @@ fn benchmark(
     let divs = {
         let mut pos = vec![vec![0; chain_len]; clusters];
         for _ in 0..div {
-            let c = rng.gen_range(0, clusters);
-            let p = rng.gen_range(0, chain_len);
+            let c = rng.gen_range(0..clusters);
+            let p = rng.gen_range(0..chain_len);
             pos[c][p] += 1;
         }
         pos
@@ -122,7 +122,7 @@ fn benchmark(
                 .map(|(seq, e)| {
                     let (mut sub, mut ins, mut del) = (0, 0, 0);
                     for _ in 0..e {
-                        match rng.gen_range(0, 3) {
+                        match rng.gen_range(0..3) {
                             0 => sub += 1,
                             1 => ins += 1,
                             2 => del += 1,

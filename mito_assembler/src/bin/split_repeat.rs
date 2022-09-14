@@ -8,7 +8,7 @@ const THR: usize = 1_000;
 use std::collections::HashMap;
 fn main() -> std::io::Result<()> {
     use env_logger::Env;
-    env_logger::from_env(Env::default().default_filter_or("debug")).init();
+    env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
     let args: Vec<_> = std::env::args().collect();
     let contigs: Vec<_> = fasta::parse_into_vec(&args[1])?;
     let mut alns = {

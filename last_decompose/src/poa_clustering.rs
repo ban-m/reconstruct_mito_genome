@@ -428,7 +428,7 @@ fn print_lk_gibbs<F>(
 
 fn gen_assignment<R: Rng>(not_allowed: &[u8], rng: &mut R, c: usize) -> u8 {
     loop {
-        let a = rng.gen_range(0, c) as u8;
+        let a = rng.gen_range(0..c) as u8;
         if !not_allowed.contains(&a) {
             break a;
         }

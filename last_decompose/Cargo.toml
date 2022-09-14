@@ -10,7 +10,7 @@ edition = "2018"
 bio_utils = {path = "../bio_utils"}
 last_tiling = {path = "../last_tiling"}
 poa_hmm = {path = "../poa_hmm"}
-rand = "0.7.2"
+rand = "0.8.5"
 log = "*"
 env_logger = "*"
 serde = "*"

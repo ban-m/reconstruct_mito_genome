@@ -12,7 +12,7 @@ use clap::{App, Arg, SubCommand};
 use mito_assembler::dump_viewer;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, BufWriter, Write};
-fn subcommand_create_viewer() -> App<'static, 'static> {
+fn subcommand_create_viewer() -> App<'static> {
     SubCommand::with_name("create_viewer")
         .version("0.1")
         .author("Bansho Masutani")
@@ -20,7 +20,7 @@ fn subcommand_create_viewer() -> App<'static, 'static> {
         .arg(
             Arg::with_name("reads")
                 .required(true)
-                .short("r")
+                .short('r')
                 .long("reads")
                 .value_name("READS")
                 .help("Raw long reads<FASTA>")
@@ -29,7 +29,7 @@ fn subcommand_create_viewer() -> App<'static, 'static> {
         .arg(
             Arg::with_name("contigs")
                 .required(true)
-                .short("c")
+                .short('c')
                 .long("contigs")
                 .value_name("CONTIGS")
                 .help("Assembled contigs<FASTA>")
@@ -38,7 +38,7 @@ fn subcommand_create_viewer() -> App<'static, 'static> {
         .arg(
             Arg::with_name("reference")
                 .required(true)
-                .short("f")
+                .short('f')
                 .long("reference")
                 .value_name("REFERENCE")
                 .help("The original reference<FASTA>")
@@ -47,7 +47,7 @@ fn subcommand_create_viewer() -> App<'static, 'static> {
         .arg(
             Arg::with_name("read_alignments")
                 .required(true)
-                .short("a")
+                .short('a')
                 .long("read_aln")
                 .value_name("ALIGNMENT(Read->C)")
                 .help("Alignment from reads to contigs<LastTAB>")
@@ -56,7 +56,7 @@ fn subcommand_create_viewer() -> App<'static, 'static> {
         .arg(
             Arg::with_name("contig_alignments")
                 .required(true)
-                .short("l")
+                .short('l')
                 .long("contig_aln")
                 .value_name("ALIGNMENT(C->Ref)")
                 .help("Alignments from contigs to the reference<LastTAB>")
@@ -65,7 +65,7 @@ fn subcommand_create_viewer() -> App<'static, 'static> {
         .arg(
             Arg::with_name("output_dir")
                 .required(true)
-                .short("o")
+                .short('o')
                 .long("output_dir")
                 .value_name("OUT DIR")
                 .help("Output directry.")
@@ -74,7 +74,7 @@ fn subcommand_create_viewer() -> App<'static, 'static> {
         .arg(
             Arg::with_name("assignments")
                 .required(true)
-                .short("t")
+                .short('t')
                 .long("assignments")
                 .value_name("ASSIGNMENTS")
                 .help("Assignmnet of each read<TSV>")
@@ -90,20 +90,20 @@ fn subcommand_create_viewer() -> App<'static, 'static> {
         )
         .arg(
             Arg::with_name("verbose")
-                .short("v")
+                .short('v')
                 .multiple(true)
                 .help("Output debug to the standard error."),
         )
 }
 
-fn subcommand_decompose() -> App<'static, 'static> {
+fn subcommand_decompose() -> App<'static> {
     SubCommand::with_name("decompose")
         .version("0.1")
         .about("To Decompose long reads")
         .arg(
             Arg::with_name("reads")
                 .required(true)
-                .short("r")
+                .short('r')
                 .long("reads")
                 .value_name("READS")
                 .help("Raw long reads<FASTA>")
@@ -112,7 +112,7 @@ fn subcommand_decompose() -> App<'static, 'static> {
         .arg(
             Arg::with_name("reference")
                 .required(true)
-                .short("c")
+                .short('c')
                 .long("contigs")
                 .value_name("CONTIGS")
                 .help("Reference<FASTA>")
@@ -120,7 +120,7 @@ fn subcommand_decompose() -> App<'static, 'static> {
         )
         .arg(
             Arg::with_name("outdir")
-                .short("o")
+                .short('o')
                 .long("output")
                 .required(true)
                 .value_name("OUTPUT_DIRECTORY")
@@ -129,7 +129,7 @@ fn subcommand_decompose() -> App<'static, 'static> {
         )
         .arg(
             Arg::with_name("cluster_num")
-                .short("c")
+                .short('c')
                 .long("cluster_num")
                 .required(false)
                 .value_name("CLUSTER_NUM")
@@ -139,7 +139,7 @@ fn subcommand_decompose() -> App<'static, 'static> {
         )
         .arg(
             Arg::with_name("threads")
-                .short("t")
+                .short('t')
                 .long("threads")
                 .required(false)
                 .value_name("THREADS")
@@ -149,13 +149,13 @@ fn subcommand_decompose() -> App<'static, 'static> {
         )
         .arg(
             Arg::with_name("verbose")
-                .short("v")
+                .short('v')
                 .multiple(true)
                 .help("Output debug to the standard error."),
         )
         .arg(
             Arg::with_name("limit")
-                .short("l")
+                .short('l')
                 .long("limit")
                 .required(false)
                 .value_name("LIMIT")
@@ -496,8 +496,8 @@ fn main() -> std::io::Result<()> {
         .subcommand(subcommand_create_viewer())
         .get_matches();
     match matches.subcommand() {
-        ("decompose", Some(sub_m)) => decompose(sub_m),
-        ("create_viewer", Some(sub_m)) => create_viewer(sub_m),
+        Some(("decompose", sub_m)) => decompose(sub_m),
+        Some(("create_viewer", sub_m)) => create_viewer(sub_m),
         _ => Ok(()),
     }
 }

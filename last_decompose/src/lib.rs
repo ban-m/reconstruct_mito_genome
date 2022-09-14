@@ -183,7 +183,7 @@ pub fn clustering_via_alignment(
     let mut rng: Xoshiro256StarStar = SeedableRng::seed_from_u64(reads.len() as u64);
     let mut predictions: Vec<_> = reads
         .iter()
-        .map(|_| rng.gen_range(0, cluster_num))
+        .map(|_| rng.gen_range(0..cluster_num))
         .map(|e| e as u8)
         .collect();
     for (idx, &l) in label.iter().enumerate() {

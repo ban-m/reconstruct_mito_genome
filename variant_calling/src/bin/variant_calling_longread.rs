@@ -15,7 +15,7 @@ fn main() -> std::io::Result<()> {
         .arg(
             Arg::with_name("reads")
                 .required(true)
-                .short("r")
+                .short('r')
                 .long("reads")
                 .value_name("READS")
                 .help("Raw long reads<FASTA>")
@@ -24,7 +24,7 @@ fn main() -> std::io::Result<()> {
         .arg(
             Arg::with_name("reference")
                 .required(true)
-                .short("l")
+                .short('l')
                 .long("reference")
                 .value_name("REFERENCE")
                 .help("Reference sequence<FASTA>")
@@ -33,7 +33,7 @@ fn main() -> std::io::Result<()> {
         .arg(
             Arg::with_name("alignments")
                 .required(true)
-                .short("b")
+                .short('b')
                 .long("bam")
                 .value_name("BAM")
                 .help("alignments file<BAM>")
@@ -41,13 +41,13 @@ fn main() -> std::io::Result<()> {
         )
         .arg(
             Arg::with_name("all")
-                .short("a")
+                .short('a')
                 .long("all")
                 .help("Dump all locations on the reference."),
         )
         .arg(
             Arg::with_name("freq_thr")
-                .short("f")
+                .short('f')
                 .long("freq_thr")
                 .takes_value(true)
                 .default_value(&"0.7")
@@ -55,7 +55,7 @@ fn main() -> std::io::Result<()> {
         )
         .arg(
             Arg::with_name("depth")
-                .short("d")
+                .short('d')
                 .long("depth")
                 .takes_value(true)
                 .default_value(&"30")
@@ -63,21 +63,21 @@ fn main() -> std::io::Result<()> {
         )
         .arg(
             Arg::with_name("gff")
-                .short("g")
+                .short('g')
                 .long("gff")
                 .takes_value(true)
                 .help("GFF file to add genes containing variants in the output.)"),
         )
         .arg(
             Arg::with_name("gff_convert")
-                .short("n")
+                .short('n')
                 .long("name")
                 .takes_value(true)
                 .help("A tab-delimited file containig <Fasta ID>-><GFF ID>"),
         )
         .arg(
             Arg::with_name("verbose")
-                .short("v")
+                .short('v')
                 .multiple(true)
                 .help("Output debug to the standard error."),
         )
