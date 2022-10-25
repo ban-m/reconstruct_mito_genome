@@ -55,7 +55,7 @@ We re-assembled these datasets by [JTK](https://github.com/ban-m/jtk), and put t
 
 The dotplots between these strains as follows:
 
-<img width="800" alt="dotplots between assemblies" src="https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/dotplots.png">
+<img width="400" alt="dotplots between assemblies" src="https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/dotplots.png">
 
 
 
