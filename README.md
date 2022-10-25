@@ -37,6 +37,28 @@ The Gen Bank IDs of the reference sequences used in this research are BK010421.1
 
 WGS reads were filtered to enrich reads from mitochondrial genome. Specifically, we run the following command:`bash ./script/filter_reads ${WGS} ${BK010421.1} > ${FILTERED}`.
 
+## Results (Ver 2022)
+
+We re-assembled these datasets by [JTK](https://github.com/ban-m/jtk), and put the results here.
+
+|Strain Name | Master circle (FASTA) | Master circle (GFA) | Alignments (SAM) |
+|:----------:|:---------------------:|:-------------------:|:----------------:|
+| c24 | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/c24.fa download> FASTA </a>|<a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/c24.gfa download> GFA </a> | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/c24.sam download> SAM </a>|
+| pacbio | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/pacbio.fa download> FASTA </a>|<a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/pacbio.gfa download> GFA </a> | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/pacbio.sam download> SAM </a>|
+| sha | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/sha.fa download> FASTA </a>|<a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/sha.gfa download> GFA </a> | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/sha.sam download> SAM </a>|
+| col0 | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/col0.fa download> FASTA </a>|<a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/col0.gfa download> GFA </a> | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/col0.sam download> SAM </a>|
+| cvi | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/cvi.fa download> FASTA </a>|<a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/cvi.gfa download> GFA </a> | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/cvi.sam download> SAM </a>|
+| eri | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/eri.fa download> FASTA </a>|<a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/eri.gfa download> GFA </a> | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/eri.sam download> SAM </a>|
+| kyo | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/kyo.fa download> FASTA </a>|<a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/kyo.gfa download> GFA </a> | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/kyo.sam download> SAM </a>|
+| ler | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/ler.fa download> FASTA </a>|<a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/ler.gfa download> GFA </a> | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/ler.sam download> SAM </a>|
+| an1 | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/an1.fa download> FASTA </a>|<a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/an1.gfa download> GFA </a> | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/an1.sam download> SAM </a>|
+
+The dotplots between these strains as follows:
+
+<img width="800" alt="dotplots_between_assemblies" src="https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/dotplots.png">
+
+
+## Results 
 
 The filtered reads, the outpot of PO-HMM, and supplementary plots are available at the following locations. "Circos," "linear," and "no-marge" represent a circos plot (like in the paper), a dot plot between assembled contig and the reference, and a circos plots without any "aggressive merging," respectively.
 
