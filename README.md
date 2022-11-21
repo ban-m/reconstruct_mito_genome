@@ -53,7 +53,9 @@ We re-assembled these datasets by [JTK](https://github.com/ban-m/jtk), and put t
 | ler | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/ler.fa download> FASTA </a>|<a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/ler.gfa download> GFA </a> | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/ler.bam download> BAM </a>|
 | an1 | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/an1.fa download> FASTA </a>|<a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/an1.gfa download> GFA </a> | <a href = https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/an1.bam download> BAM </a>|
 
-The dotplots between these strains as follows:
+The dotplots between these strains as follows (or click [here](https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/dotplots.png)).
+
+The red lines are boundaries between strains, and blue lines are boundaries of contigs.
 
 ![](https://mlab.cb.k.u-tokyo.ac.jp/~ban-m/mitochondria_assembly/2022/dotplots.png)
 
